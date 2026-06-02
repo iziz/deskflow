@@ -26,13 +26,15 @@ LogWidget::LogWidget(QWidget *parent) : QWidget{parent}, m_textLog{new QPlainTex
 
   setLayout(layout);
 
-  connect(
-      deskflow::gui::Logger::instance(), &deskflow::gui::Logger::newLine, m_textLog, &QPlainTextEdit::appendPlainText
-  );
+  connect(deskflow::gui::Logger::instance(), &deskflow::gui::Logger::newLine, this, &LogWidget::appendLine);
 }
 
 void LogWidget::appendLine(const QString &msg)
 {
+  if (!isVisible()) {
+    return;
+  }
+
   m_textLog->appendPlainText(msg);
 }
 
