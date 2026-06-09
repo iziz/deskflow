@@ -9,6 +9,7 @@
 
 #include <gui/Logger.h>
 
+#include <QFontDatabase>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QVBoxLayout>
@@ -22,7 +23,14 @@ LogWidget::LogWidget(QWidget *parent) : QWidget{parent}, m_textLog{new QPlainTex
   // setup the log font
   if (deskflow::platform::isWindows()) {
     QFont f = font();
-    f.setFamilies({"Hack", "Liberation Mono", "Monospace", "Andale Mono"});
+    const auto families = QFontDatabase::families();
+    for (const auto &family : {QStringLiteral("Consolas"), QStringLiteral("Cascadia Mono"),
+                               QStringLiteral("Courier New"), QStringLiteral("Lucida Console")}) {
+      if (families.contains(family)) {
+        f.setFamily(family);
+        break;
+      }
+    }
     f.setStyleHint(QFont::Monospace);
     m_textLog->setFont(f);
   } else {
