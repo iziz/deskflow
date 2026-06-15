@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <mutex>
+#include <vector>
 
 class Event;
 class IEventQueue;
@@ -93,6 +94,12 @@ private:
   std::mutex ssl_mutex_;
 
   std::unique_ptr<Ssl> m_ssl;
+  std::vector<uint8_t> m_writeRetryBuffer;
+  bool m_writeRetry = false;
+  int m_readSslRetry = 0;
+  int m_writeSslRetry = 0;
+  int m_acceptSslRetry = 0;
+  int m_connectSslRetry = 0;
   bool m_secureReady = false;
   bool m_fatal = false;
   SecurityLevel m_securityLevel = SecurityLevel::Encrypted;

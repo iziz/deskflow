@@ -24,6 +24,7 @@
 #include "platform/MSWindowsScreen.h"
 
 #include <Windows.h>
+#include <array>
 #include <conio.h>
 
 AppUtilWindows::AppUtilWindows(IEventQueue *events) : m_events(events), m_exitMode(kExitModeNormal)
@@ -140,12 +141,13 @@ std::vector<std::string> AppUtilWindows::getKeyboardLayoutList()
     uLayouts = GetKeyboardLayoutList(uLayouts, lpList);
 
     for (int i = 0; i < uLayouts; ++i) {
-      std::string code("", 2);
-      GetLocaleInfoA(
+      std::array<char, LOCALE_NAME_MAX_LENGTH> code{};
+      if (GetLocaleInfoA(
           MAKELCID(((ULONG_PTR)lpList[i] & 0xffffffff), SORT_DEFAULT), LOCALE_SISO639LANGNAME, &code[0],
           static_cast<int>(code.size())
-      );
-      layoutLangCodes.push_back(code);
+      ) > 1) {
+        layoutLangCodes.emplace_back(code.data());
+      }
     }
 
     if (lpList) {
@@ -157,15 +159,15 @@ std::vector<std::string> AppUtilWindows::getKeyboardLayoutList()
 
 std::string AppUtilWindows::getCurrentLanguageCode()
 {
-  std::string code("", 2);
+  std::array<char, LOCALE_NAME_MAX_LENGTH> code{};
 
   auto hklLayout = getCurrentKeyboardLayout();
   if (hklLayout) {
     auto localLayoutID = MAKELCID(LOWORD(hklLayout), SORT_DEFAULT);
-    GetLocaleInfoA(localLayoutID, LOCALE_SISO639LANGNAME, &code[0], static_cast<int>(code.size()));
+    GetLocaleInfoA(localLayoutID, LOCALE_SISO639LANGNAME, code.data(), static_cast<int>(code.size()));
   }
 
-  return code;
+  return code.data();
 }
 
 HKL AppUtilWindows::getCurrentKeyboardLayout() const

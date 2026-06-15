@@ -117,6 +117,10 @@ void ProtocolUtil::vwritef(deskflow::IStream *stream, const char *fmt, uint32_t 
   // fill buffer
   std::vector<uint8_t> Buffer;
   writef(Buffer, fmt, args);
+  if (Buffer.size() != size) {
+    LOG_ERR("writef: computed size=%u does not match serialized size=%zu", size, Buffer.size());
+    size = static_cast<uint32_t>(Buffer.size());
+  }
 
   try {
     // write buffer

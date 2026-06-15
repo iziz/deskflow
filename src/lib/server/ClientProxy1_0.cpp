@@ -56,6 +56,11 @@ ClientProxy1_0::~ClientProxy1_0()
 
 void ClientProxy1_0::disconnect()
 {
+  if (m_disconnected) {
+    return;
+  }
+  m_disconnected = true;
+
   removeHandlers();
   getStream()->close();
   m_events->addEvent(Event(EventTypes::ClientProxyDisconnected, getEventTarget()));

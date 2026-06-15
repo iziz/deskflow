@@ -19,6 +19,7 @@
 #include "net/TSocketMultiplexerMethodJob.h"
 #include <net/SslLogger.h>
 
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
@@ -117,14 +118,13 @@ void SecureSocket::secureAccept()
 TCPSocket::JobResult SecureSocket::doRead()
 {
   using enum JobResult;
-  static uint8_t buffer[4096];
-  static const auto bufferSize = std::size(buffer);
-  memset(buffer, 0, bufferSize);
+  std::array<uint8_t, 4096> buffer{};
+  const auto bufferSize = static_cast<int>(buffer.size());
   int bytesRead = 0;
   int status = 0;
 
   if (isSecureReady()) {
-    status = secureRead(buffer, bufferSize, bytesRead);
+    status = secureRead(buffer.data(), bufferSize, bytesRead);
     if (status < 0) {
       return Break;
     } else if (status == 0) {
@@ -139,13 +139,13 @@ TCPSocket::JobResult SecureSocket::doRead()
 
     // slurp up as much as possible
     do {
-      m_inputBuffer.write(buffer, bytesRead);
+      m_inputBuffer.write(buffer.data(), bytesRead);
 
       if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
         break;
       }
 
-      status = secureRead(buffer, bufferSize, bytesRead);
+      status = secureRead(buffer.data(), bufferSize, bytesRead);
       if (status < 0) {
         return Break;
       }
@@ -174,26 +174,19 @@ TCPSocket::JobResult SecureSocket::doRead()
 TCPSocket::JobResult SecureSocket::doWrite()
 {
   using enum JobResult;
-  static bool s_retry = false;
-  static int s_retrySize = 0;
-  static int s_staticBufferSize = 0;
-  static void *s_staticBuffer = nullptr;
 
   // write data
   int bufferSize = 0;
   int bytesWrote = 0;
   int status = 0;
 
-  if (s_retry) {
-    bufferSize = s_retrySize;
+  if (m_writeRetry) {
+    bufferSize = static_cast<int>(m_writeRetryBuffer.size());
   } else {
     bufferSize = m_outputBuffer.getSize();
     if (bufferSize != 0) {
-      if (bufferSize > s_staticBufferSize) {
-        s_staticBuffer = realloc(s_staticBuffer, bufferSize);
-        s_staticBufferSize = bufferSize;
-      }
-      memcpy(s_staticBuffer, m_outputBuffer.peek(bufferSize), bufferSize);
+      m_writeRetryBuffer.resize(bufferSize);
+      memcpy(m_writeRetryBuffer.data(), m_outputBuffer.peek(bufferSize), bufferSize);
     }
   }
 
@@ -202,14 +195,14 @@ TCPSocket::JobResult SecureSocket::doWrite()
   }
 
   if (isSecureReady()) {
-    status = secureWrite(s_staticBuffer, bufferSize, bytesWrote);
+    status = secureWrite(m_writeRetryBuffer.data(), bufferSize, bytesWrote);
     if (status > 0) {
-      s_retry = false;
+      m_writeRetry = false;
+      m_writeRetryBuffer.clear();
     } else if (status < 0) {
       return Break;
     } else if (status == 0) {
-      s_retry = true;
-      s_retrySize = bufferSize;
+      m_writeRetry = true;
       return New;
     }
   } else {
@@ -232,12 +225,10 @@ int SecureSocket::secureRead(void *buffer, int size, int &read)
     LOG_VERBOSE("reading secure socket");
     read = SSL_read(m_ssl->m_ssl, buffer, size);
 
-    static int retry;
-
     // Check result will cleanup the connection in the case of a fatal
-    checkResult(read, retry);
+    checkResult(read, m_readSslRetry);
 
-    if (retry) {
+    if (m_readSslRetry) {
       return 0;
     }
 
@@ -260,12 +251,10 @@ int SecureSocket::secureWrite(const void *buffer, int size, int &wrote)
 
     wrote = SSL_write(m_ssl->m_ssl, buffer, size);
 
-    static int retry;
-
     // Check result will cleanup the connection in the case of a fatal
-    checkResult(wrote, retry);
+    checkResult(wrote, m_writeSslRetry);
 
-    if (retry) {
+    if (m_writeSslRetry) {
       return 0;
     }
 
@@ -384,6 +373,12 @@ void SecureSocket::createSSL()
 void SecureSocket::freeSSL()
 {
   isFatal(true);
+  m_writeRetry = false;
+  m_writeRetryBuffer.clear();
+  m_readSslRetry = 0;
+  m_writeSslRetry = 0;
+  m_acceptSslRetry = 0;
+  m_connectSslRetry = 0;
 
   // take socket from multiplexer ASAP otherwise the race condition
   // could cause events to get called on a dead object. TCPSocket
@@ -419,23 +414,21 @@ int SecureSocket::secureAccept(int socket)
   LOG_VERBOSE("accepting secure socket");
   int r = SSL_accept(m_ssl->m_ssl);
 
-  static int retry;
-
-  checkResult(r, retry);
+  checkResult(r, m_acceptSslRetry);
 
   if (isFatal()) {
     // Never block here; this thread services every connected socket.
     // Historically a 1s sleep let any failed handshake DoS all clients.
     LOG_ERR("failed to accept secure socket");
     m_secureReady = false;
-    retry = 0;
+    m_acceptSslRetry = 0;
     return -1; // Fail
   }
 
   // If not fatal and no retry, state is good
-  if (retry == 0) {
+  if (m_acceptSslRetry == 0) {
     if (m_securityLevel == SecurityLevel::PeerAuth && !verifyCertFingerprint(Settings::tlsTrustedClientsDb())) {
-      retry = 0;
+      m_acceptSslRetry = 0;
       disconnect();
       return -1; // Fail
     }
@@ -447,7 +440,7 @@ int SecureSocket::secureAccept(int socket)
   }
 
   // If not fatal and retry is set, not ready, and return retry
-  if (retry > 0) {
+  if (m_acceptSslRetry > 0) {
     LOG_VERBOSE("retry accepting secure socket");
     m_secureReady = false;
     return 0;
@@ -477,24 +470,22 @@ int SecureSocket::secureConnect(int socket)
 
   int r = SSL_connect(m_ssl->m_ssl);
 
-  static int retry;
-
-  checkResult(r, retry);
+  checkResult(r, m_connectSslRetry);
 
   if (isFatal()) {
     LOG_ERR("failed to connect secure socket");
-    retry = 0;
+    m_connectSslRetry = 0;
     return -1;
   }
 
   // If we should retry, not ready and return 0
-  if (retry > 0) {
+  if (m_connectSslRetry > 0) {
     LOG_VERBOSE("retry connect secure socket");
     m_secureReady = false;
     return 0;
   }
 
-  retry = 0;
+  m_connectSslRetry = 0;
   // No error, set ready, process and return ok
   m_secureReady = true;
   if (verifyCertFingerprint(Settings::tlsTrustedServersDb())) {
