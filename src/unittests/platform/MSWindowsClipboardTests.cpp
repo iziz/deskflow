@@ -9,6 +9,42 @@
 #include "MSWindowsClipboardTests.h"
 
 #include "platform/MSWindowsClipboard.h"
+#include "platform/MSWindowsClipboardBitmapConverter.h"
+
+namespace {
+std::string makeDib(size_t pixelBytes)
+{
+  BITMAPINFOHEADER header = {};
+  header.biSize = sizeof(BITMAPINFOHEADER);
+  header.biWidth = 2;
+  header.biHeight = 2;
+  header.biPlanes = 1;
+  header.biBitCount = 32;
+  header.biCompression = BI_RGB;
+
+  std::string dib(reinterpret_cast<const char *>(&header), sizeof(header));
+  dib.append(pixelBytes, '\0');
+  return dib;
+}
+
+HGLOBAL makeGlobalDib(const std::string &dib)
+{
+  HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, dib.size());
+  if (handle == nullptr) {
+    return nullptr;
+  }
+
+  auto *data = static_cast<char *>(GlobalLock(handle));
+  if (data == nullptr) {
+    GlobalFree(handle);
+    return nullptr;
+  }
+
+  memcpy(data, dib.data(), dib.size());
+  GlobalUnlock(handle);
+  return handle;
+}
+} // namespace
 
 void MSWindowsClipboardTests::initTestCase()
 {
@@ -134,6 +170,36 @@ void MSWindowsClipboardTests::isOwnedByDeskflow()
   MSWindowsClipboard clipboard(NULL);
   QVERIFY(clipboard.open(0));
   QVERIFY(clipboard.isOwnedByDeskflow());
+}
+
+void MSWindowsClipboardTests::bitmapConverter_rejectsTruncatedDibFromIClipboard()
+{
+  MSWindowsClipboardBitmapConverter converter;
+  const auto truncatedDib = makeDib(0);
+
+  QCOMPARE(converter.fromIClipboard(truncatedDib), nullptr);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_acceptsCompleteDibFromIClipboard()
+{
+  MSWindowsClipboardBitmapConverter converter;
+  const auto completeDib = makeDib(16);
+
+  HGLOBAL handle = converter.fromIClipboard(completeDib);
+  QVERIFY(handle != nullptr);
+  QCOMPARE(GlobalSize(handle), completeDib.size());
+  GlobalFree(handle);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_rejectsTruncatedDibToIClipboard()
+{
+  MSWindowsClipboardBitmapConverter converter;
+  const auto truncatedDib = makeDib(0);
+  HGLOBAL handle = makeGlobalDib(truncatedDib);
+  QVERIFY(handle != nullptr);
+
+  QCOMPARE(converter.toIClipboard(handle), std::string());
+  GlobalFree(handle);
 }
 
 QTEST_MAIN(MSWindowsClipboardTests)

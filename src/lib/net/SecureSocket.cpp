@@ -383,13 +383,14 @@ void SecureSocket::createSSL()
 
 void SecureSocket::freeSSL()
 {
-  std::scoped_lock ssl_lock{ssl_mutex_};
-
   isFatal(true);
+
   // take socket from multiplexer ASAP otherwise the race condition
   // could cause events to get called on a dead object. TCPSocket
   // will do this, too, but the double-call is harmless
   setJob(nullptr);
+
+  std::scoped_lock ssl_lock{ssl_mutex_};
   if (m_ssl) {
     if (m_ssl->m_ssl != nullptr) {
       SSL_set_quiet_shutdown(m_ssl->m_ssl, 1);

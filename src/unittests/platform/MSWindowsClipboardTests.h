@@ -28,6 +28,9 @@ private Q_SLOTS:
   void has_withNoFormatAdded();
   void getNonEmptyText();
   void isOwnedByDeskflow();
+  void bitmapConverter_rejectsTruncatedDibFromIClipboard();
+  void bitmapConverter_acceptsCompleteDibFromIClipboard();
+  void bitmapConverter_rejectsTruncatedDibToIClipboard();
 
 private:
   Log m_log;
