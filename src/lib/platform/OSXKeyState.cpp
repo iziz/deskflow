@@ -148,6 +148,15 @@ std::string cfStringToUtf8(CFStringRef string)
   return buffer.data();
 }
 
+std::string inputSourceId(TISInputSourceRef source)
+{
+  if (!source) {
+    return {};
+  }
+
+  return cfStringToUtf8((CFStringRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceID));
+}
+
 io_connect_t getService(io_iterator_t iter)
 {
   io_connect_t service = 0;
@@ -454,21 +463,31 @@ KeyModifierMask OSXKeyState::pollActiveModifiers() const
 
 int32_t OSXKeyState::pollActiveGroup() const
 {
-  AutoTISInputSourceRef keyboardLayout(nullptr, CFRelease);
-  CFStringRef id = nullptr;
+  std::string inputSourceIdString;
+  std::string keyboardLayoutIdString;
   {
     std::lock_guard<std::mutex> lock(g_tisMutex);
-    keyboardLayout = AutoTISInputSourceRef(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    if (keyboardLayout)
-      id = (CFStringRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
+    AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
+    inputSourceIdString = inputSourceId(inputSource.get());
+
+    AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+    keyboardLayoutIdString = inputSourceId(keyboardLayout.get());
   }
 
-  GroupMap::const_iterator i = m_groupMap.find(cfStringToUtf8(id));
+  GroupMap::const_iterator i = m_groupMap.find(inputSourceIdString);
   if (i != m_groupMap.end()) {
     return i->second;
   }
 
-  LOG_WARN("can't get the active group, use the first group instead");
+  i = m_groupMap.find(keyboardLayoutIdString);
+  if (i != m_groupMap.end()) {
+    return i->second;
+  }
+
+  LOG_WARN(
+      "can't get the active group for input source '%s' and keyboard layout '%s', use the first group instead",
+      inputSourceIdString.c_str(), keyboardLayoutIdString.c_str()
+  );
 
   return 0;
 }
