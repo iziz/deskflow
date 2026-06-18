@@ -1324,6 +1324,18 @@ bool MSWindowsScreen::onScreensaver(bool activated)
   }
 
   if (activated) {
+    if (m_isPrimary && !m_isOnScreen) {
+      LOG_INFO("screen saver requested while controlling a remote screen; keeping remote screen active");
+      ArchMiscWindows::wakeupDisplay();
+      m_lastRemoteUserActivityWake = Arch::time();
+
+      if (m_screensaver != nullptr && m_screensaver->isActive()) {
+        m_screensaver->deactivate();
+      }
+      m_screensaverActive = false;
+      return true;
+    }
+
     if (!m_screensaverActive && m_screensaver->checkStarted(DESKFLOW_MSG_SCREEN_SAVER, FALSE, 0)) {
       m_screensaverActive = true;
       sendEvent(EventTypes::PrimaryScreenSaverActivated);
