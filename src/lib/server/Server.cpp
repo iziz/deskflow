@@ -1713,20 +1713,20 @@ void Server::onScreensaver(bool activated)
 {
   LOG_DEBUG("onScreenSaver %s", activated ? "activated" : "deactivated");
 
+  if (activated && m_active != m_primaryClient) {
+    LOG_INFO(
+        "primary screen saver activated while \"%s\" is active; keeping remote screen active",
+        getName(m_active).c_str()
+    );
+    m_activeSaver = nullptr;
+    return;
+  }
+
   if (activated) {
     // save current screen and position
     m_activeSaver = m_active;
     m_xSaver = m_x;
     m_ySaver = m_y;
-
-    // jump to primary screen
-    if (m_active != m_primaryClient) {
-      LOG_INFO(
-          "primary screen saver activated while \"%s\" is active; returning to \"%s\"", getName(m_active).c_str(),
-          getName(m_primaryClient).c_str()
-      );
-      switchScreen(m_primaryClient, 0, 0, true);
-    }
   } else {
     // jump back to previous screen and position.  we must check
     // that the position is still valid since the screen may have
