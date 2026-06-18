@@ -174,6 +174,7 @@ private: // HACK
   bool onScreensaver(bool activated);
   bool onDisplayChange();
   void onClipboardChange();
+  void recordRemoteUserActivity();
 
   // warp cursor without discarding queued events
   void warpCursorNoFlush(int32_t x, int32_t y);
@@ -258,6 +259,9 @@ private:
 
   // true when the first primary motion after re-entering should restore cursor visibility
   bool m_restoreCursorOnPrimaryMotion = false;
+
+  // last time remote input refreshed the Windows display idle timer
+  double m_lastRemoteUserActivityWake = 0.0;
 
   // true if the screen is enabled
   bool m_isEnabled = false;

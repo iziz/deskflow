@@ -72,6 +72,10 @@
 #define PBT_APMRESUMEAUTOMATIC 0x0012
 #endif
 
+namespace {
+constexpr double kRemoteUserActivityWakeInterval = 10.0;
+}
+
 //
 // MSWindowsScreen
 //
@@ -1097,6 +1101,8 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
 
   // ignore message if posted prior to last mark change
   if (!ignore()) {
+    recordRemoteUserActivity();
+
     // check for ctrl+alt+del.  we do not want to pass that to the
     // client.  the user can use ctrl+alt+pause to emulate it.
     UINT virtKey = ((wParam >> 16) & 0xffu);
@@ -1192,6 +1198,8 @@ bool MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 
   // ignore message if posted prior to last mark change
   if (!ignore()) {
+    recordRemoteUserActivity();
+
     KeyModifierMask mask = m_keyState->getActiveModifiers();
     if (pressed) {
       LOG_VERBOSE("event: button press button=%d", button);
@@ -1236,6 +1244,7 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
 
   // save position to compute delta of next motion
   saveMousePosition(mx, my);
+  recordRemoteUserActivity();
 
   if (m_isOnScreen) {
     if (m_isPrimary && m_restoreCursorOnPrimaryMotion) {
@@ -1276,10 +1285,27 @@ bool MSWindowsScreen::onMouseWheel(int32_t xDelta, int32_t yDelta)
 {
   // ignore message if posted prior to last mark change
   if (!ignore()) {
+    recordRemoteUserActivity();
+
     LOG_VERBOSE("event: button wheel delta=%+d,%+d", xDelta, yDelta);
     sendEvent(EventTypes::PrimaryScreenWheel, WheelInfo::alloc(xDelta, yDelta));
   }
   return true;
+}
+
+void MSWindowsScreen::recordRemoteUserActivity()
+{
+  if (!m_isPrimary || m_isOnScreen) {
+    return;
+  }
+
+  const double now = Arch::time();
+  if (m_lastRemoteUserActivityWake != 0.0 && now - m_lastRemoteUserActivityWake < kRemoteUserActivityWakeInterval) {
+    return;
+  }
+
+  ArchMiscWindows::wakeupDisplay();
+  m_lastRemoteUserActivityWake = now;
 }
 
 bool MSWindowsScreen::onScreensaver(bool activated)

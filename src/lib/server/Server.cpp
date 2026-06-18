@@ -1721,6 +1721,10 @@ void Server::onScreensaver(bool activated)
 
     // jump to primary screen
     if (m_active != m_primaryClient) {
+      LOG_INFO(
+          "primary screen saver activated while \"%s\" is active; returning to \"%s\"", getName(m_active).c_str(),
+          getName(m_primaryClient).c_str()
+      );
       switchScreen(m_primaryClient, 0, 0, true);
     }
   } else {
@@ -1997,6 +2001,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   // find direction of neighbor and get the neighbor
   bool jump = true;
   BaseClientProxy *newScreen;
+  Direction switchDir = Direction::NoDirection;
   do {
     // clamp position to screen
     int32_t xc = m_x;
@@ -2063,6 +2068,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
       // skip rest of block
       break;
     }
+    switchDir = dir;
 
     // try to switch screen.  get the neighbor.
     newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
@@ -2077,6 +2083,11 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   if (jump) {
     int32_t newX = m_x;
     int32_t newY = m_y;
+    LOG_INFO(
+        "secondary edge switch from \"%s\" to \"%s\" on %s: old=%d,%d delta=%+d,%+d target=%d,%d bounds=%d,%d %dx%d",
+        getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(switchDir), xOld, yOld, dx, dy, newX,
+        newY, ax, ay, aw, ah
+    );
 
     // switch screens
     switchScreen(newScreen, newX, newY, false);
@@ -2266,9 +2277,9 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
     // don't notify active screen since it has probably already
     // disconnected.
-    LOG(
-        (CLOG_INFO "jump from \"%s\" to \"%s\" at %d,%d", getName(active).c_str(), getName(m_primaryClient).c_str(),
-         m_x, m_y)
+    LOG_INFO(
+        "active client \"%s\" was removed; returning to \"%s\" at %d,%d", getName(active).c_str(),
+        getName(m_primaryClient).c_str(), m_x, m_y
     );
 
     // cut over

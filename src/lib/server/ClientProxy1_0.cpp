@@ -227,7 +227,7 @@ void ClientProxy1_0::handleWriteError()
 void ClientProxy1_0::handleFlatline()
 {
   // didn't get a heartbeat fast enough.  assume client is dead.
-  LOG_DEBUG("client \"%s\" is dead", getName().c_str());
+  LOG_WARN("client \"%s\" is dead", getName().c_str());
   disconnect();
 }
 
