@@ -74,12 +74,13 @@ private:
   void removeHandlers();
 
   void handleData();
-  void handleDisconnect();
-  void handleWriteError();
+  void handleDisconnect(const char *reason);
+  void handleWriteError(const char *reason);
   void handleFlatline();
 
   bool recvInfo();
   bool recvGrabClipboard();
+  bool lastInfoChangedShape() const;
 
 protected:
   struct ClientClipboard
@@ -99,6 +100,7 @@ private:
   using MessageParser = bool (ClientProxy1_0::*)(const uint8_t *);
 
   ClientInfo m_info;
+  bool m_lastInfoChangedShape = true;
   double m_heartbeatAlarm;
   EventQueueTimer *m_heartbeatTimer = nullptr;
   MessageParser m_parser = &ClientProxy1_0::parseHandshakeMessage;

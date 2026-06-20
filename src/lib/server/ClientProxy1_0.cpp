@@ -30,16 +30,16 @@ ClientProxy1_0::ClientProxy1_0(const std::string &name, deskflow::IStream *strea
     handleInputProgress();
   });
   m_events->addHandler(EventTypes::StreamOutputError, stream->getEventTarget(), [this](const auto &) {
-    handleWriteError();
+    handleWriteError("stream output error");
   });
   m_events->addHandler(EventTypes::StreamInputShutdown, stream->getEventTarget(), [this](const auto &) {
-    handleDisconnect();
+    handleDisconnect("stream input shutdown");
   });
   m_events->addHandler(EventTypes::StreamInputFormatError, stream->getEventTarget(), [this](const auto &) {
-    handleDisconnect();
+    handleDisconnect("stream input format error");
   });
   m_events->addHandler(EventTypes::StreamOutputShutdown, stream->getEventTarget(), [this](const auto &) {
-    handleWriteError();
+    handleWriteError("stream output shutdown");
   });
   m_events->addHandler(EventTypes::Timer, this, [this](const auto &) { handleFlatline(); });
 
@@ -196,7 +196,8 @@ bool ClientProxy1_0::parseMessage(const uint8_t *code)
 {
   if (memcmp(code, kMsgDInfo, 4) == 0) {
     if (recvInfo()) {
-      m_events->addEvent(Event(EventTypes::ScreenShapeChanged, getEventTarget()));
+      const auto eventType = lastInfoChangedShape() ? EventTypes::ScreenShapeChanged : EventTypes::ScreenInfoChanged;
+      m_events->addEvent(Event(eventType, getEventTarget()));
       return true;
     }
     return false;
@@ -212,15 +213,15 @@ bool ClientProxy1_0::parseMessage(const uint8_t *code)
   return false;
 }
 
-void ClientProxy1_0::handleDisconnect()
+void ClientProxy1_0::handleDisconnect(const char *reason)
 {
-  LOG_DEBUG("client \"%s\" has disconnected", getName().c_str());
+  LOG_INFO("client \"%s\" has disconnected: %s", getName().c_str(), reason != nullptr ? reason : "unknown");
   disconnect();
 }
 
-void ClientProxy1_0::handleWriteError()
+void ClientProxy1_0::handleWriteError(const char *reason)
 {
-  LOG_WARN("error writing to client \"%s\"", getName().c_str());
+  LOG_WARN("error writing to client \"%s\": %s", getName().c_str(), reason != nullptr ? reason : "unknown");
   disconnect();
 }
 
@@ -419,6 +420,8 @@ bool ClientProxy1_0::recvInfo()
     my = y + h / 2;
   }
 
+  m_lastInfoChangedShape = x != m_info.m_x || y != m_info.m_y || w != m_info.m_w || h != m_info.m_h;
+
   // save
   m_info.m_x = x;
   m_info.m_y = y;
@@ -431,6 +434,11 @@ bool ClientProxy1_0::recvInfo()
   LOG_VERBOSE("send info ack to \"%s\"", getName().c_str());
   ProtocolUtil::writef(getStream(), kMsgCInfoAck);
   return true;
+}
+
+bool ClientProxy1_0::lastInfoChangedShape() const
+{
+  return m_lastInfoChangedShape;
 }
 
 bool ClientProxy1_0::recvClipboard()

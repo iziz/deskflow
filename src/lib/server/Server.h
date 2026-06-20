@@ -309,8 +309,11 @@ private:
   // process options from configuration
   void processOptions();
 
+  void syncClientCursorPosition(BaseClientProxy *client, const char *reason);
+
   // event handlers
   void handleShapeChanged(BaseClientProxy *client);
+  void handleInfoChanged(BaseClientProxy *client);
   void handleClipboardGrabbed(const Event &event, BaseClientProxy *client);
   void handleClipboardChanged(const Event &event, BaseClientProxy *client);
   void handleKeyDownEvent(const Event &event);

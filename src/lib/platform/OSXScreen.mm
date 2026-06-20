@@ -60,6 +60,7 @@ enum
 };
 
 static const double kCarbonLoopWaitTimeout = 10.0;
+static constexpr int64_t kDeskflowSyntheticMouseEventUserData = 0x4453464d4f555345LL;
 
 int getSecureInputEventPID();
 std::string getProcessName(int pid);
@@ -462,6 +463,7 @@ void OSXScreen::postMouseEvent(CGPoint &pos) const
   }
 
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(button));
+  CGEventSetIntegerValueField(event, kCGEventSourceUserData, kDeskflowSyntheticMouseEventUserData);
 
   // Dragging events also need the click state
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
@@ -1658,20 +1660,33 @@ bool OSXScreen::HotKeyItem::operator<(const HotKeyItem &x) const
 CGEventRef
 OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
 {
-  // this fix is really screwing with the correct show/hide behavior. it
-  // should be tested better before reintroducing.
-  return event;
+  auto *screen = static_cast<OSXScreen *>(refcon);
+  if (screen == nullptr || !screen->m_isOnScreen) {
+    return event;
+  }
 
-  OSXScreen *screen = (OSXScreen *)refcon;
-  if (screen->m_cursorHidden && type == kCGEventMouseMoved) {
+  switch (type) {
+  case kCGEventLeftMouseDragged:
+  case kCGEventRightMouseDragged:
+  case kCGEventOtherMouseDragged:
+  case kCGEventMouseMoved: {
+    if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == kDeskflowSyntheticMouseEventUserData) {
+      break;
+    }
 
     CGPoint pos = CGEventGetLocation(event);
-    if (pos.x != screen->m_xCenter || pos.y != screen->m_yCenter) {
-
-      LOG_DEBUG("show cursor on secondary, type=%d pos=%d,%d", type, pos.x, pos.y);
-      screen->showCursor();
-    }
+    screen->m_xCursor = static_cast<int32_t>(pos.x);
+    screen->m_yCursor = static_cast<int32_t>(pos.y);
+    screen->m_cursorPosValid = true;
+    LOG_VERBOSE("secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor);
+    screen->sendEvent(EventTypes::ScreenInfoChanged);
+    break;
   }
+
+  default:
+    break;
+  }
+
   return event;
 }
 

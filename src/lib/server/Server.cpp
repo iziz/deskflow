@@ -1341,18 +1341,7 @@ void Server::handleShapeChanged(BaseClientProxy *client)
   }
 
   LOG_DEBUG("screen \"%s\" shape changed", getName(client).c_str());
-
-  // update jump coordinate
-  int32_t x;
-  int32_t y;
-  client->getCursorPos(x, y);
-  client->setJumpCursorPos(x, y);
-
-  // update the mouse coordinates
-  if (client == m_active) {
-    m_x = x;
-    m_y = y;
-  }
+  syncClientCursorPosition(client, "shape update");
 
   // handle resolution change to primary screen
   if (client == m_primaryClient) {
@@ -1361,6 +1350,42 @@ void Server::handleShapeChanged(BaseClientProxy *client)
     } else {
       onMouseMoveSecondary(0, 0);
     }
+  }
+}
+
+void Server::handleInfoChanged(BaseClientProxy *client)
+{
+  if (!m_clientSet.contains(client)) {
+    return;
+  }
+
+  syncClientCursorPosition(client, "info update");
+}
+
+void Server::syncClientCursorPosition(BaseClientProxy *client, const char *reason)
+{
+  if (reason == nullptr) {
+    reason = "unknown";
+  }
+
+  int32_t x;
+  int32_t y;
+  client->getCursorPos(x, y);
+  client->setJumpCursorPos(x, y);
+
+  if (client == m_active) {
+    if (m_x != x || m_y != y) {
+      LOG_DEBUG(
+          "active screen \"%s\" cursor synced from %s: old=%d,%d new=%d,%d", getName(client).c_str(), reason, m_x, m_y,
+          x, y
+      );
+      m_xDelta = 0;
+      m_yDelta = 0;
+      m_xDelta2 = 0;
+      m_yDelta2 = 0;
+    }
+    m_x = x;
+    m_y = y;
   }
 }
 
@@ -2151,6 +2176,9 @@ bool Server::addClient(BaseClientProxy *client)
   m_events->addHandler(EventTypes::ScreenShapeChanged, client->getEventTarget(), [this, client](const auto &) {
     handleShapeChanged(client);
   });
+  m_events->addHandler(EventTypes::ScreenInfoChanged, client->getEventTarget(), [this, client](const auto &) {
+    handleInfoChanged(client);
+  });
   m_events->addHandler(EventTypes::ClipboardGrabbed, client->getEventTarget(), [this, client](const auto &e) {
     handleClipboardGrabbed(e, client);
   });
@@ -2185,6 +2213,7 @@ bool Server::removeClient(BaseClientProxy *client)
 
   // remove event handlers
   m_events->removeHandler(ScreenShapeChanged, client->getEventTarget());
+  m_events->removeHandler(ScreenInfoChanged, client->getEventTarget());
   m_events->removeHandler(ClipboardGrabbed, client->getEventTarget());
   m_events->removeHandler(ClipboardChanged, client->getEventTarget());
 

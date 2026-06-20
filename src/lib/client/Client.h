@@ -172,8 +172,9 @@ private:
   void handleConnectionFailed(const Event &event);
   void handleConnectTimeout();
   void handleOutputError();
-  void handleDisconnected();
+  void handleDisconnected(const char *reason);
   void handleShapeChanged();
+  void handleInfoChanged();
   void handleClipboardGrabbed(const Event &event);
   void handleHello();
   void handleSuspend();

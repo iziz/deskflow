@@ -399,7 +399,7 @@ void Client::setupConnection()
   assert(m_stream != nullptr);
 
   m_events->addHandler(EventTypes::SocketDisconnected, m_stream->getEventTarget(), [this](const auto &) {
-    handleDisconnected();
+    handleDisconnected("socket disconnected");
   });
   m_events->addHandler(EventTypes::StreamInputReady, m_stream->getEventTarget(), [this](const auto &) {
     handleHello();
@@ -408,10 +408,10 @@ void Client::setupConnection()
     handleOutputError();
   });
   m_events->addHandler(EventTypes::StreamInputShutdown, m_stream->getEventTarget(), [this](const auto &) {
-    handleDisconnected();
+    handleDisconnected("stream input shutdown");
   });
   m_events->addHandler(EventTypes::StreamOutputShutdown, m_stream->getEventTarget(), [this](const auto &) {
-    handleDisconnected();
+    handleDisconnected("stream output shutdown");
   });
 }
 
@@ -423,6 +423,9 @@ void Client::setupScreen()
   m_server = new ServerProxy(this, m_stream, m_events);
   m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
     handleShapeChanged();
+  });
+  m_events->addHandler(EventTypes::ScreenInfoChanged, getEventTarget(), [this](const auto &) {
+    handleInfoChanged();
   });
   m_events->addHandler(EventTypes::ClipboardGrabbed, getEventTarget(), [this](const auto &e) {
     handleClipboardGrabbed(e);
@@ -474,6 +477,7 @@ void Client::cleanupScreen()
       m_ready = false;
     }
     m_events->removeHandler(EventTypes::ScreenShapeChanged, getEventTarget());
+    m_events->removeHandler(EventTypes::ScreenInfoChanged, getEventTarget());
     m_events->removeHandler(EventTypes::ClipboardGrabbed, getEventTarget());
     delete m_server;
     m_server = nullptr;
@@ -540,18 +544,23 @@ void Client::handleOutputError()
   sendEvent(EventTypes::ClientDisconnected);
 }
 
-void Client::handleDisconnected()
+void Client::handleDisconnected(const char *reason)
 {
   cleanupTimer();
   cleanupScreen();
   cleanupConnection();
-  LOG_VERBOSE("disconnected");
+  LOG_INFO("disconnected from server: %s", reason != nullptr ? reason : "unknown");
   sendEvent(EventTypes::ClientDisconnected);
 }
 
 void Client::handleShapeChanged()
 {
   LOG_DEBUG("resolution changed");
+  handleInfoChanged();
+}
+
+void Client::handleInfoChanged()
+{
   m_server->onInfoChanged();
 }
 

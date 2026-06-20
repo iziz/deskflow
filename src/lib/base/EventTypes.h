@@ -206,6 +206,9 @@ enum class EventTypes : uint32_t
   /// This event is sent whenever the computer's display shape changes.
   ScreenShapeChanged,
 
+  /// This event is sent whenever the computer's screen info changes without a shape change.
+  ScreenInfoChanged,
+
   /** This event is sent whenever the system goes to sleep or a user session is deactivated (fast
       user switching).
   */
