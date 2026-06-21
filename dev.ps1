@@ -17,7 +17,7 @@ if (-not (Test-Path $VsDevCmd)) {
 function Invoke-DevCmd {
   param([Parameter(Mandatory = $true)][string]$InnerCommand)
 
-  $CommandLine = "call `"$VsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"$Root`" && $InnerCommand"
+  $CommandLine = "set `"VSLANG=1033`" && call `"$VsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"$Root`" && $InnerCommand"
   & cmd.exe /d /s /c $CommandLine
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

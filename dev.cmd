@@ -4,6 +4,7 @@ setlocal
 set "ROOT=%~dp0"
 set "VSDEVCMD=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
 set "VS_CMAKE=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+set "VSLANG=1033"
 
 if not exist "%VSDEVCMD%" (
   echo VsDevCmd.bat not found: %VSDEVCMD%

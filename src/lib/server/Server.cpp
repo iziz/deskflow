@@ -1400,6 +1400,17 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     return;
   }
   const auto *info = static_cast<const IScreen::ClipboardInfo *>(event.getData());
+  if (info == nullptr) {
+    LOG_WARN("ignored clipboard grab from screen \"%s\" because event data is missing", getName(grabber).c_str());
+    return;
+  }
+  if (info->m_id >= kClipboardEnd) {
+    LOG_WARN(
+        "ignored clipboard grab from screen \"%s\" because clipboard id %d is invalid", getName(grabber).c_str(),
+        info->m_id
+    );
+    return;
+  }
 
   // ignore grab if sequence number is old.  always allow primary
   // screen to grab.
@@ -1453,6 +1464,17 @@ void Server::handleClipboardChanged(const Event &event, BaseClientProxy *client)
     return;
   }
   const auto *info = static_cast<const IScreen::ClipboardInfo *>(event.getData());
+  if (info == nullptr) {
+    LOG_WARN("ignored clipboard update from screen \"%s\" because event data is missing", getName(client).c_str());
+    return;
+  }
+  if (info->m_id >= kClipboardEnd) {
+    LOG_WARN(
+        "ignored clipboard update from screen \"%s\" because clipboard id %d is invalid", getName(client).c_str(),
+        info->m_id
+    );
+    return;
+  }
   onClipboardChanged(client, info->m_id, info->m_sequenceNumber);
 }
 
