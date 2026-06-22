@@ -828,7 +828,6 @@ void OSXScreen::checkClipboards()
 
     LOG_DEBUG("clipboard changed");
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
-    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
   }
 }
 
