@@ -10,6 +10,8 @@
 
 #include "base/EventQueue.h"
 
+#include <ApplicationServices/ApplicationServices.h>
+
 #define SHIFT_ID_L kKeyShift_L
 #define SHIFT_ID_R kKeyShift_R
 #define SHIFT_BUTTON 57
@@ -53,6 +55,30 @@ void OSXKeyStateTests::mapModifiersFromOSX_OSXMask()
   uint32_t numMask = 0 | kCGEventFlagMaskNumericPad;
   outMask = keyState.mapModifiersFromOSX(numMask);
   QCOMPARE(outMask, KeyModifierNumLock);
+}
+
+void OSXKeyStateTests::mapKeyFromEventUsesEventModifierFlags()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  keyState.onKey(A_CHAR_BUTTON, true, KeyModifierSuper);
+
+  OSXKeyState::KeyIDs ids;
+  KeyModifierMask mask = KeyModifierSuper;
+  CGEventRef event = CGEventCreateKeyboardEvent(nullptr, kVK_ANSI_L, false);
+  QVERIFY(event != nullptr);
+
+  CGEventSetFlags(event, 0);
+  QCOMPARE(keyState.mapKeyFromEvent(ids, &mask, event), static_cast<KeyButton>(kVK_ANSI_L + 1));
+  QCOMPARE(mask, static_cast<KeyModifierMask>(0));
+
+  CGEventSetFlags(event, kCGEventFlagMaskCommand);
+  QCOMPARE(keyState.mapKeyFromEvent(ids, &mask, event), static_cast<KeyButton>(kVK_ANSI_L + 1));
+  QCOMPARE(mask, KeyModifierSuper);
+
+  CFRelease(event);
 }
 
 void OSXKeyStateTests::fakePollShift()

@@ -294,9 +294,10 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
 {
   ids.clear();
 
-  // map modifier key
+  // Use the event's current flags for delivery. The shadow state can be
+  // stale if a modifier release was missed by the event tap.
   if (maskOut != nullptr) {
-    KeyModifierMask activeMask = getActiveModifiers();
+    KeyModifierMask activeMask = mapModifiersFromOSX(CGEventGetFlags(event));
     activeMask &= ~KeyModifierAltGr;
     *maskOut = activeMask;
   }
