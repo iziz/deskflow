@@ -1124,12 +1124,7 @@ bool OSXScreen::onKey(CGEventRef event)
     return true;
   }
 
-  // Reconcile missed modifier flag changes before handling an ordinary key.
-  KeyModifierMask oldMask = getActiveModifiers();
-  KeyModifierMask newMask = m_keyState->mapModifiersFromOSX(macMask);
-  if (oldMask != newMask) {
-    m_keyState->handleModifierKeys(getEventTarget(), oldMask, newMask);
-  }
+  m_keyState->syncModifiersFromOSX(getEventTarget(), macMask);
 
   // check for hot key
   HotKeyToIDMap::const_iterator i =

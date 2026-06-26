@@ -11,12 +11,103 @@
 #include "base/EventQueue.h"
 
 #include <ApplicationServices/ApplicationServices.h>
+#include <cstddef>
+#include <vector>
 
 #define SHIFT_ID_L kKeyShift_L
 #define SHIFT_ID_R kKeyShift_R
 #define SHIFT_BUTTON 57
 #define A_CHAR_ID 0x00000061
 #define A_CHAR_BUTTON 001
+
+namespace {
+
+struct RecordedKeyEvent
+{
+  EventTypes type;
+  KeyID key;
+  KeyModifierMask mask;
+  KeyButton button;
+};
+
+class RecordingEventQueue : public IEventQueue
+{
+public:
+  int loop() override
+  {
+    return 0;
+  }
+
+  void adoptBuffer(IEventQueueBuffer *) override
+  {
+  }
+
+  bool getEvent(Event &, double) override
+  {
+    return false;
+  }
+
+  bool dispatchEvent(const Event &) override
+  {
+    return false;
+  }
+
+  void addEvent(Event &&event) override
+  {
+    switch (event.getType()) {
+      using enum EventTypes;
+    case KeyStateKeyDown:
+    case KeyStateKeyUp:
+    case KeyStateKeyRepeat: {
+      auto *info = static_cast<IKeyState::KeyInfo *>(event.getData());
+      keyEvents.push_back({event.getType(), info->m_key, info->m_mask, info->m_button});
+      break;
+    }
+    default:
+      break;
+    }
+    Event::deleteData(event);
+  }
+
+  EventQueueTimer *newTimer(double, void *) override
+  {
+    return nullptr;
+  }
+
+  EventQueueTimer *newOneShotTimer(double, void *) override
+  {
+    return nullptr;
+  }
+
+  void deleteTimer(EventQueueTimer *) override
+  {
+  }
+
+  void addHandler(EventTypes, void *, const EventHandler &) override
+  {
+  }
+
+  void removeHandler(EventTypes, void *) override
+  {
+  }
+
+  void removeHandlers(void *) override
+  {
+  }
+
+  void waitForReady() const override
+  {
+  }
+
+  void *getSystemTarget() override
+  {
+    return nullptr;
+  }
+
+  std::vector<RecordedKeyEvent> keyEvents;
+};
+
+} // namespace
 
 void OSXKeyStateTests::initTestCase()
 {
@@ -79,6 +170,40 @@ void OSXKeyStateTests::mapKeyFromEventUsesEventModifierFlags()
   QCOMPARE(mask, KeyModifierSuper);
 
   CFRelease(event);
+}
+
+void OSXKeyStateTests::syncModifiersFromOSX_releasesStaleSuper()
+{
+  deskflow::KeyMap keyMap;
+  RecordingEventQueue eventQueue;
+  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  auto *target = reinterpret_cast<void *>(0x1);
+
+  keyState.handleModifierKeys(target, 0, KeyModifierSuper);
+  eventQueue.keyEvents.clear();
+
+  keyState.syncModifiersFromOSX(target, 0);
+
+  QCOMPARE(keyState.getActiveModifiers(), 0);
+  QCOMPARE(eventQueue.keyEvents.size(), std::size_t{1});
+  QCOMPARE(
+      static_cast<uint32_t>(eventQueue.keyEvents[0].type), static_cast<uint32_t>(EventTypes::KeyStateKeyUp)
+  );
+  QCOMPARE(eventQueue.keyEvents[0].key, kKeySuper_L);
+  QCOMPARE(eventQueue.keyEvents[0].mask, 0);
+}
+
+void OSXKeyStateTests::syncModifiersFromOSX_ignoresNumericPadFlag()
+{
+  deskflow::KeyMap keyMap;
+  RecordingEventQueue eventQueue;
+  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  auto *target = reinterpret_cast<void *>(0x1);
+
+  keyState.syncModifiersFromOSX(target, kCGEventFlagMaskNumericPad);
+
+  QCOMPARE(keyState.getActiveModifiers(), 0);
+  QVERIFY(eventQueue.keyEvents.empty());
 }
 
 void OSXKeyStateTests::fakePollShift()

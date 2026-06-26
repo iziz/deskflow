@@ -34,6 +34,9 @@ static const uint32_t s_missionControlVK = 160;
 static const uint32_t s_launchpadVK = 131;
 
 static const uint32_t s_osxNumLock = 1 << 16;
+// kCGEventFlagMaskNumericPad marks keypad events, so NumLock is not synchronized from per-key flags.
+static const KeyModifierMask s_syncableModifiers =
+    KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper | KeyModifierCapsLock;
 
 struct KeyEntry
 {
@@ -263,6 +266,19 @@ KeyModifierMask OSXKeyState::mapModifiersFromOSX(uint32_t mask) const
 
   LOG_VERBOSE("mask=%04x outMask=%04x", mask, outMask);
   return outMask;
+}
+
+void OSXKeyState::syncModifiersFromOSX(void *target, uint32_t mask)
+{
+  const auto oldMask = getActiveModifiers();
+  const auto eventMask = mapModifiersFromOSX(mask);
+  const auto newMask = (oldMask & ~s_syncableModifiers) | (eventMask & s_syncableModifiers);
+  if (newMask == oldMask) {
+    return;
+  }
+
+  LOG_DEBUG("syncing modifier state from event flags: old=0x%04x new=0x%04x", oldMask, newMask);
+  handleModifierKeys(target, oldMask, newMask);
 }
 
 KeyModifierMask OSXKeyState::mapModifiersToCarbon(uint32_t mask) const

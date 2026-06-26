@@ -18,6 +18,8 @@ private Q_SLOTS:
   // Test are run in order top to bottom
   void mapModifiersFromOSX_OSXMask();
   void mapKeyFromEventUsesEventModifierFlags();
+  void syncModifiersFromOSX_releasesStaleSuper();
+  void syncModifiersFromOSX_ignoresNumericPadFlag();
   void fakePollShift();
   void fakePollChar();
   void fakePollCharWithModifier();
