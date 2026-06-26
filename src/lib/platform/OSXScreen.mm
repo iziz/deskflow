@@ -1124,6 +1124,8 @@ bool OSXScreen::onKey(CGEventRef event)
     return true;
   }
 
+  m_keyState->syncModifiersFromOSX(getEventTarget(), macMask);
+
   // check for hot key
   HotKeyToIDMap::const_iterator i =
       m_hotKeyToIDMap.find(HotKeyItem(virtualKey, m_keyState->mapModifiersToCarbon(macMask) & 0xff00u));

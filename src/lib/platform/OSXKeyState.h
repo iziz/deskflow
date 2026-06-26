@@ -52,6 +52,13 @@ public:
   */
   KeyModifierMask mapModifiersFromOSX(uint32_t mask) const;
 
+  //! Reconcile shadow modifier state from CG event flags
+  /*!
+  Updates the shadow modifier state to match the supported modifier bits
+  visible in \p mask and sends synthetic modifier transitions when needed.
+  */
+  void syncModifiersFromOSX(void *target, uint32_t mask);
+
   //! Convert CG flags-style modifier mask to old-style Carbon
   /*!
   Still required in a few places for translation calls.
