@@ -78,6 +78,7 @@ private:
   };
 
   std::vector<ClipboardTransferAction> startNext();
+  void appendPendingOutput(std::vector<ClipboardTransferAction> &actions);
   std::vector<ClipboardTransferAction> retryActive(ClipboardTransferCancelReason reason);
   uint32_t nextTransferId();
 

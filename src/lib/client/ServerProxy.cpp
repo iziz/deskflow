@@ -23,6 +23,10 @@
 
 #include <cstring>
 
+namespace {
+constexpr double kClipboardTransferHeartbeatAlarm = 60.0;
+}
+
 //
 // ServerProxy
 //
@@ -45,7 +49,7 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
     handleData();
   });
   m_events->addHandler(EventTypes::StreamInputProgress, m_stream->getEventTarget(), [this](const auto &) {
-    resetKeepAliveAlarm();
+    handleInputProgress();
   });
   m_events->addHandler(EventTypes::ClipboardSending, this, [this](const auto &e) {
     ClipboardChunk::send(m_stream, e.getDataObject());
@@ -362,6 +366,18 @@ void ServerProxy::handleKeepAliveAlarm()
   m_client->disconnect("server is not responding");
 }
 
+void ServerProxy::handleInputProgress()
+{
+  resetKeepAliveAlarm();
+
+  if (!m_clipboardIncoming.active()) {
+    restoreKeepAliveAfterClipboardIncomingTransfer();
+  }
+  if (!m_clipboardOutgoing.active()) {
+    restoreKeepAliveAfterClipboardOutgoingTransfer();
+  }
+}
+
 void ServerProxy::onInfoChanged()
 {
   // ignore mouse motion until we receive acknowledgment of our info
@@ -409,7 +425,6 @@ void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard
 
 void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
 {
-  constexpr double clipboardAlarm = kClipboardTransferInactivityTimeout + 5.0;
   if (m_keepAliveAlarm <= 0.0) {
     return;
   }
@@ -417,8 +432,8 @@ void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
     m_savedKeepAliveAlarm = m_keepAliveAlarm;
   }
   extended = true;
-  if (m_keepAliveAlarm < clipboardAlarm) {
-    m_keepAliveAlarm = clipboardAlarm;
+  if (m_keepAliveAlarm < kClipboardTransferHeartbeatAlarm) {
+    m_keepAliveAlarm = kClipboardTransferHeartbeatAlarm;
     resetKeepAliveAlarm();
   }
 }
@@ -430,8 +445,8 @@ void ServerProxy::restoreKeepAliveAfterClipboardTransfer(bool &extended)
   }
   extended = false;
   if (m_clipboardIncomingKeepAliveExtended || m_clipboardOutgoingKeepAliveExtended) {
-    constexpr double clipboardAlarm = kClipboardTransferInactivityTimeout + 5.0;
-    m_keepAliveAlarm = m_savedKeepAliveAlarm > clipboardAlarm ? m_savedKeepAliveAlarm : clipboardAlarm;
+    m_keepAliveAlarm = m_savedKeepAliveAlarm > kClipboardTransferHeartbeatAlarm ? m_savedKeepAliveAlarm
+                                                                                : kClipboardTransferHeartbeatAlarm;
     resetKeepAliveAlarm();
     return;
   }
@@ -460,7 +475,7 @@ void ServerProxy::restoreKeepAliveAfterClipboardOutgoingTransfer()
   restoreKeepAliveAfterClipboardTransfer(m_clipboardOutgoingKeepAliveExtended);
 }
 
-void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions)
+void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle)
 {
   for (auto &action : actions) {
     switch (action.type) {
@@ -495,7 +510,9 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
 
   if (!m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
-    restoreKeepAliveAfterClipboardOutgoingTransfer();
+    if (restoreKeepAliveWhenIdle) {
+      restoreKeepAliveAfterClipboardOutgoingTransfer();
+    }
   }
 }
 
@@ -519,7 +536,7 @@ void ServerProxy::handleClipboardOutgoingTimeout()
 {
   clearClipboardOutgoingTimer();
   LOG_WARN("clipboard transfer %u to server timed out", m_clipboardOutgoing.activeTransferId());
-  sendClipboardActions(m_clipboardOutgoing.timedOut());
+  sendClipboardActions(m_clipboardOutgoing.timedOut(), false);
 }
 
 void ServerProxy::handleClipboardIncomingTimeout()
@@ -532,7 +549,6 @@ void ServerProxy::handleClipboardIncomingTimeout()
   const auto transferId = m_clipboardIncoming.transferId();
   LOG_WARN("clipboard transfer %u from server timed out", transferId);
   m_clipboardIncoming.reset();
-  restoreKeepAliveAfterClipboardIncomingTransfer();
   sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
 }
 

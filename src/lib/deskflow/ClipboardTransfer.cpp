@@ -59,37 +59,14 @@ std::vector<ClipboardTransferAction> ClipboardTransferQueue::outputFlushed()
   }
 
   auto &transfer = *m_active;
-  if (transfer.phase == Phase::StartPendingFlush || transfer.phase == Phase::DataPendingFlush) {
-    if (transfer.offset < transfer.data.size()) {
-      const auto size = std::min(kClipboardTransferChunkSize, transfer.data.size() - transfer.offset);
-      ClipboardTransferAction action{
-          ClipboardTransferActionType::Data,
-          transfer.clipboardId,
-          transfer.sequence,
-          transfer.transferId,
-          ClipboardTransferCancelReason::Invalid,
-          transfer.data.substr(transfer.offset, size)
-      };
-      transfer.offset += size;
-      transfer.phase = Phase::DataPendingFlush;
-      return {std::move(action)};
-    }
-
-    transfer.phase = Phase::EndPendingFlush;
-    return {
-        {ClipboardTransferActionType::End,
-         transfer.clipboardId,
-         transfer.sequence,
-         transfer.transferId,
-         ClipboardTransferCancelReason::Invalid,
-         {}}
-    };
-  }
-
   if (transfer.phase == Phase::EndPendingFlush) {
     transfer.phase = Phase::AwaitingAck;
+    return {};
   }
-  return {};
+
+  std::vector<ClipboardTransferAction> actions;
+  appendPendingOutput(actions);
+  return actions;
 }
 
 std::vector<ClipboardTransferAction> ClipboardTransferQueue::acknowledged(uint32_t transferId)
@@ -175,12 +152,50 @@ std::vector<ClipboardTransferAction> ClipboardTransferQueue::startNext()
     m_active = ActiveTransfer{pending.clipboardId,     pending.sequence, std::move(pending.data),
                               pending.retryCount,      transferId,       0,
                               Phase::StartPendingFlush};
-    return {
+    std::vector<ClipboardTransferAction> actions{
         {ClipboardTransferActionType::Start, m_active->clipboardId, m_active->sequence, transferId,
          ClipboardTransferCancelReason::Invalid, std::to_string(m_active->data.size())}
     };
+    appendPendingOutput(actions);
+    return actions;
   }
   return {};
+}
+
+void ClipboardTransferQueue::appendPendingOutput(std::vector<ClipboardTransferAction> &actions)
+{
+  if (!m_active) {
+    return;
+  }
+
+  auto &transfer = *m_active;
+  if (transfer.phase != Phase::StartPendingFlush && transfer.phase != Phase::DataPendingFlush) {
+    return;
+  }
+
+  while (transfer.offset < transfer.data.size()) {
+    const auto size = std::min(kClipboardTransferChunkSize, transfer.data.size() - transfer.offset);
+    actions.push_back(
+        {ClipboardTransferActionType::Data,
+         transfer.clipboardId,
+         transfer.sequence,
+         transfer.transferId,
+         ClipboardTransferCancelReason::Invalid,
+         transfer.data.substr(transfer.offset, size)}
+    );
+    transfer.offset += size;
+    transfer.phase = Phase::DataPendingFlush;
+  }
+
+  transfer.phase = Phase::EndPendingFlush;
+  actions.push_back(
+      {ClipboardTransferActionType::End,
+       transfer.clipboardId,
+       transfer.sequence,
+       transfer.transferId,
+       ClipboardTransferCancelReason::Invalid,
+       {}}
+  );
 }
 
 std::vector<ClipboardTransferAction> ClipboardTransferQueue::retryActive(ClipboardTransferCancelReason reason)

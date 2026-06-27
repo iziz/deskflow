@@ -15,7 +15,7 @@
 #include <cstring>
 
 namespace {
-constexpr double kIncomingHeartbeatAlarm = kClipboardTransferInactivityTimeout + 5.0;
+constexpr double kClipboardTransferHeartbeatAlarm = 60.0;
 }
 
 ClientProxy1_9::ClientProxy1_9(const std::string &name, deskflow::IStream *stream, Server *server, IEventQueue *events)
@@ -82,7 +82,7 @@ bool ClientProxy1_9::parseMessage(const uint8_t *code)
   return ClientProxy1_8::parseMessage(code);
 }
 
-void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions)
+void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions, bool restoreHeartbeatWhenIdle)
 {
   for (auto &action : actions) {
     switch (action.type) {
@@ -124,7 +124,9 @@ void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions)
 
   if (!m_outgoing.active()) {
     clearOutgoingTimer();
-    restoreOutgoingHeartbeat();
+    if (restoreHeartbeatWhenIdle) {
+      restoreOutgoingHeartbeat();
+    }
   }
 }
 
@@ -148,7 +150,7 @@ void ClientProxy1_9::handleOutgoingTimeout()
 {
   clearOutgoingTimer();
   LOG_WARN("clipboard transfer %u timed out while sending to \"%s\"", m_outgoing.activeTransferId(), getName().c_str());
-  sendActions(m_outgoing.timedOut());
+  sendActions(m_outgoing.timedOut(), false);
 }
 
 void ClientProxy1_9::handleIncomingTimeout()
@@ -158,8 +160,19 @@ void ClientProxy1_9::handleIncomingTimeout()
     const auto transferId = m_incoming.transferId();
     LOG_WARN("clipboard transfer %u from \"%s\" timed out", transferId, getName().c_str());
     m_incoming.reset();
-    restoreIncomingHeartbeat();
     sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
+  }
+}
+
+void ClientProxy1_9::handleInputProgress()
+{
+  ClientProxy1_8::handleInputProgress();
+
+  if (!m_incoming.active()) {
+    restoreIncomingHeartbeat();
+  }
+  if (!m_outgoing.active()) {
+    restoreOutgoingHeartbeat();
   }
 }
 
@@ -207,8 +220,8 @@ void ClientProxy1_9::extendClipboardHeartbeat(bool &extended)
     m_savedHeartbeatAlarm = currentAlarm;
   }
   extended = true;
-  if (currentAlarm < kIncomingHeartbeatAlarm) {
-    setHeartbeatAlarm(kIncomingHeartbeatAlarm);
+  if (currentAlarm < kClipboardTransferHeartbeatAlarm) {
+    setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
   }
 }
 
@@ -220,7 +233,8 @@ void ClientProxy1_9::restoreClipboardHeartbeat(bool &extended)
   extended = false;
   if (m_incomingHeartbeatExtended || m_outgoingHeartbeatExtended) {
     const auto alarm =
-        m_savedHeartbeatAlarm > kIncomingHeartbeatAlarm ? m_savedHeartbeatAlarm : kIncomingHeartbeatAlarm;
+        m_savedHeartbeatAlarm > kClipboardTransferHeartbeatAlarm ? m_savedHeartbeatAlarm
+                                                                 : kClipboardTransferHeartbeatAlarm;
     setHeartbeatAlarm(alarm);
     return;
   }
