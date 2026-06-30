@@ -130,6 +130,7 @@ void ClipboardTransferTests::retriesThenDropsTimedOutTransfer()
     QCOMPARE(actions[2].type, ClipboardTransferActionType::Data);
     QCOMPARE(actions[3].type, ClipboardTransferActionType::End);
     transferId = actions[1].transferId;
+    QVERIFY(queue.active());
   }
 
   actions = queue.timedOut();

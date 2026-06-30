@@ -82,7 +82,7 @@ bool ClientProxy1_9::parseMessage(const uint8_t *code)
   return ClientProxy1_8::parseMessage(code);
 }
 
-void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions, bool restoreHeartbeatWhenIdle)
+void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions)
 {
   for (auto &action : actions) {
     switch (action.type) {
@@ -124,9 +124,7 @@ void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions, b
 
   if (!m_outgoing.active()) {
     clearOutgoingTimer();
-    if (restoreHeartbeatWhenIdle) {
-      restoreOutgoingHeartbeat();
-    }
+    restoreOutgoingHeartbeat();
   }
 }
 
@@ -150,7 +148,7 @@ void ClientProxy1_9::handleOutgoingTimeout()
 {
   clearOutgoingTimer();
   LOG_WARN("clipboard transfer %u timed out while sending to \"%s\"", m_outgoing.activeTransferId(), getName().c_str());
-  sendActions(m_outgoing.timedOut(), false);
+  sendActions(m_outgoing.timedOut());
 }
 
 void ClientProxy1_9::handleIncomingTimeout()
@@ -160,6 +158,7 @@ void ClientProxy1_9::handleIncomingTimeout()
     const auto transferId = m_incoming.transferId();
     LOG_WARN("clipboard transfer %u from \"%s\" timed out", transferId, getName().c_str());
     m_incoming.reset();
+    restoreIncomingHeartbeat();
     sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
   }
 }

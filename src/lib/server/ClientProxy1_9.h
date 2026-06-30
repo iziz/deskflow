@@ -22,7 +22,7 @@ public:
   bool parseMessage(const uint8_t *code) override;
 
 private:
-  void sendActions(std::vector<ClipboardTransferAction> actions, bool restoreHeartbeatWhenIdle = true);
+  void sendActions(std::vector<ClipboardTransferAction> actions);
   void handleOutputFlushed();
   void handleOutgoingTimeout();
   void handleIncomingTimeout();
