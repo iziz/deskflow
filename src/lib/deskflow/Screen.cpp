@@ -21,6 +21,8 @@ namespace deskflow {
 
 namespace {
 
+constexpr KeyModifierMask s_toggleModifierMask = KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+
 bool runScreenCommand(const QString &commandLine)
 {
 #ifdef Q_OS_WIN
@@ -438,9 +440,13 @@ void Screen::enterPrimary() const
   // do nothing
 }
 
-void Screen::enterSecondary(KeyModifierMask) const
+void Screen::enterSecondary(KeyModifierMask toggleMask)
 {
-  // do nothing
+  m_screen->updateKeyState();
+  m_savedToggleMask = m_screen->getActiveModifiers() & s_toggleModifierMask;
+  if (!m_screen->syncToggleModifiers(toggleMask)) {
+    LOG_WARN("failed to synchronize toggle modifiers on screen entry");
+  }
 }
 
 void Screen::leavePrimary()
@@ -455,6 +461,10 @@ void Screen::leaveSecondary()
 {
   // release any keys we think are still down
   m_screen->fakeAllKeysUp();
+
+  if (!m_screen->syncToggleModifiers(m_savedToggleMask)) {
+    LOG_WARN("failed to restore toggle modifiers on screen leave");
+  }
 }
 
 std::string Screen::getSecureInputApp() const

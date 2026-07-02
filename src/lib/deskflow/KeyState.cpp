@@ -792,6 +792,44 @@ void KeyState::setHalfDuplexMask(KeyModifierMask mask)
   }
 }
 
+bool KeyState::syncToggleModifiers(KeyModifierMask mask)
+{
+  static constexpr KeyModifierMask s_toggleMask = KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+
+  const auto desiredState = mask & s_toggleMask;
+  const auto changed = (m_mask ^ desiredState) & s_toggleMask;
+  if (changed == 0) {
+    return true;
+  }
+
+  Keystrokes keys;
+  auto activeModifiers = m_activeModifiers;
+  auto state = m_mask;
+
+  const auto clearMask = changed & state;
+  if (clearMask != 0 &&
+      m_keyMap.mapKey(
+          keys, kKeyClearModifiers, pollActiveGroup(), activeModifiers, state, clearMask, false, std::string()
+      ) == nullptr) {
+    LOG_WARN("unable to clear toggle modifiers 0x%04x", clearMask);
+    return false;
+  }
+
+  const auto setMask = changed & desiredState;
+  if (setMask != 0 &&
+      m_keyMap.mapKey(
+          keys, kKeySetModifiers, pollActiveGroup(), activeModifiers, state, setMask, false, std::string()
+      ) == nullptr) {
+    LOG_WARN("unable to set toggle modifiers 0x%04x", setMask);
+    return false;
+  }
+
+  m_activeModifiers = std::move(activeModifiers);
+  m_mask = state;
+  fakeKeys(keys, 1);
+  return true;
+}
+
 void KeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton serverID, const std::string &lang)
 {
   // if this server key is already down then this is probably a

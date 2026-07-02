@@ -26,6 +26,11 @@ const deskflow::KeyMap::KeyItem *stubMapKey(
     KeyModifierMask &currentState, KeyModifierMask desiredMask, bool isAutoRepeat, const std::string &lang
 );
 
+const deskflow::KeyMap::KeyItem *stubSyncToggleModifiers(
+    deskflow::KeyMap::Keystrokes &keys, KeyID id, int32_t group, deskflow::KeyMap::ModifierToKeys &activeModifiers,
+    KeyModifierMask &currentState, KeyModifierMask desiredMask, bool isAutoRepeat, const std::string &lang
+);
+
 deskflow::KeyMap::Keystroke s_stubKeystroke(1, false, false);
 deskflow::KeyMap::KeyItem s_stubKeyItem;
 
@@ -112,6 +117,70 @@ TEST(KeyStateTests, setHalfDuplexMask_scrollLock_halfDuplexScollLockAdded)
   EXPECT_CALL(keyMap, addHalfDuplexModifier(kKeyScrollLock));
 
   keyState.setHalfDuplexMask(KeyModifierScrollLock);
+}
+
+TEST(KeyStateTests, syncToggleModifiers_capsLockOff_turnsCapsLockOn)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+  ON_CALL(keyMap, mapKey(_, _, _, _, _, _, _, _)).WillByDefault(Invoke(stubSyncToggleModifiers));
+
+  EXPECT_CALL(keyMap, mapKey(_, kKeySetModifiers, _, _, _, KeyModifierCapsLock, false, _));
+  EXPECT_CALL(keyState, fakeKey(_)).Times(1);
+
+  ASSERT_TRUE(keyState.syncToggleModifiers(KeyModifierCapsLock));
+  ASSERT_EQ(KeyModifierCapsLock, keyState.getActiveModifiers());
+}
+
+TEST(KeyStateTests, syncToggleModifiers_capsLockOn_turnsCapsLockOff)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+  keyState.onKey(0, false, KeyModifierCapsLock);
+  ON_CALL(keyMap, mapKey(_, _, _, _, _, _, _, _)).WillByDefault(Invoke(stubSyncToggleModifiers));
+
+  EXPECT_CALL(keyMap, mapKey(_, kKeyClearModifiers, _, _, _, KeyModifierCapsLock, false, _));
+  EXPECT_CALL(keyState, fakeKey(_)).Times(1);
+
+  ASSERT_TRUE(keyState.syncToggleModifiers(0));
+  ASSERT_EQ(0, keyState.getActiveModifiers());
+}
+
+TEST(KeyStateTests, syncToggleModifiers_nonToggleMask_doesNothing)
+{
+  MockKeyMap keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  EXPECT_CALL(keyMap, mapKey(_, _, _, _, _, _, _, _)).Times(0);
+  EXPECT_CALL(keyState, fakeKey(_)).Times(0);
+
+  ASSERT_TRUE(keyState.syncToggleModifiers(KeyModifierControl | KeyModifierAlt));
+  ASSERT_EQ(0, keyState.getActiveModifiers());
+}
+
+TEST(KeyStateTests, syncToggleModifiers_capsLock_roundTripsWithKeyMap)
+{
+  deskflow::KeyMap keyMap;
+  deskflow::KeyMap::KeyItem capsLock;
+  capsLock.m_id = kKeyCapsLock;
+  capsLock.m_group = 0;
+  capsLock.m_button = 1;
+  deskflow::KeyMap::initModifierKey(capsLock);
+  keyMap.addKeyEntry(capsLock);
+  keyMap.finish();
+
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+  ON_CALL(keyState, pollActiveGroup()).WillByDefault(Return(0));
+  EXPECT_CALL(keyState, fakeKey(_)).Times(4);
+
+  ASSERT_TRUE(keyState.syncToggleModifiers(KeyModifierCapsLock));
+  ASSERT_EQ(KeyModifierCapsLock, keyState.getActiveModifiers());
+  ASSERT_TRUE(keyState.syncToggleModifiers(0));
+  ASSERT_EQ(0, keyState.getActiveModifiers());
 }
 
 TEST(KeyStateTests, fakeKeyDown_serverKeyAlreadyDown_fakeKeyCalledTwice)
@@ -273,11 +342,24 @@ void assertMaskIsOne(ForeachKeyCallback, void *userData)
   ASSERT_EQ(1, ((KeyState::AddActiveModifierContext *)userData)->m_mask);
 }
 
-const deskflow::KeyMap::KeyItem *stubMapKey(
-    deskflow::KeyMap::Keystrokes &keys, KeyID, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &,
-    KeyModifierMask, bool, const std::string &
-)
+const deskflow::KeyMap::KeyItem *
+stubMapKey(deskflow::KeyMap::Keystrokes &keys, KeyID, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &, KeyModifierMask, bool, const std::string &)
 {
+  keys.push_back(s_stubKeystroke);
+  return &s_stubKeyItem;
+}
+
+const deskflow::KeyMap::KeyItem *
+stubSyncToggleModifiers(deskflow::KeyMap::Keystrokes &keys, KeyID id, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &currentState, KeyModifierMask desiredMask, bool, const std::string &)
+{
+  if (id == kKeySetModifiers) {
+    currentState |= desiredMask;
+  } else if (id == kKeyClearModifiers) {
+    currentState &= ~desiredMask;
+  } else {
+    return nullptr;
+  }
+
   keys.push_back(s_stubKeystroke);
   return &s_stubKeyItem;
 }

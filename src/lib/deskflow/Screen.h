@@ -286,7 +286,7 @@ protected:
   void disableSecondary();
 
   void enterPrimary() const;
-  void enterSecondary(KeyModifierMask toggleMask) const;
+  void enterSecondary(KeyModifierMask toggleMask);
   void leavePrimary();
   void leaveSecondary();
 
@@ -306,6 +306,9 @@ private:
   // note toggle keys that toggles on up/down (false) or on
   // transition (true)
   KeyModifierMask m_halfDuplex;
+
+  // toggle modifier state to restore when leaving a secondary screen
+  KeyModifierMask m_savedToggleMask = 0;
 
   // true if we're faking input on a primary screen
   bool m_fakeInput = false;

@@ -31,6 +31,11 @@ void PlatformScreen::setHalfDuplexMask(KeyModifierMask mask)
   getKeyState()->setHalfDuplexMask(mask);
 }
 
+bool PlatformScreen::syncToggleModifiers(KeyModifierMask mask)
+{
+  return getKeyState()->syncToggleModifiers(mask);
+}
+
 void PlatformScreen::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
 {
   getKeyState()->fakeKeyDown(id, mask, button, lang);

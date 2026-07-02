@@ -75,6 +75,13 @@ public:
   */
   virtual void setHalfDuplexMask(KeyModifierMask) = 0;
 
+  //! Synchronize toggle modifier state
+  /*!
+  Synthesizes the key events required to match the Caps Lock, Num Lock,
+  and Scroll Lock state in \p mask. Returns true on success.
+  */
+  virtual bool syncToggleModifiers(KeyModifierMask mask) = 0;
+
   //! Fake a key press
   /*!
   Synthesizes a key press event and updates the key state.
