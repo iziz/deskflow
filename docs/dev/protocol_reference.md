@@ -215,9 +215,14 @@ validates the assembled clipboard data and sends `CACK`.
   transfer.
 - Clipboard data applied from a remote peer is not announced back as a new
   local clipboard change when its serialized content is unchanged.
+- After a clipboard value is complete and validated, the server sends the
+  committed revision to every connected peer except its source, regardless of
+  which screen is active.
 - A timed-out sender retries the transfer up to the implementation retry limit.
   A transfer cancelled as superseded is not retried.
 - Protocol v1.8 and older peers continue to use `DCLP`.
+  Their receive assembly state is isolated per connection, and queued chunks
+  from a superseded local generation are discarded before they reach the wire.
 
 ## Protocol Constraints
 

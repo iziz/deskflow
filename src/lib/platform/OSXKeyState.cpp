@@ -345,16 +345,17 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   }
 
   // get keyboard info
-  AutoTISInputSourceRef currentKeyboardLayout(nullptr, CFRelease);
-  CFDataRef ref = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    currentKeyboardLayout = AutoTISInputSourceRef(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    if (currentKeyboardLayout)
-      ref = (CFDataRef)TISGetInputSourceProperty(currentKeyboardLayout.get(), kTISPropertyUnicodeKeyLayoutData);
-  }
+  auto layoutData = runTISOnMainThread([] {
+    AutoTISInputSourceRef currentKeyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+    if (!currentKeyboardLayout) {
+      return AutoCFData(nullptr, CFRelease);
+    }
+    const auto ref =
+        (CFDataRef)TISGetInputSourceProperty(currentKeyboardLayout.get(), kTISPropertyUnicodeKeyLayoutData);
+    return AutoCFData(ref != nullptr ? CFDataCreateCopy(nullptr, ref) : nullptr, CFRelease);
+  });
 
-  if (!currentKeyboardLayout) {
+  if (!layoutData) {
     return kKeyNone;
   }
 
@@ -384,7 +385,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   }
 
   // translate via uchr resource
-  const UCKeyboardLayout *layout = (const UCKeyboardLayout *)CFDataGetBytePtr(ref);
+  const UCKeyboardLayout *layout = (const UCKeyboardLayout *)CFDataGetBytePtr(layoutData.get());
   const bool layoutValid = (layout != nullptr);
 
   if (layoutValid) {
@@ -580,12 +581,11 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     numGroups = CFArrayGetCount(m_groups.get());
     for (int32_t g = 0; g < numGroups; ++g) {
       TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-      CFStringRef id = nullptr;
-      {
-        std::lock_guard<std::mutex> lock(g_tisMutex);
-        id = (CFStringRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
-      }
-      const auto idString = cfStringToUtf8(id);
+      const auto idString = runTISOnMainThread([keyboardLayout] {
+        return cfStringToUtf8(
+            (CFStringRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID)
+        );
+      });
       if (!idString.empty()) {
         m_groupMap[idString] = g;
       }
@@ -597,23 +597,17 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     // add special keys
     getKeyMapForSpecialKeys(keyMap, g);
 
-    const void *resource;
-    bool layoutValid = false;
-
     // add regular keys
     // try uchr resource first
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-    CFDataRef resourceRef = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      resourceRef = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyUnicodeKeyLayoutData);
-    }
+    auto resourceData = runTISOnMainThread([keyboardLayout] {
+      const auto resourceRef =
+          (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyUnicodeKeyLayoutData);
+      return AutoCFData(resourceRef != nullptr ? CFDataCreateCopy(nullptr, resourceRef) : nullptr, CFRelease);
+    });
 
-    layoutValid = resourceRef != nullptr;
-    if (layoutValid)
-      resource = CFDataGetBytePtr(resourceRef);
-
-    if (layoutValid) {
+    if (resourceData) {
+      const auto *resource = CFDataGetBytePtr(resourceData.get());
       OSXUchrKeyResource uchr(resource, keyboardType);
       if (uchr.isValid()) {
         LOG_VERBOSE("using uchr resource for group %d", g);
@@ -983,13 +977,11 @@ bool OSXKeyState::getGroups(AutoCFArray &groups) const
   AutoCFDictionary dict(
       CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
   );
-  AutoCFArray kbds(nullptr, CFRelease);
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
-  }
+  auto kbds = runTISOnMainThread([filter = dict.get()] {
+    return AutoCFArray(TISCreateInputSourceList(filter, false), CFRelease);
+  });
 
-  if (CFArrayGetCount(kbds.get()) > 0) {
+  if (kbds && CFArrayGetCount(kbds.get()) > 0) {
     groups = std::move(kbds);
   } else {
     LOG_VERBOSE("can't get keyboard layouts");

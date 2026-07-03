@@ -1743,11 +1743,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   if (data == clipboard.m_clipboardData) {
     clipboard.m_committedRevision = clipboard.m_revision;
     LOG_DEBUG("ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id);
-    for (const auto &entry : m_clients) {
-      auto *client = entry.second;
-      client->setClipboardDirty(id, client != sender);
-    }
-    m_active->setClipboard(id, &clipboard.m_clipboard, clipboard.m_committedRevision);
+    broadcastClipboard(id, sender);
     return;
   }
 
@@ -1759,14 +1755,20 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   clipboard.m_clipboardData = data;
   clipboard.m_committedRevision = clipboard.m_revision;
 
-  // tell all clients except the sender that the clipboard is dirty
-  for (ClientList::const_iterator index = m_clients.begin(); index != m_clients.end(); ++index) {
-    BaseClientProxy *client = index->second;
-    client->setClipboardDirty(id, client != sender);
-  }
+  broadcastClipboard(id, sender);
+}
 
-  // send the new clipboard to the active screen
-  m_active->setClipboard(id, &clipboard.m_clipboard, clipboard.m_committedRevision);
+void Server::broadcastClipboard(ClipboardID id, const BaseClientProxy *sender)
+{
+  const auto &clipboard = m_clipboards[id];
+  for (const auto &entry : m_clients) {
+    auto *client = entry.second;
+    const bool shouldReceive = client != sender;
+    client->setClipboardDirty(id, shouldReceive);
+    if (shouldReceive) {
+      client->setClipboard(id, &clipboard.m_clipboard, clipboard.m_committedRevision);
+    }
+  }
 }
 
 uint32_t Server::nextClipboardRevision()

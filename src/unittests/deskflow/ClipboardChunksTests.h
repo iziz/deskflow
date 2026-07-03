@@ -14,4 +14,5 @@ private Q_SLOTS:
   void startFormatData();
   void formatDataChunk();
   void endFormatData();
+  void assemblersKeepIndependentState();
 };

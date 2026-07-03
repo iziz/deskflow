@@ -8,6 +8,7 @@
 
 #include "deskflow/ClipboardTypes.h"
 
+#include <cstdint>
 #include <string_view>
 
 class IEventQueue;
@@ -17,6 +18,6 @@ class StreamChunker
 public:
   static void sendClipboard(
       const std::string_view &data, size_t size, ClipboardID id, uint32_t sequence, IEventQueue *events,
-      void *eventTarget
+      void *eventTarget, uint64_t generation = 0
   );
 };

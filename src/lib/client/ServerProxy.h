@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "deskflow/ClipboardChunk.h"
 #include "deskflow/ClipboardTransfer.h"
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
@@ -149,6 +150,8 @@ private:
   bool m_transactionalClipboard = false;
   ClipboardTransferQueue m_clipboardOutgoing{0x80000000u};
   ClipboardTransferAssembler m_clipboardIncoming;
+  ClipboardChunkAssembler m_legacyClipboardIncoming;
+  uint64_t m_legacyClipboardGeneration[kClipboardEnd]{};
   EventQueueTimer *m_clipboardOutgoingTimer = nullptr;
   EventQueueTimer *m_clipboardIncomingTimer = nullptr;
 

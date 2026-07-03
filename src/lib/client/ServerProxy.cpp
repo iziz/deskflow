@@ -52,7 +52,11 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
     handleInputProgress();
   });
   m_events->addHandler(EventTypes::ClipboardSending, this, [this](const auto &e) {
-    ClipboardChunk::send(m_stream, e.getDataObject());
+    auto *chunk = dynamic_cast<ClipboardChunk *>(e.getDataObject());
+    if (chunk != nullptr && chunk->clipboardId() < kClipboardEnd &&
+        chunk->generation() == m_legacyClipboardGeneration[chunk->clipboardId()]) {
+      ClipboardChunk::send(m_stream, chunk);
+    }
   });
   m_events->addHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget(), [this](const auto &) {
     handleClipboardOutputFlushed();
@@ -70,6 +74,7 @@ ServerProxy::~ServerProxy()
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::StreamInputProgress, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget());
+  m_events->removeHandler(EventTypes::ClipboardSending, this);
 }
 
 void ServerProxy::resetKeepAliveAlarm()
@@ -403,6 +408,8 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
       restoreKeepAliveAfterClipboardIncomingTransfer();
       sendClipboardCancel(transferId, ClipboardTransferCancelReason::Superseded);
     }
+  } else {
+    ++m_legacyClipboardGeneration[id];
   }
 
   LOG_VERBOSE("sending clipboard %d changed", id);
@@ -426,7 +433,9 @@ void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard
     sendClipboardActions(m_clipboardOutgoing.queue(id, m_seqNum, std::move(data), force));
   } else {
     extendKeepAliveForClipboardOutgoingTransfer();
-    StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_events, this);
+    StreamChunker::sendClipboard(
+        data, data.size(), id, m_seqNum, m_events, this, m_legacyClipboardGeneration[id]
+    );
   }
 }
 
@@ -761,26 +770,25 @@ void ServerProxy::leave()
 void ServerProxy::setClipboard()
 {
   // parse
-  static std::string dataCached;
   ClipboardID id;
   uint32_t seq;
 
-  auto r = ClipboardChunk::assemble(m_stream, dataCached, id, seq);
+  auto r = m_legacyClipboardIncoming.process(m_stream, id, seq);
 
   if (r == TransferState::Started) {
-    size_t size = ClipboardChunk::getExpectedSize();
-    LOG_DEBUG("receiving clipboard %d size=%d", id, size);
+    LOG_DEBUG("receiving clipboard %d size=%d", id, m_legacyClipboardIncoming.expectedSize());
   } else if (r == TransferState::Finished) {
-    LOG_DEBUG("received clipboard %d size=%d", id, dataCached.size());
+    LOG_DEBUG("received clipboard %d size=%d", id, m_legacyClipboardIncoming.data().size());
 
     // forward
     Clipboard clipboard;
-    if (clipboard.unmarshall(dataCached, 0)) {
+    if (clipboard.unmarshall(m_legacyClipboardIncoming.data(), 0)) {
       m_client->setClipboard(id, &clipboard, seq);
       LOG_INFO("clipboard was updated");
     } else {
       LOG_WARN("ignored invalid clipboard update from server");
     }
+    m_legacyClipboardIncoming.reset();
   }
 }
 

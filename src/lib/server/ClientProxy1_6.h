@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "deskflow/ClipboardChunk.h"
 #include "server/ClientProxy1_5.h"
 
 class Server;
@@ -16,9 +17,10 @@ class ClientProxy1_6 : public ClientProxy1_5
 {
 public:
   ClientProxy1_6(const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events);
-  ~ClientProxy1_6() override = default;
+  ~ClientProxy1_6() override;
 
   void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
+  void supersedeClipboardTransfers(ClipboardID id) override;
   bool recvClipboard() override;
 
 protected:
@@ -32,6 +34,8 @@ protected:
 
 private:
   IEventQueue *m_events;
+  ClipboardChunkAssembler m_legacyClipboardIncoming;
+  uint64_t m_legacyClipboardGeneration[kClipboardEnd]{};
   bool m_clipboardIncomingHeartbeatExtended = false;
   bool m_clipboardOutgoingHeartbeatExtended = false;
   double m_savedHeartbeatAlarm = 0.0;

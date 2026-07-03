@@ -11,19 +11,19 @@
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
+
+#include <algorithm>
 #include <cstring>
 
-size_t ClipboardChunk::s_expectedSize = 0;
-
-ClipboardChunk::ClipboardChunk(size_t size) : Chunk(size)
+ClipboardChunk::ClipboardChunk(size_t size, uint64_t generation) : Chunk(size), m_generation(generation)
 {
   m_dataSize = size - s_clipboardChunkMetaSize;
 }
 
-ClipboardChunk *ClipboardChunk::start(ClipboardID id, uint32_t sequence, const std::string &size)
+ClipboardChunk *ClipboardChunk::start(ClipboardID id, uint32_t sequence, const std::string &size, uint64_t generation)
 {
   size_t sizeLength = size.size();
-  auto *start = new ClipboardChunk(sizeLength + s_clipboardChunkMetaSize);
+  auto *start = new ClipboardChunk(sizeLength + s_clipboardChunkMetaSize, generation);
   char *chunk = start->m_chunk;
 
   chunk[0] = id;
@@ -35,10 +35,11 @@ ClipboardChunk *ClipboardChunk::start(ClipboardID id, uint32_t sequence, const s
   return start;
 }
 
-ClipboardChunk *ClipboardChunk::data(ClipboardID id, uint32_t sequence, const std::string &data)
+ClipboardChunk *
+ClipboardChunk::data(ClipboardID id, uint32_t sequence, const std::string &data, uint64_t generation)
 {
   size_t dataSize = data.size();
-  auto *chunk = new ClipboardChunk(dataSize + s_clipboardChunkMetaSize);
+  auto *chunk = new ClipboardChunk(dataSize + s_clipboardChunkMetaSize, generation);
   char *chunkData = chunk->m_chunk;
 
   chunkData[0] = id;
@@ -50,9 +51,9 @@ ClipboardChunk *ClipboardChunk::data(ClipboardID id, uint32_t sequence, const st
   return chunk;
 }
 
-ClipboardChunk *ClipboardChunk::end(ClipboardID id, uint32_t sequence)
+ClipboardChunk *ClipboardChunk::end(ClipboardID id, uint32_t sequence, uint64_t generation)
 {
-  auto *end = new ClipboardChunk(s_clipboardChunkMetaSize);
+  auto *end = new ClipboardChunk(s_clipboardChunkMetaSize, generation);
   char *chunk = end->m_chunk;
 
   chunk[0] = id;
@@ -62,38 +63,83 @@ ClipboardChunk *ClipboardChunk::end(ClipboardID id, uint32_t sequence)
   return end;
 }
 
-TransferState
-ClipboardChunk::assemble(deskflow::IStream *stream, std::string &dataCached, ClipboardID &id, uint32_t &sequence)
+TransferState ClipboardChunkAssembler::process(deskflow::IStream *stream, ClipboardID &id, uint32_t &sequence)
 {
   using enum TransferState;
   uint8_t mark;
   std::string data;
 
   if (!ProtocolUtil::readf(stream, kMsgDClipboard + 4, &id, &sequence, &mark, &data)) {
+    reset();
     return Error;
   }
 
   if (mark == ChunkType::DataStart) {
-    s_expectedSize = QString::fromStdString(data).toULong();
-    LOG_DEBUG("start receiving clipboard data");
-    dataCached.clear();
-    return Started;
-  } else if (mark == ChunkType::DataChunk) {
-    dataCached.append(data);
-    return TransferState::InProgress;
-  } else if (mark == ChunkType::DataEnd) {
-    // validate
     if (id >= kClipboardEnd) {
-      return Error;
-    } else if (s_expectedSize != dataCached.size()) {
-      LOG_ERR("corrupted clipboard data, expected size=%d actual size=%d", s_expectedSize, dataCached.size());
+      reset();
       return Error;
     }
+    m_active = true;
+    m_clipboardId = id;
+    m_sequence = sequence;
+    m_expectedSize = QString::fromStdString(data).toULong();
+    LOG_DEBUG("start receiving clipboard data");
+    m_data.clear();
+    return Started;
+  } else if (mark == ChunkType::DataChunk) {
+    if (!m_active || id != m_clipboardId || sequence != m_sequence ||
+        data.size() > m_expectedSize - std::min(m_expectedSize, m_data.size())) {
+      reset();
+      return Error;
+    }
+    m_data.append(data);
+    return TransferState::InProgress;
+  } else if (mark == ChunkType::DataEnd) {
+    if (!m_active || id != m_clipboardId || sequence != m_sequence) {
+      reset();
+      return Error;
+    }
+    if (m_expectedSize != m_data.size()) {
+      LOG_ERR("corrupted clipboard data, expected size=%d actual size=%d", m_expectedSize, m_data.size());
+      reset();
+      return Error;
+    }
+    m_active = false;
     return Finished;
   }
 
   LOG_ERR("clipboard transmission failed: unknown error");
+  reset();
   return Error;
+}
+
+void ClipboardChunkAssembler::reset()
+{
+  m_active = false;
+  m_clipboardId = kClipboardClipboard;
+  m_sequence = 0;
+  m_expectedSize = 0;
+  m_data.clear();
+}
+
+bool ClipboardChunkAssembler::active() const
+{
+  return m_active;
+}
+
+ClipboardID ClipboardChunkAssembler::clipboardId() const
+{
+  return m_clipboardId;
+}
+
+size_t ClipboardChunkAssembler::expectedSize() const
+{
+  return m_expectedSize;
+}
+
+const std::string &ClipboardChunkAssembler::data() const
+{
+  return m_data;
 }
 
 void ClipboardChunk::send(deskflow::IStream *stream, void *data)
@@ -127,4 +173,14 @@ void ClipboardChunk::send(deskflow::IStream *stream, void *data)
   }
 
   ProtocolUtil::writef(stream, kMsgDClipboard, id, sequence, mark, &dataChunk);
+}
+
+ClipboardID ClipboardChunk::clipboardId() const
+{
+  return static_cast<ClipboardID>(m_chunk[0]);
+}
+
+uint64_t ClipboardChunk::generation() const
+{
+  return m_generation;
 }

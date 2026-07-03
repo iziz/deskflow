@@ -367,6 +367,7 @@ private:
 
   // force the cursor off of \p client
   void forceLeaveClient(const BaseClientProxy *client, const char *reason);
+  void broadcastClipboard(ClipboardID id, const BaseClientProxy *sender);
   uint32_t nextClipboardRevision();
 
 private:
