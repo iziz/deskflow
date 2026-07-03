@@ -58,41 +58,37 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
   layoutLangCodes = X11LayoutsParser::getX11LanguageList(m_evdev);
 
 #elif defined(Q_OS_MAC)
-  CFStringRef keys[] = {kTISPropertyInputSourceCategory};
-  CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(
-      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
-  );
-  AutoCFArray kbds(nullptr, CFRelease);
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
-  }
+  layoutLangCodes = runTISOnMainThread([] {
+    std::vector<std::string> result;
+    CFStringRef keys[] = {kTISPropertyInputSourceCategory};
+    CFStringRef values[] = {kTISCategoryKeyboardInputSource};
+    AutoCFDictionary dict(
+        CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
+    );
+    AutoCFArray kbds(TISCreateInputSourceList(dict.get(), false), CFRelease);
 
-  for (CFIndex i = 0; i < CFArrayGetCount(kbds.get()); ++i) {
-    TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(kbds.get(), i);
-    CFArrayRef layoutLanguages = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
-    }
-    char temporaryCString[128] = {0};
-    for (CFIndex index = 0; index < CFArrayGetCount(layoutLanguages) && layoutLanguages; index++) {
-      auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-      if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-        continue;
+    for (CFIndex i = 0; kbds && i < CFArrayGetCount(kbds.get()); ++i) {
+      auto keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(kbds.get(), i);
+      const auto layoutLanguages =
+          (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
+      char temporaryCString[128] = {0};
+      for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
+        auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
+        if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
+          continue;
+        }
+
+        std::string langCode(temporaryCString);
+        if (langCode.size() == 2 && std::find(result.begin(), result.end(), langCode) == result.end()) {
+          result.push_back(langCode);
+        }
+
+        // Save only first language code
+        break;
       }
-
-      std::string langCode(temporaryCString);
-      if (langCode.size() == 2 &&
-          std::find(layoutLangCodes.begin(), layoutLangCodes.end(), langCode) == layoutLangCodes.end()) {
-        layoutLangCodes.push_back(langCode);
-      }
-
-      // Save only first language code
-      break;
     }
-  }
+    return result;
+  });
 #endif
 
   return layoutLangCodes;

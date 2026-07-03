@@ -131,7 +131,6 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
   // clear clipboards
   for (auto &clipboard : m_clipboards) {
     clipboard.m_clipboardOwner = primaryName;
-    clipboard.m_clipboardSeqNum = m_seqNum;
     if (clipboard.m_clipboard.open(0)) {
       clipboard.m_clipboard.empty();
       clipboard.m_clipboard.close();
@@ -526,7 +525,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         const ClipboardInfo &clipboard = m_clipboards[id];
         if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
-          onClipboardChanged(m_primaryClient, id, clipboard.m_clipboardSeqNum);
+          onClipboardChanged(m_primaryClient, id, clipboard.m_sourceSequence);
         }
       }
     }
@@ -560,7 +559,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
         if (dataSize <= sizeof(uint32_t) || dataSize > (m_maximumClipboardSize * 1024)) {
           continue;
         }
-        m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
+        m_active->setClipboard(id, &m_clipboards[id].m_clipboard, m_clipboards[id].m_committedRevision);
       }
     }
 
@@ -1413,33 +1412,33 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     return;
   }
 
-  // ignore grab if sequence number is old.  always allow primary
-  // screen to grab.
   ClipboardInfo &clipboard = m_clipboards[info->m_id];
-  if (grabber != m_primaryClient && info->m_sequenceNumber < clipboard.m_clipboardSeqNum) {
-    LOG_INFO("ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id);
-    return;
-  }
 
   // mark screen as owning clipboard
+  const auto revision = nextClipboardRevision();
   LOG_INFO(
-      "screen \"%s\" grabbed clipboard %d from \"%s\"", getName(grabber).c_str(), info->m_id,
-      clipboard.m_clipboardOwner.c_str()
+      "screen \"%s\" grabbed clipboard %d from \"%s\", revision=%u", getName(grabber).c_str(), info->m_id,
+      clipboard.m_clipboardOwner.c_str(), revision
   );
   clipboard.m_clipboardOwner = getName(grabber);
-  clipboard.m_clipboardSeqNum = info->m_sequenceNumber;
+  clipboard.m_sourceSequence = info->m_sequenceNumber;
+  clipboard.m_revision = revision;
 
   // The clipboard payload is not known yet. Keep the last confirmed payload
   // in place until the owner sends data, so failed or oversized transfers do
   // not clear other screens.
-  grabber->setClipboardDirty(info->m_id, false);
+  for (const auto &entry : m_clients) {
+    auto *client = entry.second;
+    client->supersedeClipboardTransfers(info->m_id);
+    client->setClipboardDirty(info->m_id, client != grabber);
+  }
 
   if (grabber == m_primaryClient && m_active != m_primaryClient) {
     LOG_INFO("clipboard grabbed while active screen was changed, resending clipboard data");
     const auto primaryName = getName(m_primaryClient);
     for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
       if (m_clipboards[id].m_clipboardOwner == primaryName) {
-        onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_clipboardSeqNum);
+        onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_sourceSequence);
       }
     }
   }
@@ -1689,39 +1688,39 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 {
   ClipboardInfo &clipboard = m_clipboards[id];
 
-  // ignore update if sequence number is old
-  if (seqNum < clipboard.m_clipboardSeqNum) {
-    LOG_INFO("ignored screen \"%s\" update of clipboard %d (mis-sequenced)", getName(sender).c_str(), id);
+  if (seqNum != clipboard.m_sourceSequence) {
+    LOG_INFO(
+        "ignored screen \"%s\" update of clipboard %d because sequence %u was superseded by %u",
+        getName(sender).c_str(), id, seqNum, clipboard.m_sourceSequence
+    );
     return;
   }
 
   const auto owner = m_clients.find(clipboard.m_clipboardOwner);
   if (owner == m_clients.end()) {
     LOG_INFO(
-        "ignored screen \"%s\" update of clipboard %d because owner \"%s\" is not connected",
-        getName(sender).c_str(), id, clipboard.m_clipboardOwner.c_str()
+        "ignored screen \"%s\" update of clipboard %d because owner \"%s\" is not connected", getName(sender).c_str(),
+        id, clipboard.m_clipboardOwner.c_str()
     );
     return;
   }
   if (sender != owner->second) {
     LOG_INFO(
-        "ignored screen \"%s\" update of clipboard %d because owner is \"%s\"",
-        getName(sender).c_str(), id, clipboard.m_clipboardOwner.c_str()
+        "ignored screen \"%s\" update of clipboard %d because owner is \"%s\"", getName(sender).c_str(), id,
+        clipboard.m_clipboardOwner.c_str()
     );
     return;
   }
 
-  // get data
-  if (!sender->getClipboard(id, &clipboard.m_clipboard)) {
+  Clipboard candidate;
+  if (!sender->getClipboard(id, &candidate)) {
     LOG_INFO(
-        "ignored screen \"%s\" update of clipboard %d because clipboard data is unavailable",
-        getName(sender).c_str(), id
+        "ignored screen \"%s\" update of clipboard %d because clipboard data is unavailable", getName(sender).c_str(),
+        id
     );
     return;
   }
-  clipboard.m_clipboardSeqNum = seqNum;
-
-  std::string data = clipboard.m_clipboard.marshall();
+  std::string data = candidate.marshall();
   if (data.size() <= sizeof(uint32_t)) {
     LOG_INFO(
         "ignored screen \"%s\" update of clipboard %d because it has no supported formats", getName(sender).c_str(), id
@@ -1736,15 +1735,29 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     return;
   }
 
+  if (data != clipboard.m_clipboardData && clipboard.m_revision == clipboard.m_committedRevision) {
+    clipboard.m_revision = nextClipboardRevision();
+  }
+
   // ignore if data hasn't changed
   if (data == clipboard.m_clipboardData) {
+    clipboard.m_committedRevision = clipboard.m_revision;
     LOG_DEBUG("ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id);
+    for (const auto &entry : m_clients) {
+      auto *client = entry.second;
+      client->setClipboardDirty(id, client != sender);
+    }
+    m_active->setClipboard(id, &clipboard.m_clipboard, clipboard.m_committedRevision);
     return;
   }
 
   // got new data
-  LOG_INFO("screen \"%s\" updated clipboard %d", clipboard.m_clipboardOwner.c_str(), id);
+  LOG_INFO(
+      "screen \"%s\" updated clipboard %d, revision=%u", clipboard.m_clipboardOwner.c_str(), id, clipboard.m_revision
+  );
+  Clipboard::copy(&clipboard.m_clipboard, &candidate);
   clipboard.m_clipboardData = data;
+  clipboard.m_committedRevision = clipboard.m_revision;
 
   // tell all clients except the sender that the clipboard is dirty
   for (ClientList::const_iterator index = m_clients.begin(); index != m_clients.end(); ++index) {
@@ -1753,7 +1766,16 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   }
 
   // send the new clipboard to the active screen
-  m_active->setClipboard(id, &clipboard.m_clipboard);
+  m_active->setClipboard(id, &clipboard.m_clipboard, clipboard.m_committedRevision);
+}
+
+uint32_t Server::nextClipboardRevision()
+{
+  const auto revision = m_nextClipboardRevision++;
+  if (m_nextClipboardRevision == 0) {
+    m_nextClipboardRevision = 1;
+  }
+  return revision;
 }
 
 void Server::onScreensaver(bool activated)

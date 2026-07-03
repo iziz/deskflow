@@ -21,6 +21,10 @@ private Q_SLOTS:
   void keepsTransferActiveUntilAcknowledged();
   void retriesThenDropsTimedOutTransfer();
   void replacesAndValidatesIncomingTransfer();
+  void ignoresOlderQueuedRevision();
+  void rejectsOlderIncomingRevision();
+  void newerRevisionSupersedesMatchingPayload();
+  void sameSequenceSupersedesDifferentPayload();
 };
 
 void ClipboardTransferTests::queuesCompleteTransferWithoutFlushGap()
@@ -77,6 +81,7 @@ void ClipboardTransferTests::remoteOwnershipSupersedesWithoutRetry()
   QCOMPARE(actions[0].type, ClipboardTransferActionType::Cancel);
   QCOMPARE(actions[0].cancelReason, ClipboardTransferCancelReason::Superseded);
   QVERIFY(!queue.active());
+  QVERIFY(queue.timedOut().empty());
 }
 
 void ClipboardTransferTests::ignoresAcknowledgedDuplicate()
@@ -161,6 +166,60 @@ void ClipboardTransferTests::replacesAndValidatesIncomingTransfer()
   result = assembler.process(kClipboardClipboard, 3, 12, ChunkType::DataChunk, "too long");
   QCOMPARE(result.status, ClipboardTransferReceiveStatus::Error);
   QVERIFY(!assembler.active());
+}
+
+void ClipboardTransferTests::ignoresOlderQueuedRevision()
+{
+  QVERIFY(isClipboardSequenceOlder(11, 12));
+  QVERIFY(isClipboardSequenceOlder(0xffffffffu, 1));
+  QVERIFY(!isClipboardSequenceOlder(1, 0xffffffffu));
+
+  ClipboardTransferQueue queue;
+  const auto actions = queue.queue(kClipboardClipboard, 12, "latest");
+  const auto transferId = actions[0].transferId;
+
+  QVERIFY(queue.queue(kClipboardClipboard, 11, "stale").empty());
+  QCOMPARE(queue.activeTransferId(), transferId);
+}
+
+void ClipboardTransferTests::rejectsOlderIncomingRevision()
+{
+  ClipboardTransferAssembler assembler;
+  auto result = assembler.process(kClipboardClipboard, 12, 20, ChunkType::DataStart, "6");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+  assembler.reset();
+
+  result = assembler.process(kClipboardClipboard, 11, 21, ChunkType::DataStart, "5");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Error);
+  QVERIFY(!assembler.active());
+
+  result = assembler.process(kClipboardClipboard, 12, 22, ChunkType::DataStart, "5");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+}
+
+void ClipboardTransferTests::newerRevisionSupersedesMatchingPayload()
+{
+  ClipboardTransferQueue queue;
+  const auto first = queue.queue(kClipboardClipboard, 12, "same");
+
+  const auto actions = queue.queue(kClipboardClipboard, 13, "same");
+  QCOMPARE(actions[0].type, ClipboardTransferActionType::Cancel);
+  QCOMPARE(actions[0].transferId, first[0].transferId);
+  QCOMPARE(actions[0].cancelReason, ClipboardTransferCancelReason::Superseded);
+  QCOMPARE(actions[1].type, ClipboardTransferActionType::Start);
+  QCOMPARE(actions[1].sequence, 13u);
+}
+
+void ClipboardTransferTests::sameSequenceSupersedesDifferentPayload()
+{
+  ClipboardTransferQueue queue;
+  const auto first = queue.queue(kClipboardClipboard, 12, "first");
+
+  const auto actions = queue.queue(kClipboardClipboard, 12, "second");
+  QCOMPARE(actions[0].type, ClipboardTransferActionType::Cancel);
+  QCOMPARE(actions[0].transferId, first[0].transferId);
+  QCOMPARE(actions[1].type, ClipboardTransferActionType::Start);
+  QCOMPARE(actions[1].data, std::string("6"));
 }
 
 QTEST_MAIN(ClipboardTransferTests)

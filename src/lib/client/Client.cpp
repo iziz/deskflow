@@ -15,6 +15,7 @@
 #include "common/NetworkProtocol.h"
 #include "common/Settings.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/ClipboardTransfer.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/PacketStreamFilter.h"
 #include "deskflow/ProtocolTypes.h"
@@ -220,11 +221,33 @@ bool Client::leave()
   return true;
 }
 
-void Client::setClipboard(ClipboardID id, const IClipboard *clipboard)
+void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
 {
+  if (id >= kClipboardEnd || clipboard == nullptr) {
+    LOG_WARN("ignored invalid remote clipboard update");
+    return;
+  }
+
+  if (revision != 0 && isClipboardSequenceOlder(revision, m_clipboardRevision[id])) {
+    LOG_DEBUG("ignored stale remote clipboard %u revision=%u, current=%u", id, revision, m_clipboardRevision[id]);
+    return;
+  }
+
   m_screen->setClipboard(id, clipboard);
+  m_clipboardRevision[id] = revision;
   m_ownClipboard[id] = false;
-  m_sentClipboard[id] = false;
+  m_sentClipboard[id] = true;
+  m_dataClipboard[id] = IClipboard::marshall(clipboard);
+
+  Clipboard appliedClipboard;
+  if (appliedClipboard.open(m_timeClipboard[id])) {
+    appliedClipboard.close();
+  }
+  if (m_screen->getClipboard(id, &appliedClipboard)) {
+    m_timeClipboard[id] = appliedClipboard.getTime();
+    m_dataClipboard[id] = appliedClipboard.marshall();
+  }
+  LOG_DEBUG("applied remote clipboard %u revision=%u", id, revision);
 }
 
 void Client::grabClipboard(ClipboardID id)
@@ -514,6 +537,7 @@ void Client::handleConnected()
     m_ownClipboard[id] = false;
     m_sentClipboard[id] = false;
     m_timeClipboard[id] = 0;
+    m_clipboardRevision[id] = 0;
   }
 }
 
@@ -575,6 +599,22 @@ void Client::handleClipboardGrabbed(const Event &event)
   }
 
   const auto *info = static_cast<const IScreen::ClipboardInfo *>(event.getData());
+  if (info == nullptr || info->m_id >= kClipboardEnd) {
+    LOG_WARN("ignored invalid clipboard grab event");
+    return;
+  }
+
+  Clipboard clipboard;
+  if (clipboard.open(m_timeClipboard[info->m_id])) {
+    clipboard.close();
+  }
+  m_screen->getClipboard(info->m_id, &clipboard);
+  const auto data = clipboard.marshall();
+  if (m_sentClipboard[info->m_id] && data == m_dataClipboard[info->m_id]) {
+    m_timeClipboard[info->m_id] = clipboard.getTime();
+    LOG_DEBUG("ignored clipboard %u grab caused by applying remote revision", info->m_id);
+    return;
+  }
 
   // grab ownership
   m_server->onGrabClipboard(info->m_id);

@@ -30,7 +30,7 @@ ClientProxy1_6::ClientProxy1_6(const std::string &name, deskflow::IStream *strea
   });
 }
 
-void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
+void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
 {
   // ignore if this clipboard is already clean
   if (m_clipboard[id].m_dirty) {
@@ -48,7 +48,7 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
     LOG_DEBUG("sending clipboard %d to \"%s\"", id, getName().c_str());
 
     extendHeartbeatForClipboardOutgoingTransfer();
-    StreamChunker::sendClipboard(data, size, id, 0, m_events, this);
+    StreamChunker::sendClipboard(data, size, id, revision, m_events, this);
   }
 }
 

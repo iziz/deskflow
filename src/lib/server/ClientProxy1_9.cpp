@@ -34,7 +34,7 @@ ClientProxy1_9::~ClientProxy1_9()
   m_events->removeHandler(EventTypes::StreamOutputFlushed, getStream()->getEventTarget());
 }
 
-void ClientProxy1_9::setClipboard(ClipboardID id, const IClipboard *clipboard)
+void ClientProxy1_9::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
 {
   if (id >= kClipboardEnd || !m_clipboard[id].m_dirty) {
     return;
@@ -47,10 +47,16 @@ void ClientProxy1_9::setClipboard(ClipboardID id, const IClipboard *clipboard)
     LOG_DEBUG("skipping clipboard %u transfer to \"%s\" because it has no supported formats", id, getName().c_str());
     return;
   }
-  sendActions(m_outgoing.queue(id, 0, std::move(data), true));
+  sendActions(m_outgoing.queue(id, revision, std::move(data), true));
 }
 
 void ClientProxy1_9::grabClipboard(ClipboardID id)
+{
+  supersedeClipboardTransfers(id);
+  ClientProxy1_8::grabClipboard(id);
+}
+
+void ClientProxy1_9::supersedeClipboardTransfers(ClipboardID id)
 {
   sendActions(m_outgoing.supersede(id));
 
@@ -65,7 +71,6 @@ void ClientProxy1_9::grabClipboard(ClipboardID id)
     restoreIncomingHeartbeat();
     sendClipboardCancel(transferId, ClipboardTransferCancelReason::Superseded);
   }
-  ClientProxy1_8::grabClipboard(id);
 }
 
 bool ClientProxy1_9::parseMessage(const uint8_t *code)

@@ -18,7 +18,7 @@ public:
   ClientProxy1_6(const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events);
   ~ClientProxy1_6() override = default;
 
-  void setClipboard(ClipboardID id, const IClipboard *clipboard) override;
+  void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
   bool recvClipboard() override;
 
 protected:

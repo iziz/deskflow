@@ -20,11 +20,18 @@ ClipboardTransferQueue::queue(ClipboardID id, uint32_t sequence, std::string dat
   if (id >= kClipboardEnd) {
     return {};
   }
-
-  if (m_active && m_active->clipboardId == id && m_active->data == data) {
+  if (sequence != 0 && m_hasSequence[id] && isClipboardSequenceOlder(sequence, m_lastSequence[id])) {
     return {};
   }
-  if (m_pending[id] && m_pending[id]->data == data) {
+  if (sequence != 0) {
+    m_lastSequence[id] = sequence;
+    m_hasSequence[id] = true;
+  }
+
+  if (m_active && m_active->clipboardId == id && m_active->sequence == sequence && m_active->data == data) {
+    return {};
+  }
+  if (m_pending[id] && m_pending[id]->sequence == sequence && m_pending[id]->data == data) {
     return {};
   }
   if (!force && !m_active && !m_pending[id] && m_hasAcknowledged[id] && m_lastAcknowledged[id] == data) {
@@ -239,6 +246,11 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
   }
 
   if (mark == ChunkType::DataStart) {
+    if (sequence != 0 && m_hasSequence[id] && isClipboardSequenceOlder(sequence, m_lastSequence[id])) {
+      result.status = ClipboardTransferReceiveStatus::Error;
+      return result;
+    }
+
     size_t expectedSize = 0;
     const auto *begin = data.data();
     const auto *end = begin + data.size();
@@ -257,6 +269,10 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
     m_transferId = transferId;
     m_expectedSize = expectedSize;
     m_data.clear();
+    if (sequence != 0) {
+      m_lastSequence[id] = sequence;
+      m_hasSequence[id] = true;
+    }
     result.status = ClipboardTransferReceiveStatus::Started;
     return result;
   }

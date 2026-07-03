@@ -390,6 +390,10 @@ void ServerProxy::onInfoChanged()
 
 bool ServerProxy::onGrabClipboard(ClipboardID id)
 {
+  if (id >= kClipboardEnd) {
+    return false;
+  }
+
   if (m_transactionalClipboard) {
     sendClipboardActions(m_clipboardOutgoing.supersede(id));
     if (m_clipboardIncoming.active() && m_clipboardIncoming.clipboardId() == id) {
@@ -408,6 +412,9 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
 
 void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard, bool force)
 {
+  if (id >= kClipboardEnd) {
+    return;
+  }
   std::string data = IClipboard::marshall(clipboard);
   if (data.size() <= sizeof(uint32_t)) {
     LOG_DEBUG("skipping clipboard %d transfer because it has no supported formats", id);
@@ -769,7 +776,7 @@ void ServerProxy::setClipboard()
     // forward
     Clipboard clipboard;
     if (clipboard.unmarshall(dataCached, 0)) {
-      m_client->setClipboard(id, &clipboard);
+      m_client->setClipboard(id, &clipboard, seq);
       LOG_INFO("clipboard was updated");
     } else {
       LOG_WARN("ignored invalid clipboard update from server");
@@ -816,7 +823,7 @@ void ServerProxy::setClipboardTransfer()
         sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
         return;
       }
-      m_client->setClipboard(id, &clipboard);
+      m_client->setClipboard(id, &clipboard, sequence);
     } catch (...) {
       m_clipboardIncoming.reset();
       sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);

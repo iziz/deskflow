@@ -20,6 +20,11 @@ constexpr size_t kClipboardTransferChunkSize = 16 * 1024;
 constexpr double kClipboardTransferInactivityTimeout = 10.0;
 constexpr int kClipboardTransferMaxRetries = 2;
 
+constexpr bool isClipboardSequenceOlder(uint32_t sequence, uint32_t current)
+{
+  return sequence != current && sequence - current > 0x80000000u;
+}
+
 enum class ClipboardTransferActionType
 {
   Start,
@@ -85,6 +90,8 @@ private:
   std::array<std::optional<PendingTransfer>, kClipboardEnd> m_pending;
   std::array<std::string, kClipboardEnd> m_lastAcknowledged;
   std::array<bool, kClipboardEnd> m_hasAcknowledged{};
+  std::array<uint32_t, kClipboardEnd> m_lastSequence{};
+  std::array<bool, kClipboardEnd> m_hasSequence{};
   std::optional<ActiveTransfer> m_active;
   uint32_t m_transferIdMask = 0;
   uint32_t m_nextTransferId = 1;
@@ -128,4 +135,6 @@ private:
   uint32_t m_transferId = 0;
   size_t m_expectedSize = 0;
   std::string m_data;
+  std::array<uint32_t, kClipboardEnd> m_lastSequence{};
+  std::array<bool, kClipboardEnd> m_hasSequence{};
 };

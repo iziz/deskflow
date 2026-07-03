@@ -17,8 +17,9 @@ public:
   ClientProxy1_9(const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events);
   ~ClientProxy1_9() override;
 
-  void setClipboard(ClipboardID id, const IClipboard *clipboard) override;
+  void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
   void grabClipboard(ClipboardID id) override;
+  void supersedeClipboardTransfers(ClipboardID id) override;
   bool parseMessage(const uint8_t *code) override;
 
 private:

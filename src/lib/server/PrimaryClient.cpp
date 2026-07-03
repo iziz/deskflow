@@ -113,7 +113,7 @@ bool PrimaryClient::leave()
   return m_screen->leave();
 }
 
-void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard)
+void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
 {
   // ignore if this clipboard is already clean
   if (m_clipboardDirty[id]) {

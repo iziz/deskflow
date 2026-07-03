@@ -50,7 +50,7 @@ public:
   already known to be up to date then this may do nothing.  \c data
   has marshalled clipboard data.
   */
-  virtual void setClipboard(ClipboardID, const IClipboard *) = 0;
+  virtual void setClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0) = 0;
 
   //! Grab clipboard
   /*!

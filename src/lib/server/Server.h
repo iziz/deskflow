@@ -367,6 +367,7 @@ private:
 
   // force the cursor off of \p client
   void forceLeaveClient(const BaseClientProxy *client, const char *reason);
+  uint32_t nextClipboardRevision();
 
 private:
   class ClipboardInfo
@@ -378,7 +379,9 @@ private:
     Clipboard m_clipboard;
     std::string m_clipboardData;
     std::string m_clipboardOwner;
-    uint32_t m_clipboardSeqNum = 0;
+    uint32_t m_sourceSequence = 0;
+    uint32_t m_revision = 0;
+    uint32_t m_committedRevision = 0;
   };
   // Order suggested by clang
 
@@ -433,6 +436,9 @@ private:
 
   // the sequence number of enter messages
   uint32_t m_seqNum = 0;
+
+  // authoritative order of clipboard changes observed by the server
+  uint32_t m_nextClipboardRevision = 1;
 
   // current mouse position (in absolute screen coordinates) on
   // whichever screen is active

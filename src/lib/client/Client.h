@@ -138,7 +138,7 @@ public:
   // IClient overrides
   void enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool forScreensaver) override;
   bool leave() override;
-  void setClipboard(ClipboardID, const IClipboard *) override;
+  void setClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0) override;
   void grabClipboard(ClipboardID) override;
   void setClipboardDirty(ClipboardID, bool) override;
   void keyDown(KeyID, KeyModifierMask, KeyButton, const std::string &) override;
@@ -198,6 +198,7 @@ private:
   bool m_sentClipboard[kClipboardEnd];
   IClipboard::Time m_timeClipboard[kClipboardEnd];
   std::string m_dataClipboard[kClipboardEnd];
+  uint32_t m_clipboardRevision[kClipboardEnd]{};
   IEventQueue *m_events = nullptr;
   bool m_useSecureNetwork = false;
   bool m_enableClipboard = true;

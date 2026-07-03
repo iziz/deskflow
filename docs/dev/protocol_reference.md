@@ -206,10 +206,15 @@ validates the assembled clipboard data and sends `CACK`.
 - A new clipboard value for the same clipboard identifier supersedes the active
   transfer. The sender transmits `CCAN` for the old transfer and starts the
   latest value.
+- The server assigns a monotonically increasing revision when it observes a
+  clipboard ownership change. The `DCL2` sequence field carries that revision
+  from the server to clients; older revisions are discarded.
 - A local clipboard ownership change cancels both an outgoing transfer and an
   incoming transfer for the same clipboard identifier.
 - The receiver discards all buffered data for a cancelled, invalid, or timed-out
   transfer.
+- Clipboard data applied from a remote peer is not announced back as a new
+  local clipboard change when its serialized content is unchanged.
 - A timed-out sender retries the transfer up to the implementation retry limit.
   A transfer cancelled as superseded is not retried.
 - Protocol v1.8 and older peers continue to use `DCLP`.

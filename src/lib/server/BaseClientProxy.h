@@ -62,7 +62,7 @@ public:
   // IClient overrides
   void enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool forScreensaver) override = 0;
   bool leave() override = 0;
-  void setClipboard(ClipboardID, const IClipboard *) override = 0;
+  void setClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0) override = 0;
   void grabClipboard(ClipboardID) override = 0;
   void setClipboardDirty(ClipboardID, bool) override = 0;
   void keyDown(KeyID, KeyModifierMask, KeyButton, const std::string &) override = 0;
@@ -80,6 +80,9 @@ public:
   virtual void fileChunkSending(uint8_t mark, char *data, size_t dataSize) = 0;
   virtual std::string getSecureInputApp() const = 0;
   virtual void secureInputNotification(const std::string &app) const = 0;
+  virtual void supersedeClipboardTransfers(ClipboardID)
+  {
+  }
   std::string getName() const override;
   virtual deskflow::IStream *getStream() const = 0;
 
