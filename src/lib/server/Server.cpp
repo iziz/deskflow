@@ -1741,9 +1741,12 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 
   // ignore if data hasn't changed
   if (data == clipboard.m_clipboardData) {
+    const bool revisionChanged = clipboard.m_revision != clipboard.m_committedRevision;
     clipboard.m_committedRevision = clipboard.m_revision;
     LOG_DEBUG("ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id);
-    broadcastClipboard(id, sender);
+    if (revisionChanged) {
+      broadcastClipboard(id, sender);
+    }
     return;
   }
 
