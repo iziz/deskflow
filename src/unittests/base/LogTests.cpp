@@ -6,9 +6,13 @@
  */
 
 #include "LogTests.h"
+#include "base/LogOutputters.h"
 #include <clocale>
 #include <iostream>
 #include <sstream>
+
+#include <QFile>
+#include <QTemporaryDir>
 
 #define LEVEL_PRINT "%z\057"
 #define LEVEL_ERR "%z\061"
@@ -118,6 +122,49 @@ void LogTests::printErrWithFileAndLine()
   std::cerr.rdbuf(old);
 
   QCOMPARE(string, "ERROR: test message test file:123");
+}
+
+void LogTests::fileOutputter_flushesBufferedVerboseMessages()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const auto path = dir.filePath(QStringLiteral("deskflow.log"));
+
+  {
+    FileLogOutputter outputter(path);
+    outputter.open({});
+    QVERIFY(outputter.write(LogLevel::Level::Verbose, QStringLiteral("verbose message")));
+  }
+
+  QFile file(path);
+  QVERIFY(file.open(QFile::ReadOnly));
+  QCOMPARE(file.readAll(), QByteArray("verbose message\n"));
+}
+
+void LogTests::fileOutputter_rotatesWithoutDeletingCurrentLog()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const auto path = dir.filePath(QStringLiteral("deskflow.log"));
+
+  QFile existing(path);
+  QVERIFY(existing.open(QFile::WriteOnly));
+  QCOMPARE(existing.write(QByteArray(1024 * 1024, 'x')), 1024 * 1024);
+  existing.close();
+
+  {
+    FileLogOutputter outputter(path);
+    outputter.open({});
+    QVERIFY(outputter.write(LogLevel::Level::Info, QStringLiteral("current message")));
+  }
+
+  QFile rotated(path + QStringLiteral(".1"));
+  QVERIFY(rotated.open(QFile::ReadOnly));
+  QCOMPARE(rotated.size(), 1024 * 1024);
+
+  QFile current(path);
+  QVERIFY(current.open(QFile::ReadOnly));
+  QCOMPARE(current.readAll(), QByteArray("current message\n"));
 }
 
 QTEST_MAIN(LogTests)

@@ -222,7 +222,6 @@ int SecureSocket::secureRead(void *buffer, int size, int &read)
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
-    LOG_VERBOSE("reading secure socket");
     read = SSL_read(m_ssl->m_ssl, buffer, size);
 
     // Check result will cleanup the connection in the case of a fatal
@@ -247,8 +246,6 @@ int SecureSocket::secureWrite(const void *buffer, int size, int &wrote)
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
-    LOG_VERBOSE("writing secure socket: %p", this);
-
     wrote = SSL_write(m_ssl->m_ssl, buffer, size);
 
     // Check result will cleanup the connection in the case of a fatal
@@ -544,7 +541,6 @@ void SecureSocket::checkResult(int status, int &retry)
   case SSL_ERROR_WANT_READ:
     setReadable(true);
     retry++;
-    LOG_VERBOSE("want to read, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_WRITE:
@@ -552,17 +548,14 @@ void SecureSocket::checkResult(int status, int &retry)
     // poll action actually triggers on a write.
     setWritable(true);
     retry++;
-    LOG_VERBOSE("want to write, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_CONNECT:
     retry++;
-    LOG_VERBOSE("want to connect, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_WANT_ACCEPT:
     retry++;
-    LOG_VERBOSE("want to accept, error=%d, attempt=%d", errorCode, retry);
     break;
 
   case SSL_ERROR_SYSCALL:

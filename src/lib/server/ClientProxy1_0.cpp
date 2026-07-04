@@ -142,7 +142,9 @@ void ClientProxy1_0::handleData()
 
     // parse message
     try {
-      LOG_VERBOSE("msg from \"%s\": %c%c%c%c", getName().c_str(), code[0], code[1], code[2], code[3]);
+      if (memcmp(code, kMsgCNoop, 4) != 0) {
+        LOG_VERBOSE("msg from \"%s\": %c%c%c%c", getName().c_str(), code[0], code[1], code[2], code[3]);
+      }
       if (!(this->*m_parser)(code)) {
         LOG(
             (CLOG_ERR "invalid message from client \"%s\": %c%c%c%c", getName().c_str(), code[0], code[1], code[2],
@@ -178,7 +180,6 @@ bool ClientProxy1_0::parseHandshakeMessage(const uint8_t *code)
 {
   if (memcmp(code, kMsgCNoop, 4) == 0) {
     // discard no-ops
-    LOG_VERBOSE("no-op from", getName().c_str());
     return true;
   } else if (memcmp(code, kMsgDInfo, 4) == 0) {
     // future messages get parsed by parseMessage
@@ -203,7 +204,6 @@ bool ClientProxy1_0::parseMessage(const uint8_t *code)
     return false;
   } else if (memcmp(code, kMsgCNoop, 4) == 0) {
     // discard no-ops
-    LOG_VERBOSE("no-op from", getName().c_str());
     return true;
   } else if (memcmp(code, kMsgCClipboard, 4) == 0) {
     return recvGrabClipboard();
@@ -319,7 +319,6 @@ void ClientProxy1_0::mouseUp(ButtonID button)
 
 void ClientProxy1_0::mouseMove(int32_t xAbs, int32_t yAbs)
 {
-  LOG_VERBOSE("send mouse move to \"%s\" %d,%d", getName().c_str(), xAbs, yAbs);
   ProtocolUtil::writef(getStream(), kMsgDMouseMove, xAbs, yAbs);
 }
 

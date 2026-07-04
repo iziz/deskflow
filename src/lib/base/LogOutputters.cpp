@@ -13,9 +13,10 @@
 
 #include <QFile>
 #include <QString>
-#include <QTextStream>
 
 constexpr auto s_logFileSizeLimit = 1024 * 1024; //!< Max Log size before rotating (1Mb)
+constexpr auto s_logBufferSize = 64 * 1024;      //!< Batch verbose writes to keep logging off the input hot path
+constexpr auto s_logFlushIntervalMs = 250;       //!< Keep buffered diagnostics available to readers
 
 //
 // StopLogOutputter
@@ -53,17 +54,23 @@ void ConsoleLogOutputter::close()
 bool ConsoleLogOutputter::write(LogLevel::Level level, const QString &msg)
 {
   using enum LogLevel::Level;
-  if ((level >= Fatal) && (level <= Warning))
-    std::cerr << qPrintable(msg) << std::endl;
-  else
-    std::cout << qPrintable(msg) << std::endl;
-  std::cout.flush();
+  if ((level >= Fatal) && (level <= Warning)) {
+    std::cout.flush();
+    std::cerr << qPrintable(msg) << '\n';
+    std::cerr.flush();
+  } else {
+    std::cout << qPrintable(msg) << '\n';
+    if (level != Verbose) {
+      std::cout.flush();
+    }
+  }
   return true;
 }
 
 void ConsoleLogOutputter::flush() const
 {
-  // do nothing
+  std::cout.flush();
+  std::cerr.flush();
 }
 
 //
@@ -121,36 +128,108 @@ FileLogOutputter::FileLogOutputter(const QString &logFile)
   setLogFilename(logFile);
 }
 
+FileLogOutputter::~FileLogOutputter()
+{
+  close();
+}
+
 void FileLogOutputter::setLogFilename(const QString &logFile)
 {
   assert(logFile != nullptr);
+  close();
   m_fileName = logFile;
+  m_file.setFileName(logFile);
 }
 
-bool FileLogOutputter::write(LogLevel::Level, const QString &message)
+bool FileLogOutputter::write(LogLevel::Level level, const QString &message)
 {
-  QFile file(m_fileName);
-  if (!file.open(QFile::WriteOnly | QFile::Append))
+  if (!openFile()) {
     return false;
+  }
 
-  QTextStream(&file) << message << Qt::endl;
-  file.close();
+  auto entry = message.toUtf8();
+  entry.append('\n');
 
-  if (file.size() > s_logFileSizeLimit) {
-    const auto oldFile = QStringLiteral("%1.1").arg(m_fileName);
-    QFile::remove(m_fileName);
-    QFile::rename(m_fileName, oldFile);
+  if (m_file.size() + m_buffer.size() + entry.size() > s_logFileSizeLimit &&
+      (m_file.size() > 0 || !m_buffer.isEmpty())) {
+    if (!flushBuffer() || !rotateFile()) {
+      return false;
+    }
+  }
+
+  m_buffer.append(entry);
+
+  // Verbose input and protocol events can produce thousands of messages per
+  // second. Batch those messages, but keep higher-priority logs immediately
+  // visible and durable.
+  if (level != LogLevel::Level::Verbose || m_buffer.size() >= s_logBufferSize ||
+      m_flushTimer.elapsed() >= s_logFlushIntervalMs) {
+    return flushBuffer();
   }
 
   return true;
 }
 
-void FileLogOutputter::open(const QString &title)
+bool FileLogOutputter::openFile()
 {
-  // do nothing
+  if (m_file.isOpen()) {
+    return true;
+  }
+
+  const auto opened = m_file.open(QFile::WriteOnly | QFile::Append);
+  if (opened && !m_flushTimer.isValid()) {
+    m_flushTimer.start();
+  }
+  return opened;
+}
+
+bool FileLogOutputter::flushBuffer()
+{
+  if (m_buffer.isEmpty()) {
+    return true;
+  }
+  if (!openFile()) {
+    return false;
+  }
+
+  const auto bytesWritten = m_file.write(m_buffer);
+  if (bytesWritten < 0) {
+    return false;
+  }
+  m_buffer.remove(0, bytesWritten);
+
+  const auto flushed = m_buffer.isEmpty() && m_file.flush();
+  if (flushed) {
+    m_flushTimer.restart();
+  }
+  return flushed;
+}
+
+bool FileLogOutputter::rotateFile()
+{
+  if (!m_buffer.isEmpty() || !openFile()) {
+    return false;
+  }
+
+  m_file.close();
+  const auto oldFile = QStringLiteral("%1.1").arg(m_fileName);
+  QFile::remove(oldFile);
+  if (!QFile::rename(m_fileName, oldFile)) {
+    openFile();
+    return false;
+  }
+
+  return openFile();
+}
+
+void FileLogOutputter::open(const QString &)
+{
+  openFile();
 }
 
 void FileLogOutputter::close()
 {
-  // do nothing
+  flushBuffer();
+  m_file.close();
+  m_flushTimer.invalidate();
 }

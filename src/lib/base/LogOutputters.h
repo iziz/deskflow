@@ -10,7 +10,11 @@
 
 #include "base/ILogOutputter.h"
 
+#include <QByteArray>
+#include <QElapsedTimer>
+#include <QFile>
 #include <QString>
+
 //! Stop traversing log chain outputter
 /*!
 This outputter performs no output and returns false from \c write(),
@@ -57,7 +61,7 @@ class FileLogOutputter : public ILogOutputter
 {
 public:
   explicit FileLogOutputter(const QString &logFile);
-  ~FileLogOutputter() override = default;
+  ~FileLogOutputter() override;
 
   // ILogOutputter overrides
   void open(const QString &title) override;
@@ -67,6 +71,13 @@ public:
   void setLogFilename(const QString &title);
 
 private:
+  bool flushBuffer();
+  bool openFile();
+  bool rotateFile();
+
+  QByteArray m_buffer;
+  QElapsedTimer m_flushTimer;
+  QFile m_file;
   QString m_fileName;
 };
 

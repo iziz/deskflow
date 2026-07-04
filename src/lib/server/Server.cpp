@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <array>
 #endif
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -39,6 +40,18 @@ using namespace deskflow::server;
 namespace {
 
 constexpr int32_t kSecondarySwitchEdgeMargin = 16;
+constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
+
+bool shouldLogMouseMotion()
+{
+  static thread_local auto lastLogTime = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now - lastLogTime < kMouseMotionLogInterval) {
+    return false;
+  }
+  lastLogTime = now;
+  return true;
+}
 
 bool containsPhysicalPosition(float start, float length, float position)
 {
@@ -1918,7 +1931,9 @@ void Server::onMouseUp(ButtonID id)
 
 bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 {
-  LOG_VERBOSE("onMouseMovePrimary %d,%d", x, y);
+  if (shouldLogMouseMotion()) {
+    LOG_VERBOSE("mouse position on primary: %d,%d", x, y);
+  }
 
   // mouse move on primary (server's) screen
   if (m_active != m_primaryClient) {
@@ -2022,7 +2037,9 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 
 void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 {
-  LOG_VERBOSE("mouse move on secondary: %+d,%+d", dx, dy);
+  if (shouldLogMouseMotion()) {
+    LOG_VERBOSE("mouse delta on secondary: %+d,%+d", dx, dy);
+  }
 
   // TODO: move this to client side and use a qt setting or cli arg instead of env var.
   const static auto adjustEnv = "DESKFLOW_MOUSE_ADJUSTMENT";
@@ -2051,7 +2068,6 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   // program on the secondary screen to warp the mouse on us, so we
   // have no idea where it really is.
   if (m_relativeMoves && isLockedToScreenServer()) {
-    LOG_VERBOSE("relative move on %s by %d,%d", getName(m_active).c_str(), dx, dy);
     m_active->mouseRelativeMove(dx, dy);
     return;
   }
@@ -2193,7 +2209,6 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 
     // warp cursor if it moved.
     if (m_x != xOld || m_y != yOld) {
-      LOG_VERBOSE("move on %s to %d,%d", getName(m_active).c_str(), m_x, m_y);
       m_active->mouseMove(m_x, m_y);
     }
   }

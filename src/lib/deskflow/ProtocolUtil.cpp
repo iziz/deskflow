@@ -23,6 +23,11 @@
 
 namespace {
 
+bool isMouseMotionFormat(const char *format)
+{
+  return std::strncmp(format, kMsgDMouseMove, 4) == 0 || std::strncmp(format, kMsgDMouseRelMove, 4) == 0;
+}
+
 void writeInt(uint32_t Value, uint32_t Length, std::vector<uint8_t> &Buffer)
 {
   switch (Length) {
@@ -71,7 +76,9 @@ void ProtocolUtil::writef(deskflow::IStream *stream, const char *fmt, ...)
 {
   assert(stream != nullptr);
   assert(fmt != nullptr);
-  LOG_VERBOSE("writef(%s)", fmt);
+  if (!isMouseMotionFormat(fmt)) {
+    LOG_VERBOSE("writef(%s)", fmt);
+  }
 
   va_list args;
   va_start(args, fmt);
@@ -125,7 +132,6 @@ void ProtocolUtil::vwritef(deskflow::IStream *stream, const char *fmt, uint32_t 
   try {
     // write buffer
     stream->write(Buffer.data(), size);
-    LOG_VERBOSE("wrote %d bytes", size);
   } catch (const BaseException &exception) {
     LOG_VERBOSE("exception <%s> during wrote %d bytes into stream", exception.what(), size);
     throw;

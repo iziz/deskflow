@@ -1052,8 +1052,6 @@ void ServerProxy::mouseMove()
     m_dxMouse = 0;
     m_dyMouse = 0;
   }
-  LOG_VERBOSE("recv mouse move %d,%d", x, y);
-
   // forward
   if (!ignore) {
     m_client->mouseMove(x, y);
@@ -1082,8 +1080,6 @@ void ServerProxy::mouseRelativeMove()
     m_dxMouse += dx;
     m_dyMouse += dy;
   }
-  LOG_VERBOSE("recv mouse relative move %d,%d", dx, dy);
-
   // forward
   if (!ignore) {
     m_client->mouseRelativeMove(dx, dy);
