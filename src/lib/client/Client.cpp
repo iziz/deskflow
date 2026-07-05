@@ -640,6 +640,11 @@ void Client::handleClipboardGrabbed(const Event &event)
     return;
   }
 
+  if (!m_active) {
+    LOG_DEBUG("ignored clipboard %u grab because this screen is not active", info->m_id);
+    return;
+  }
+
   Clipboard clipboard;
   if (clipboard.open(m_timeClipboard[info->m_id])) {
     clipboard.close();
@@ -660,11 +665,9 @@ void Client::handleClipboardGrabbed(const Event &event)
   m_sentClipboard[info->m_id] = false;
   m_timeClipboard[info->m_id] = 0;
 
-  // if we're not the active screen then send the clipboard now,
-  // otherwise we'll wait until we leave.
-  if (!m_active) {
-    sendClipboard(info->m_id);
-  }
+  // Publish the active screen's clipboard immediately. A newer ownership
+  // notification supersedes any unfinished transfer for this clipboard.
+  sendClipboard(info->m_id);
 }
 
 void Client::handleHello()

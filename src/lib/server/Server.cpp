@@ -1409,6 +1409,12 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     );
     return;
   }
+  if (grabber != m_active) {
+    LOG_DEBUG(
+        "ignored clipboard grab from inactive screen \"%s\" for clipboard %d", getName(grabber).c_str(), info->m_id
+    );
+    return;
+  }
 
   ClipboardInfo &clipboard = m_clipboards[info->m_id];
   if (grabber != m_primaryClient && isClipboardSequenceOlder(info->m_sequenceNumber, clipboard.m_sourceSequence)) {
@@ -1435,14 +1441,8 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     client->setClipboardDirty(info->m_id, client != grabber);
   }
 
-  if (grabber == m_primaryClient && m_active != m_primaryClient) {
-    LOG_INFO("clipboard grabbed while active screen was changed, resending clipboard data");
-    const auto primaryName = getName(m_primaryClient);
-    for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-      if (m_clipboards[id].m_clipboardOwner == primaryName) {
-        onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_sourceSequence);
-      }
-    }
+  if (grabber == m_primaryClient) {
+    onClipboardChanged(m_primaryClient, info->m_id, info->m_sequenceNumber);
   }
 }
 
