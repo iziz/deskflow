@@ -17,6 +17,7 @@
 #define LEVEL_PRINT "%z\057"
 #define LEVEL_ERR "%z\061"
 #define LEVEL_INFO "%z\063"
+#define LEVEL_VERBOSE "%z\065"
 
 QString sanitizeBuffer(const std::stringstream &in)
 {
@@ -94,6 +95,24 @@ void LogTests::printLevelToHigh()
 
   auto string = sanitizeBuffer(buffer);
   std::cout.rdbuf(old);
+
+  QCOMPARE(string, QString{});
+}
+
+void LogTests::printVerboseAboveConsoleMaxLevel()
+{
+  m_log.setFilter(LogLevel::Level::Verbose);
+  m_log.setConsoleMaxLevel(LogLevel::Level::Debug);
+
+  std::stringstream buffer;
+  std::streambuf *old = std::cout.rdbuf(buffer.rdbuf());
+
+  m_log.print(nullptr, 0, LEVEL_VERBOSE "test message");
+
+  auto string = sanitizeBuffer(buffer);
+  std::cout.rdbuf(old);
+  m_log.setConsoleMaxLevel(LogLevel::Level::Verbose);
+  m_log.setFilter(LogLevel::Level::Debug);
 
   QCOMPARE(string, QString{});
 }

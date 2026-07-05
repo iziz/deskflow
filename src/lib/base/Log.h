@@ -19,6 +19,7 @@
 #define BYE "\nTry `%s --help' for more information."
 
 class ILogOutputter;
+class ConsoleLogOutputter;
 class Thread;
 
 //! Logging facility
@@ -91,6 +92,9 @@ public:
   //! Set the minimum priority filter (by ordinal).
   void setFilter(LogLevel::Level);
 
+  //! Set the maximum priority written to the default console outputter.
+  void setConsoleMaxLevel(LogLevel::Level);
+
   //@}
   //! @name accessors
   //@{
@@ -111,10 +115,7 @@ public:
 
   //! Get the console filter level (messages above this are not sent to
   //! console).
-  LogLevel::Level getConsoleMaxLevel() const
-  {
-    return LogLevel::Level::Verbose;
-  }
+  LogLevel::Level getConsoleMaxLevel() const;
 
   //@}
 
@@ -129,6 +130,8 @@ private:
   mutable std::mutex m_mutex;
   OutputterList m_outputters;
   OutputterList m_alwaysOutputters;
+  ConsoleLogOutputter *m_consoleOutputter = nullptr;
+  LogLevel::Level m_consoleMaxLevel = LogLevel::Level::Verbose;
   LogLevel::Level m_maxPriority;
 };
 

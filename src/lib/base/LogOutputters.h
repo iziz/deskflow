@@ -49,6 +49,10 @@ public:
   void close() override;
   bool write(LogLevel::Level level, const QString &message) override;
   void flush() const;
+  void setMaxLevel(LogLevel::Level maxLevel);
+
+private:
+  LogLevel::Level m_maxLevel = LogLevel::Level::Verbose;
 };
 
 //! Write log to file

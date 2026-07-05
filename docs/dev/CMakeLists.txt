@@ -19,6 +19,7 @@ target_sources(dev-docs PRIVATE
   codex_harness.md
   macos_input_clipboard_stability.md
   protocol_reference.md
+  windows_build_server.md
 )
 
 # missing install target is intended generate a local copy

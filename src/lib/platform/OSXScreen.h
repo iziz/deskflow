@@ -122,6 +122,10 @@ private:
   void constructMouseButtonEventMap();
 
   bool onKey(CGEventRef event);
+  bool isClipboardShortcut(uint32_t virtualKey, CGEventFlags macMask) const;
+  void scheduleClipboardFastCheck();
+  void cancelClipboardFastCheckTimer();
+  void handleClipboardFastCheckTimer();
 
   void onMediaKey(CGEventRef event);
 
@@ -262,6 +266,7 @@ private:
   // clipboard stuff
   bool m_ownClipboard;
   EventQueueTimer *m_clipboardTimer;
+  EventQueueTimer *m_clipboardFastCheckTimer = nullptr;
 
   EventQueueTimer *m_axTimer;
 

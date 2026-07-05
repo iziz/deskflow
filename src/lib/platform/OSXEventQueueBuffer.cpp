@@ -13,6 +13,25 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 
+#include <chrono>
+
+namespace {
+
+constexpr auto kEventQueueLogInterval = std::chrono::milliseconds(100);
+
+bool shouldLogEventQueue()
+{
+  static thread_local auto lastLogTime = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now - lastLogTime < kEventQueueLogInterval) {
+    return false;
+  }
+  lastLogTime = now;
+  return true;
+}
+
+} // namespace
+
 //
 // OSXEventQueueBuffer
 //
@@ -31,12 +50,16 @@ void OSXEventQueueBuffer::waitForEvent(double timeout)
 {
   std::unique_lock lock(m_mutex);
   if (m_dataQueue.empty()) {
-    LOG_VERBOSE("waiting for event, timeout: %f seconds", timeout);
+    if (shouldLogEventQueue()) {
+      LOG_VERBOSE("waiting for event, timeout: %f seconds", timeout);
+    }
     auto end = timeout < 0 ? std::chrono::steady_clock::time_point::max()
                            : std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout);
     m_cond.wait_until(lock, end, [this] { return !m_dataQueue.empty(); });
   } else {
-    LOG_VERBOSE("found events in the queue");
+    if (shouldLogEventQueue()) {
+      LOG_VERBOSE("found events in the queue");
+    }
   }
 }
 
@@ -44,7 +67,9 @@ IEventQueueBuffer::Type OSXEventQueueBuffer::getEvent(Event &event, uint32_t &da
 {
   std::unique_lock lock(m_mutex);
   if (m_dataQueue.empty()) {
-    LOG_VERBOSE("no events in queue");
+    if (shouldLogEventQueue()) {
+      LOG_VERBOSE("no events in queue");
+    }
     return IEventQueueBuffer::Type::Unknown;
   }
 
@@ -52,17 +77,23 @@ IEventQueueBuffer::Type OSXEventQueueBuffer::getEvent(Event &event, uint32_t &da
   m_dataQueue.pop();
   lock.unlock(); // Unlock early to allow other threads to proceed
 
-  LOG_VERBOSE("handled user event with dataID: %u", dataID);
+  if (shouldLogEventQueue()) {
+    LOG_VERBOSE("handled user event with dataID: %u", dataID);
+  }
   return IEventQueueBuffer::Type::User;
 }
 
 bool OSXEventQueueBuffer::addEvent(uint32_t dataID)
 {
   std::scoped_lock lock{m_mutex};
-  LOG_VERBOSE("adding user event with dataID: %u", dataID);
+  if (shouldLogEventQueue()) {
+    LOG_VERBOSE("adding user event with dataID: %u", dataID);
+  }
   m_dataQueue.push(dataID);
   m_cond.notify_one();
-  LOG_VERBOSE("user event added to queue, dataID=%u", dataID);
+  if (shouldLogEventQueue()) {
+    LOG_VERBOSE("user event added to queue, dataID=%u", dataID);
+  }
   return true;
 }
 
@@ -70,6 +101,8 @@ bool OSXEventQueueBuffer::isEmpty() const
 {
   std::scoped_lock lock{m_mutex};
   bool empty = m_dataQueue.empty();
-  LOG_VERBOSE("queue is %s", empty ? "empty" : "not empty");
+  if (shouldLogEventQueue()) {
+    LOG_VERBOSE("queue is %s", empty ? "empty" : "not empty");
+  }
   return empty;
 }

@@ -53,6 +53,10 @@ void ConsoleLogOutputter::close()
 
 bool ConsoleLogOutputter::write(LogLevel::Level level, const QString &msg)
 {
+  if (level > m_maxLevel) {
+    return true;
+  }
+
   using enum LogLevel::Level;
   if ((level >= Fatal) && (level <= Warning)) {
     std::cout.flush();
@@ -71,6 +75,11 @@ void ConsoleLogOutputter::flush() const
 {
   std::cout.flush();
   std::cerr.flush();
+}
+
+void ConsoleLogOutputter::setMaxLevel(LogLevel::Level maxLevel)
+{
+  m_maxLevel = maxLevel;
 }
 
 //

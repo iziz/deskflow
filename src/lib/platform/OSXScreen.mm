@@ -41,6 +41,8 @@
 #include <mach-o/dyld.h>
 #include <math.h>
 
+#include <chrono>
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
@@ -61,6 +63,25 @@ enum
 
 static const double kCarbonLoopWaitTimeout = 10.0;
 static constexpr int64_t kDeskflowSyntheticMouseEventUserData = 0x4453464d4f555345LL;
+
+namespace {
+
+constexpr double kClipboardPollInterval = 0.25;
+constexpr double kClipboardFastCheckDelay = 0.02;
+constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
+
+bool shouldLogMouseMotion()
+{
+  static thread_local auto lastLogTime = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now - lastLogTime < kMouseMotionLogInterval) {
+    return false;
+  }
+  lastLogTime = now;
+  return true;
+}
+
+} // namespace
 
 int getSecureInputEventPID();
 std::string getProcessName(int pid);
@@ -91,6 +112,7 @@ OSXScreen::OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync)
       m_screensaverNotify(false),
       m_ownClipboard(false),
       m_clipboardTimer(nullptr),
+      m_clipboardFastCheckTimer(nullptr),
       m_axTimer(nullptr),
       m_hiddenWindow(nullptr),
       m_userInputWindow(nullptr),
@@ -669,7 +691,7 @@ void OSXScreen::hideCursor()
 void OSXScreen::enable()
 {
   // watch the clipboard
-  m_clipboardTimer = m_events->newTimer(0.25, nullptr);
+  m_clipboardTimer = m_events->newTimer(kClipboardPollInterval, nullptr);
   m_events->addHandler(EventTypes::Timer, m_clipboardTimer, [this](const auto &) { checkClipboards(); });
 
   m_axTimer = m_events->newTimer(1.0, nullptr);
@@ -755,6 +777,7 @@ void OSXScreen::disable()
     m_events->deleteTimer(m_clipboardTimer);
     m_clipboardTimer = nullptr;
   }
+  cancelClipboardFastCheckTimer();
 
   if (m_axTimer != nullptr) {
     m_events->removeHandler(EventTypes::Timer, m_axTimer);
@@ -829,6 +852,44 @@ void OSXScreen::checkClipboards()
     LOG_DEBUG("clipboard changed");
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
   }
+}
+
+bool OSXScreen::isClipboardShortcut(uint32_t virtualKey, CGEventFlags macMask) const
+{
+  if ((macMask & kCGEventFlagMaskCommand) == 0) {
+    return false;
+  }
+
+  return virtualKey == kVK_ANSI_C || virtualKey == kVK_ANSI_X;
+}
+
+void OSXScreen::scheduleClipboardFastCheck()
+{
+  cancelClipboardFastCheckTimer();
+  LOG_DEBUG("scheduling clipboard fast check after local copy shortcut");
+  m_clipboardFastCheckTimer = m_events->newOneShotTimer(kClipboardFastCheckDelay, nullptr);
+  m_events->addHandler(EventTypes::Timer, m_clipboardFastCheckTimer, [this](const auto &) {
+    handleClipboardFastCheckTimer();
+  });
+}
+
+void OSXScreen::cancelClipboardFastCheckTimer()
+{
+  if (m_clipboardFastCheckTimer == nullptr) {
+    return;
+  }
+
+  auto *timer = m_clipboardFastCheckTimer;
+  m_clipboardFastCheckTimer = nullptr;
+  m_events->removeHandler(EventTypes::Timer, timer);
+  m_events->deleteTimer(timer);
+}
+
+void OSXScreen::handleClipboardFastCheckTimer()
+{
+  cancelClipboardFastCheckTimer();
+  LOG_DEBUG("checking clipboard after local copy shortcut");
+  checkClipboards();
 }
 
 void OSXScreen::openScreensaver(bool notify)
@@ -975,7 +1036,9 @@ bool OSXScreen::onMouseMove()
   CGFloat mx = pos.x;
   CGFloat my = pos.y;
 
-  LOG_VERBOSE("mouse move %+f,%+f", mx, my);
+  if (shouldLogMouseMotion()) {
+    LOG_VERBOSE("mouse move %+f,%+f", mx, my);
+  }
 
   CGFloat x = mx - m_xCursor;
   CGFloat y = my - m_yCursor;
@@ -1088,6 +1151,10 @@ bool OSXScreen::onKey(CGEventRef event)
   uint32_t virtualKey = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
   CGEventFlags macMask = CGEventGetFlags(event);
   LOG_VERBOSE("event: Key event kind: %d, keycode=%d", eventKind, virtualKey);
+
+  if (eventKind == kCGEventKeyUp && isClipboardShortcut(virtualKey, macMask)) {
+    scheduleClipboardFastCheck();
+  }
 
   // Special handling to track state of modifiers
   if (eventKind == kCGEventFlagsChanged) {
@@ -1679,7 +1746,11 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
     screen->m_xCursor = static_cast<int32_t>(pos.x);
     screen->m_yCursor = static_cast<int32_t>(pos.y);
     screen->m_cursorPosValid = true;
-    LOG_VERBOSE("secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor);
+    if (shouldLogMouseMotion()) {
+      LOG_VERBOSE(
+          "secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor
+      );
+    }
     screen->sendEvent(EventTypes::ScreenInfoChanged);
     break;
   }

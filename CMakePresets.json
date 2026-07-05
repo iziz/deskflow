@@ -29,6 +29,29 @@
       }
     },
     {
+      "name": "windows-release-vcpkg",
+      "displayName": "Windows Release (vcpkg)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-release-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "VSLANG": "1033"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/deps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/deps/qt/6.7.3/msvc2019_64",
+        "Qt6_DIR": "${sourceDir}/deps/qt/6.7.3/msvc2019_64/lib/cmake/Qt6",
+        "VCPKG_QT": "OFF",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "BUILD_INSTALLER": "ON"
+      }
+    },
+    {
       "name": "macos-release",
       "displayName": "macOS Release",
       "generator": "Ninja",
@@ -176,6 +199,32 @@
       },
       "targets": [
         "platform"
+      ]
+    },
+    {
+      "name": "windows-release-vcpkg",
+      "displayName": "Build Windows Release (vcpkg)",
+      "configurePreset": "windows-release-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-release-vcpkg-msi",
+      "displayName": "Build Windows Release MSI inputs",
+      "configurePreset": "windows-release-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "targets": [
+        "deskflow",
+        "deskflow-core",
+        "deskflow-daemon",
+        "wix-custom"
       ]
     },
     {

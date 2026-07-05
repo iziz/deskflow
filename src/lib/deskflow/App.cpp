@@ -127,6 +127,7 @@ void App::setupFileLogging()
     const auto file = Settings::value(Settings::Log::File).toString();
     m_fileLog = new FileLogOutputter(file); // NOSONAR - Adopted by `Log`
     CLOG->insert(m_fileLog);
+    CLOG->setConsoleMaxLevel(LogLevel::Level::Debug);
     LOG_VERBOSE("logging to file (%s) enabled", qPrintable(file));
   }
 }
@@ -153,10 +154,10 @@ void App::initApp()
     );
     m_bye(s_exitArgs);
   }
-  loggingFilterWarning();
 
   // setup file logging after parsing args
   setupFileLogging();
+  loggingFilterWarning();
 
   // load configuration
   loadConfig();

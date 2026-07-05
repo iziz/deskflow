@@ -99,6 +99,8 @@ language ko has group id <korean-group>
 Expected log evidence for a local macOS text copy is:
 
 ```text
+scheduling clipboard fast check after local copy shortcut
+checking clipboard after local copy shortcut
 clipboard changed
 local clipboard <id> queued for transfer, size=<bytes>, force=<true|false>
 sending clipboard <id> changed

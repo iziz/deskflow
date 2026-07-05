@@ -43,4 +43,8 @@ add_library(arch STATIC ${PLATFORM_CODE}
   IArchNetwork.h
 )
 
-target_link_libraries (arch PUBLIC common)
+target_link_libraries(arch PUBLIC common)
+
+if(WIN32)
+  target_link_libraries(arch PUBLIC version)
+endif()

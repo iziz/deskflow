@@ -111,7 +111,8 @@ Log::Log(bool singleton)
 
   // other initalization
   m_maxPriority = g_defaultMaxPriority;
-  insert(new ConsoleLogOutputter); // NOSONAR - Adopted by `Log`
+  m_consoleOutputter = new ConsoleLogOutputter; // NOSONAR - Adopted by `Log`
+  insert(m_consoleOutputter);
 
   if (singleton) {
     s_log = this;
@@ -203,6 +204,9 @@ void Log::pop_front(bool alwaysAtHead)
   std::scoped_lock lock{m_mutex};
   OutputterList *list = alwaysAtHead ? &m_alwaysOutputters : &m_outputters;
   if (!list->empty()) {
+    if (list->front() == m_consoleOutputter) {
+      m_consoleOutputter = nullptr;
+    }
     delete list->front();
     list->pop_front();
   }
@@ -223,10 +227,25 @@ void Log::setFilter(LogLevel::Level maxPriority)
   m_maxPriority = maxPriority;
 }
 
+void Log::setConsoleMaxLevel(LogLevel::Level maxLevel)
+{
+  std::scoped_lock lock{m_mutex};
+  m_consoleMaxLevel = maxLevel;
+  if (m_consoleOutputter != nullptr) {
+    m_consoleOutputter->setMaxLevel(maxLevel);
+  }
+}
+
 LogLevel::Level Log::getFilter() const
 {
   std::scoped_lock lock{m_mutex};
   return m_maxPriority;
+}
+
+LogLevel::Level Log::getConsoleMaxLevel() const
+{
+  std::scoped_lock lock{m_mutex};
+  return m_consoleMaxLevel;
 }
 
 void Log::output(LogLevel::Level priority, const char *msg)

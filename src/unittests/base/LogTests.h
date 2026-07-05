@@ -19,6 +19,7 @@ private Q_SLOTS:
   void printTestWithArgs();
   void printTestLogString();
   void printLevelToHigh();
+  void printVerboseAboveConsoleMaxLevel();
   void printInfoWithFileAndLine();
   void printErrWithFileAndLine();
   void fileOutputter_flushesBufferedVerboseMessages();
