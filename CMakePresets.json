@@ -3,7 +3,7 @@
   "configurePresets": [
     {
       "name": "dev",
-      "displayName": "Development",
+      "displayName": "Windows Development",
       "inherits": "windows-debug-vcpkg"
     },
     {
@@ -11,6 +11,11 @@
       "displayName": "Windows Debug (vcpkg)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "environment": {
         "VSLANG": "1033"
       },
@@ -22,13 +27,37 @@
         "VCPKG_QT": "OFF",
         "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "$penv{HOMEBREW_PREFIX}/opt/qtbase;$penv{HOMEBREW_PREFIX}/opt/qttools;$penv{HOMEBREW_PREFIX}/opt/qtsvg;$penv{HOMEBREW_PREFIX}/opt/qtwebengine;$penv{HOMEBREW_PREFIX}/opt/qtvirtualkeyboard;$penv{HOMEBREW_PREFIX}/opt/qtdeclarative;$penv{HOMEBREW_PREFIX}/opt/openssl@3",
+        "QT_ADDITIONAL_PACKAGES_PREFIX_PATH": "$penv{HOMEBREW_PREFIX}/opt/qttools",
+        "BUILD_DEV_DOCS": "OFF",
+        "BUILD_TESTS": "OFF",
+        "BUILD_USER_DOCS": "OFF"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "dev",
-      "displayName": "Build Deskflow development binaries",
+      "displayName": "Build Windows development binaries",
       "configurePreset": "dev",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow",
         "deskflow-core",
@@ -37,32 +66,52 @@
     },
     {
       "name": "gui",
-      "displayName": "Build Deskflow GUI for development",
+      "displayName": "Build Windows Deskflow GUI for development",
       "configurePreset": "dev",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow"
       ]
     },
     {
       "name": "core",
-      "displayName": "Build deskflow-core for development",
+      "displayName": "Build Windows deskflow-core for development",
       "configurePreset": "dev",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow-core"
       ]
     },
     {
       "name": "daemon",
-      "displayName": "Build deskflow-daemon for development",
+      "displayName": "Build Windows deskflow-daemon for development",
       "configurePreset": "dev",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow-daemon"
       ]
     },
     {
       "name": "platform",
-      "displayName": "Build platform library for development",
+      "displayName": "Build Windows platform library for development",
       "configurePreset": "dev",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "platform"
       ]
@@ -70,12 +119,22 @@
     {
       "name": "windows-debug-vcpkg",
       "displayName": "Build Windows Debug (vcpkg)",
-      "configurePreset": "windows-debug-vcpkg"
+      "configurePreset": "windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     },
     {
       "name": "windows-debug-vcpkg-core",
       "displayName": "Build deskflow-core for Windows Debug (vcpkg)",
       "configurePreset": "windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow-core"
       ]
@@ -84,6 +143,11 @@
       "name": "windows-debug-vcpkg-gui",
       "displayName": "Build Deskflow GUI for Windows Debug (vcpkg)",
       "configurePreset": "windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow"
       ]
@@ -92,6 +156,11 @@
       "name": "windows-debug-vcpkg-daemon",
       "displayName": "Build deskflow-daemon for Windows Debug (vcpkg)",
       "configurePreset": "windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "deskflow-daemon"
       ]
@@ -100,8 +169,88 @@
       "name": "windows-debug-vcpkg-platform",
       "displayName": "Build platform library for Windows Debug (vcpkg)",
       "configurePreset": "windows-debug-vcpkg",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "targets": [
         "platform"
+      ]
+    },
+    {
+      "name": "macos-release",
+      "displayName": "Build macOS Release",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-release-gui",
+      "displayName": "Build macOS Deskflow GUI",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "targets": [
+        "Deskflow"
+      ]
+    },
+    {
+      "name": "macos-release-core",
+      "displayName": "Build macOS deskflow-core",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "targets": [
+        "deskflow-core"
+      ]
+    },
+    {
+      "name": "macos-release-platform",
+      "displayName": "Build macOS platform library",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "targets": [
+        "platform"
+      ]
+    },
+    {
+      "name": "macos-install-app",
+      "displayName": "Install macOS app bundle",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "targets": [
+        "install-macos-app"
+      ]
+    },
+    {
+      "name": "macos-install-app-fast",
+      "displayName": "Fast install macOS app bundle",
+      "configurePreset": "macos-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "targets": [
+        "install-macos-app-fast"
       ]
     }
   ]
