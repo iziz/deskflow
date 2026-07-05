@@ -14,6 +14,7 @@
 #include "base/EventTypes.h"
 #include "common/Enums.h"
 #include "deskflow/IClipboard.h"
+#include "deskflow/ProtocolTypes.h"
 #include "net/NetworkAddress.h"
 
 #include <climits>
@@ -143,6 +144,9 @@ public:
   void setClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0) override;
   void grabClipboard(ClipboardID) override;
   void forgetSentClipboard(ClipboardID);
+  void onClipboardTransferAcknowledged(ClipboardID);
+  void onClipboardTransferSuperseded(ClipboardID);
+  void onClipboardTransferFailed(ClipboardID, ClipboardTransferCancelReason);
   void setClipboardDirty(ClipboardID, bool) override;
   void keyDown(KeyID, KeyModifierMask, KeyButton, const std::string &) override;
   void keyRepeat(KeyID, KeyModifierMask, int32_t count, KeyButton, const std::string &lang) override;

@@ -58,6 +58,8 @@ public:
 
   bool active() const;
   uint32_t activeTransferId() const;
+  ClipboardID activeClipboardId() const;
+  bool canAcknowledge(uint32_t transferId) const;
 
 private:
   enum class Phase

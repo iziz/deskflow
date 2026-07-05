@@ -112,7 +112,7 @@ Expected log evidence for a final outgoing failure is:
 ```text
 clipboard transfer <transfer-id> to server timed out
 cancelling clipboard transfer <transfer-id> to server, reason=2
-forgot clipboard <id> sent cache after failed transfer
+forgot clipboard <id> sent cache after failed transfer, reason=2
 ```
 
 ## macOS Pasteboard Detection

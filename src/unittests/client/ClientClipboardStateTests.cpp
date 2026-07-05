@@ -51,6 +51,10 @@ void ClientClipboardStateTests::localSendTracksPendingAndAcknowledgedStates()
 
   state.markLocalClipboardAcknowledged(kClipboardClipboard);
   QCOMPARE(state.cacheState(kClipboardClipboard), ClientClipboardState::CacheState::ServerAcknowledged);
+
+  const auto acknowledgedDuplicate = state.markLocalClipboardReadForSend(kClipboardClipboard, 12, "payload");
+  QVERIFY(!acknowledgedDuplicate.shouldSend);
+  QVERIFY(!acknowledgedDuplicate.force);
 }
 
 void ClientClipboardStateTests::failedTransferForgetsSentCache()

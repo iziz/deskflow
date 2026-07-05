@@ -146,6 +146,17 @@ uint32_t ClipboardTransferQueue::activeTransferId() const
   return m_active ? m_active->transferId : 0;
 }
 
+ClipboardID ClipboardTransferQueue::activeClipboardId() const
+{
+  return m_active ? m_active->clipboardId : kClipboardEnd;
+}
+
+bool ClipboardTransferQueue::canAcknowledge(uint32_t transferId) const
+{
+  return m_active && m_active->transferId == transferId &&
+         (m_active->phase == Phase::EndPendingFlush || m_active->phase == Phase::AwaitingAck);
+}
+
 std::vector<ClipboardTransferAction> ClipboardTransferQueue::startNext()
 {
   for (ClipboardID id = 0; id < kClipboardEnd; ++id) {

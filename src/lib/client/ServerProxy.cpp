@@ -489,7 +489,12 @@ void ServerProxy::restoreKeepAliveAfterClipboardOutgoingTransfer()
 
 void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle)
 {
-  std::vector<ClipboardID> failedClipboardIds;
+  struct FailedClipboardTransfer
+  {
+    ClipboardID id;
+    ClipboardTransferCancelReason reason;
+  };
+  std::vector<FailedClipboardTransfer> failedClipboardTransfers;
 
   for (auto &action : actions) {
     switch (action.type) {
@@ -517,10 +522,13 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
           "cancelling clipboard transfer %u to server, reason=%u", action.transferId,
           static_cast<uint8_t>(action.cancelReason)
       );
-      if (action.cancelReason != ClipboardTransferCancelReason::Superseded &&
-          std::find(failedClipboardIds.begin(), failedClipboardIds.end(), action.clipboardId) ==
-              failedClipboardIds.end()) {
-        failedClipboardIds.push_back(action.clipboardId);
+      if (action.cancelReason == ClipboardTransferCancelReason::Superseded) {
+        m_client->onClipboardTransferSuperseded(action.clipboardId);
+      } else if (std::find_if(
+                     failedClipboardTransfers.begin(), failedClipboardTransfers.end(),
+                     [&action](const auto &failed) { return failed.id == action.clipboardId; }
+                 ) == failedClipboardTransfers.end()) {
+        failedClipboardTransfers.push_back({action.clipboardId, action.cancelReason});
       }
       sendClipboardCancel(action.transferId, action.cancelReason);
       break;
@@ -529,10 +537,10 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
 
   if (!m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
-    for (const auto id : failedClipboardIds) {
-      m_client->forgetSentClipboard(id);
+    for (const auto &failed : failedClipboardTransfers) {
+      m_client->onClipboardTransferFailed(failed.id, failed.reason);
     }
-    if (restoreKeepAliveWhenIdle || !failedClipboardIds.empty()) {
+    if (restoreKeepAliveWhenIdle || !failedClipboardTransfers.empty()) {
       restoreKeepAliveAfterClipboardOutgoingTransfer();
     }
   }
@@ -768,9 +776,11 @@ void ServerProxy::acknowledgeClipboardTransfer()
   if (!ProtocolUtil::readf(m_stream, kMsgCClipboardAck + 4, &transferId)) {
     return;
   }
-  if (m_clipboardOutgoing.activeTransferId() == transferId) {
+  if (m_clipboardOutgoing.canAcknowledge(transferId)) {
+    const auto clipboardId = m_clipboardOutgoing.activeClipboardId();
     LOG_DEBUG("clipboard transfer %u to server was acknowledged", transferId);
     clearClipboardOutgoingTimer();
+    m_client->onClipboardTransferAcknowledged(clipboardId);
     sendClipboardActions(m_clipboardOutgoing.acknowledged(transferId));
   }
 }

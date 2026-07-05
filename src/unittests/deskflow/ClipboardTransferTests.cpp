@@ -44,9 +44,13 @@ void ClipboardTransferTests::queuesCompleteTransferWithoutFlushGap()
 
   const auto transferId = queue.activeTransferId();
   QVERIFY(transferId != 0);
+  QCOMPARE(queue.activeClipboardId(), kClipboardClipboard);
+  QVERIFY(queue.canAcknowledge(transferId));
+  QVERIFY(!queue.canAcknowledge(transferId + 1));
   QVERIFY(queue.outputFlushed().empty());
   QVERIFY(queue.acknowledged(transferId).empty());
   QVERIFY(!queue.active());
+  QCOMPARE(queue.activeClipboardId(), kClipboardEnd);
 }
 
 void ClipboardTransferTests::supersedesActiveClipboard()

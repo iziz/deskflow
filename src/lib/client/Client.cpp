@@ -277,8 +277,36 @@ void Client::forgetSentClipboard(ClipboardID id)
     return;
   }
 
+  onClipboardTransferFailed(id, ClipboardTransferCancelReason::Invalid);
+}
+
+void Client::onClipboardTransferAcknowledged(ClipboardID id)
+{
+  if (id >= kClipboardEnd) {
+    return;
+  }
+
+  m_clipboards.markLocalClipboardAcknowledged(id);
+  LOG_DEBUG("marked clipboard %u transfer as acknowledged", id);
+}
+
+void Client::onClipboardTransferSuperseded(ClipboardID id)
+{
+  if (id >= kClipboardEnd) {
+    return;
+  }
+
+  LOG_DEBUG("marked clipboard %u transfer as superseded", id);
+}
+
+void Client::onClipboardTransferFailed(ClipboardID id, ClipboardTransferCancelReason reason)
+{
+  if (id >= kClipboardEnd) {
+    return;
+  }
+
   m_clipboards.forgetSentClipboard(id);
-  LOG_DEBUG("forgot clipboard %u sent cache after failed transfer", id);
+  LOG_DEBUG("forgot clipboard %u sent cache after failed transfer, reason=%u", id, static_cast<uint8_t>(reason));
 }
 
 void Client::setClipboardDirty(ClipboardID, bool)
