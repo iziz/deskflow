@@ -77,7 +77,7 @@ private:
   void extendKeepAliveForClipboardOutgoingTransfer();
   void restoreKeepAliveAfterClipboardOutgoingTransfer();
 
-  void sendClipboardActions(std::vector<ClipboardTransferAction> actions);
+  void sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle = true);
   void handleInputProgress();
   void handleClipboardOutputFlushed();
   void handleClipboardOutgoingTimeout();

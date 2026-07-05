@@ -491,7 +491,7 @@ void ServerProxy::restoreKeepAliveAfterClipboardOutgoingTransfer()
   restoreKeepAliveAfterClipboardTransfer(m_clipboardOutgoingKeepAliveExtended);
 }
 
-void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions)
+void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle)
 {
   for (auto &action : actions) {
     switch (action.type) {
@@ -526,7 +526,9 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
 
   if (!m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
-    restoreKeepAliveAfterClipboardOutgoingTransfer();
+    if (restoreKeepAliveWhenIdle) {
+      restoreKeepAliveAfterClipboardOutgoingTransfer();
+    }
   }
 }
 
@@ -550,7 +552,7 @@ void ServerProxy::handleClipboardOutgoingTimeout()
 {
   clearClipboardOutgoingTimer();
   LOG_WARN("clipboard transfer %u to server timed out", m_clipboardOutgoing.activeTransferId());
-  sendClipboardActions(m_clipboardOutgoing.timedOut());
+  sendClipboardActions(m_clipboardOutgoing.timedOut(), false);
 }
 
 void ServerProxy::handleClipboardIncomingTimeout()
@@ -563,7 +565,6 @@ void ServerProxy::handleClipboardIncomingTimeout()
   const auto transferId = m_clipboardIncoming.transferId();
   LOG_WARN("clipboard transfer %u from server timed out", transferId);
   m_clipboardIncoming.reset();
-  restoreKeepAliveAfterClipboardIncomingTransfer();
   sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
 }
 
