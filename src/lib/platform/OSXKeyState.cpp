@@ -8,6 +8,7 @@
 #include "platform/OSXKeyState.h"
 #include "arch/Arch.h"
 #include "base/Log.h"
+#include "platform/OSXInputSources.h"
 #include "platform/OSXMediaKeySupport.h"
 #include "platform/OSXUchrKeyResource.h"
 
@@ -129,58 +130,6 @@ static const KeyEntry s_controlKeys[] = {
 };
 
 namespace {
-
-std::string cfStringToUtf8(CFStringRef string)
-{
-  if (!string) {
-    return {};
-  }
-
-  if (const auto direct = CFStringGetCStringPtr(string, kCFStringEncodingUTF8)) {
-    return direct;
-  }
-
-  const auto length = CFStringGetLength(string);
-  const auto maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
-  std::vector<char> buffer(static_cast<size_t>(maxSize));
-
-  if (!CFStringGetCString(string, buffer.data(), maxSize, kCFStringEncodingUTF8)) {
-    return {};
-  }
-
-  return buffer.data();
-}
-
-std::string inputSourceId(TISInputSourceRef source)
-{
-  if (!source) {
-    return {};
-  }
-
-  return cfStringToUtf8((CFStringRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceID));
-}
-
-AutoCFData copyUnicodeKeyLayoutData(TISInputSourceRef source)
-{
-  if (!source) {
-    return AutoCFData(nullptr, CFRelease);
-  }
-
-  const auto resourceRef = (CFDataRef)TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData);
-  return AutoCFData(resourceRef != nullptr ? CFDataCreateCopy(nullptr, resourceRef) : nullptr, CFRelease);
-}
-
-AutoCFData copyAsciiCapableKeyLayoutData()
-{
-  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentASCIICapableKeyboardLayoutInputSource(), CFRelease);
-  if (!keyboardLayout) {
-    LOG_WARN("can't get the ASCII-capable keyboard layout for IME fallback");
-    return AutoCFData(nullptr, CFRelease);
-  }
-
-  LOG_VERBOSE("using ASCII-capable keyboard layout '%s' for IME fallback", inputSourceId(keyboardLayout.get()).c_str());
-  return copyUnicodeKeyLayoutData(keyboardLayout.get());
-}
 
 io_connect_t getService(io_iterator_t iter)
 {
@@ -367,10 +316,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   }
 
   // get keyboard info
-  auto layoutData = runTISOnMainThread([] {
-    AutoTISInputSourceRef currentKeyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    return copyUnicodeKeyLayoutData(currentKeyboardLayout.get());
-  });
+  auto layoutData = OSXInputSources::copyCurrentKeyboardLayoutData();
 
   if (!layoutData) {
     return kKeyNone;
@@ -508,27 +454,21 @@ int32_t OSXKeyState::pollActiveGroup() const
 
 int32_t OSXKeyState::queryActiveGroup() const
 {
-  assert(pthread_main_np() != 0);
+  const auto inputSources = OSXInputSources::currentKeyboardInputSources();
 
-  AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
-  const auto inputSourceIdString = inputSourceId(inputSource.get());
-
-  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-  const auto keyboardLayoutIdString = inputSourceId(keyboardLayout.get());
-
-  GroupMap::const_iterator i = m_groupMap.find(inputSourceIdString);
+  GroupMap::const_iterator i = m_groupMap.find(inputSources.inputSourceId);
   if (i != m_groupMap.end()) {
     return i->second;
   }
 
-  i = m_groupMap.find(keyboardLayoutIdString);
+  i = m_groupMap.find(inputSources.keyboardLayoutId);
   if (i != m_groupMap.end()) {
     return i->second;
   }
 
   LOG_WARN(
       "can't get the active group for input source '%s' and keyboard layout '%s', use the first group instead",
-      inputSourceIdString.c_str(), keyboardLayoutIdString.c_str()
+      inputSources.inputSourceId.c_str(), inputSources.keyboardLayoutId.c_str()
   );
 
   return 0;
@@ -541,8 +481,8 @@ void OSXKeyState::updateActiveGroup()
 
 void OSXKeyState::startInputSourceObserver()
 {
+  updateActiveGroup();
   runTISOnMainThread([this] {
-    updateActiveGroup();
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDistributedCenter(), this, &OSXKeyState::inputSourceChanged,
         kTISNotifySelectedKeyboardInputSourceChanged, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately
@@ -570,7 +510,7 @@ void OSXKeyState::inputSourceChanged(
 )
 {
   auto *keyState = static_cast<OSXKeyState *>(observer);
-  runTISOnMainThread([keyState] { keyState->updateActiveGroup(); });
+  keyState->updateActiveGroup();
 }
 
 void OSXKeyState::pollPressedKeys(KeyButtonSet &pressedKeys) const
@@ -598,11 +538,7 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     numGroups = CFArrayGetCount(m_groups.get());
     for (int32_t g = 0; g < numGroups; ++g) {
       TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-      const auto idString = runTISOnMainThread([keyboardLayout] {
-        return cfStringToUtf8(
-            (CFStringRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID)
-        );
-      });
+      const auto idString = OSXInputSources::inputSourceId(keyboardLayout);
       if (!idString.empty()) {
         m_groupMap[idString] = g;
       }
@@ -610,7 +546,7 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
   }
 
   uint32_t keyboardType = LMGetKbdType();
-  auto fallbackResourceData = runTISOnMainThread([] { return copyAsciiCapableKeyLayoutData(); });
+  auto fallbackResourceData = OSXInputSources::copyAsciiCapableKeyLayoutData();
 
   for (int32_t g = 0; g < numGroups; ++g) {
     // add special keys
@@ -619,9 +555,7 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     // add regular keys
     // try uchr resource first
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-    auto resourceData = runTISOnMainThread([keyboardLayout] {
-      return copyUnicodeKeyLayoutData(keyboardLayout);
-    });
+    auto resourceData = OSXInputSources::copyUnicodeKeyLayoutData(keyboardLayout);
 
     const auto addKeyResource = [&](CFDataRef data, bool fallback) {
       if (data == nullptr) {
@@ -999,15 +933,7 @@ void OSXKeyState::handleModifierKey(void *target, uint32_t virtualKey, KeyID id,
 
 bool OSXKeyState::getGroups(AutoCFArray &groups) const
 {
-  // get number of layouts
-  CFStringRef keys[] = {kTISPropertyInputSourceCategory};
-  CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(
-      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
-  );
-  auto kbds = runTISOnMainThread([filter = dict.get()] {
-    return AutoCFArray(TISCreateInputSourceList(filter, false), CFRelease);
-  });
+  auto kbds = OSXInputSources::copyKeyboardInputSources();
 
   if (kbds && CFArrayGetCount(kbds.get()) > 0) {
     groups = std::move(kbds);
@@ -1026,16 +952,13 @@ void OSXKeyState::setGroup(int32_t group)
     LOG_WARN("needed keyboard layout is null");
     return;
   }
-  const auto canBeSet = runTISOnMainThread([] {
-    AutoTISInputSourceRef source(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    return source && TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceIsEnableCapable) != nullptr;
-  });
+  const auto canBeSet = OSXInputSources::currentKeyboardInputSourceCanBeEnabled();
   if (!canBeSet) {
     LOG_WARN("needed keyboard layout is disabled for programmatically selection");
     return;
   }
 
-  if (runTISOnMainThread([keyboardLayout] { return TISSelectInputSource(keyboardLayout); }) != noErr) {
+  if (OSXInputSources::selectInputSource(keyboardLayout) != noErr) {
     LOG_WARN("failed to set needed keyboard layout");
   }
 
@@ -1048,7 +971,7 @@ void OSXKeyState::setGroup(int32_t group)
   // event could be applied before the keyboard layout would
   // actually be changed.
   Arch::sleep(.01);
-  runTISOnMainThread([this] { updateActiveGroup(); });
+  updateActiveGroup();
 }
 
 void OSXKeyState::adjustAltGrModifier(const KeyIDs &ids, KeyModifierMask *mask, bool isCommand) const

@@ -85,6 +85,8 @@ elseif(APPLE)
     OSXCocoaApp.m
     OSXEventQueueBuffer.cpp
     OSXEventQueueBuffer.h
+    OSXInputSources.cpp
+    OSXInputSources.h
     OSXKeyState.cpp
     OSXKeyState.h
     OSXMediaKeySupport.h
