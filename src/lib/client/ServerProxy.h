@@ -15,6 +15,11 @@
 #include "deskflow/KeyboardLayoutManager.h"
 #include "client/ServerKeyTranslator.h"
 
+#include <array>
+#include <chrono>
+#include <cstddef>
+#include <string>
+
 class Client;
 class ClientInfo;
 class EventQueueTimer;
@@ -77,6 +82,16 @@ private:
   void restoreKeepAliveAfterClipboardIncomingTransfer();
   void extendKeepAliveForClipboardOutgoingTransfer();
   void restoreKeepAliveAfterClipboardOutgoingTransfer();
+
+  void rememberClipboardQueued(ClipboardID id, uint32_t sequence, size_t size, bool force);
+  void markClipboardTransferStarted(const ClipboardTransferAction &action);
+  void markClipboardTransferEndSent(const ClipboardTransferAction &action);
+  void markClipboardTransferOutputFlushed();
+  void markClipboardTransferAcknowledged(uint32_t transferId);
+  void markClipboardTransferCancelled(const ClipboardTransferAction &action);
+  void markClipboardIncomingStarted(ClipboardID id, uint32_t sequence, uint32_t transferId, const std::string &size);
+  void markClipboardIncomingCompleted(ClipboardID id, uint32_t sequence, uint32_t transferId, size_t size);
+  void clearClipboardIncomingTiming(uint32_t transferId);
 
   void sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle = true);
   void handleInputProgress();
@@ -149,6 +164,34 @@ private:
   ClipboardTransferAssembler m_clipboardIncoming;
   ClipboardChunkAssembler m_legacyClipboardIncoming;
   uint64_t m_legacyClipboardGeneration[kClipboardEnd]{};
+
+  struct ClipboardQueuedTiming
+  {
+    bool active = false;
+    uint32_t sequence = 0;
+    size_t size = 0;
+    std::chrono::steady_clock::time_point queuedAt{};
+  };
+
+  struct ClipboardTransferTiming
+  {
+    bool active = false;
+    ClipboardID id = kClipboardEnd;
+    uint32_t sequence = 0;
+    uint32_t transferId = 0;
+    size_t size = 0;
+    std::chrono::steady_clock::time_point queuedAt{};
+    std::chrono::steady_clock::time_point startedAt{};
+    std::chrono::steady_clock::time_point endedAt{};
+    std::chrono::steady_clock::time_point flushedAt{};
+    bool hasQueuedAt = false;
+    bool hasEndedAt = false;
+    bool hasFlushedAt = false;
+  };
+
+  std::array<ClipboardQueuedTiming, kClipboardEnd> m_clipboardQueuedTiming;
+  ClipboardTransferTiming m_clipboardOutgoingTiming;
+  ClipboardTransferTiming m_clipboardIncomingTiming;
   EventQueueTimer *m_clipboardOutgoingTimer = nullptr;
   EventQueueTimer *m_clipboardIncomingTimer = nullptr;
 

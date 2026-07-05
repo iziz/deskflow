@@ -100,11 +100,14 @@ Expected log evidence for a local macOS text copy is:
 
 ```text
 clipboard changed
+local clipboard <id> queued for transfer, size=<bytes>, force=<true|false>
 sending clipboard <id> changed
 sending clipboard <id> seqnum=<seq>
-starting clipboard transfer <transfer-id> to server, size=<bytes>
-finished sending clipboard transfer <transfer-id> to server; waiting for acknowledgment
-clipboard transfer <transfer-id> to server was acknowledged
+queued clipboard <id> transfer to server seqnum=<seq> size=<bytes> force=<true|false>
+starting clipboard transfer <transfer-id> to server, size=<bytes>, queued_ms=<ms>
+finished sending clipboard transfer <transfer-id> to server; waiting for output flush, send_ms=<ms>
+clipboard transfer <transfer-id> to server output flushed; waiting for acknowledgment, transfer_ms=<ms>, queued_ms=<ms>
+clipboard transfer <transfer-id> to server was acknowledged, transfer_ms=<ms>, queued_ms=<ms>, ack_wait_ms=<ms>
 ```
 
 Expected log evidence for a final outgoing failure is:
@@ -112,6 +115,7 @@ Expected log evidence for a final outgoing failure is:
 ```text
 clipboard transfer <transfer-id> to server timed out
 cancelling clipboard transfer <transfer-id> to server, reason=2
+clipboard transfer <transfer-id> to server ended, reason=2, transfer_ms=<ms>, queued_ms=<ms>
 forgot clipboard <id> sent cache after failed transfer, reason=2
 ```
 

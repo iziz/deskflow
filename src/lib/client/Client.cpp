@@ -448,8 +448,13 @@ void Client::sendClipboard(ClipboardID id)
       return;
     }
 
+    const auto dataSize = data.size();
     const auto sendDecision = m_clipboards.markLocalClipboardReadForSend(id, clipboard.getTime(), std::move(data));
     if (sendDecision.shouldSend) {
+      LOG_DEBUG(
+          "local clipboard %u queued for transfer, size=%zu, force=%s", id, dataSize,
+          sendDecision.force ? "true" : "false"
+      );
       m_server->onClipboardChanged(id, &clipboard, sendDecision.force);
     }
   }
