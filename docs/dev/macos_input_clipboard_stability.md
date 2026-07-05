@@ -135,6 +135,34 @@ necessarily pass through a Deskflow-observable keyboard shortcut.
 
 Private macOS notifications should not be used for product behavior.
 
+## Local App Update Workflow
+
+After changing macOS input or clipboard code, rebuild and restart the installed
+macOS app before validating behavior:
+
+```sh
+cmake --preset macos-release
+cmake --build --preset macos-release-gui
+cmake --build --preset macos-release-core
+```
+
+Stop the installed app before replacing it:
+
+```sh
+osascript -e 'tell application "Deskflow" to quit' || true
+pkill -f '/Applications/Deskflow.app/Contents/MacOS' || true
+```
+
+Install the updated binaries into the existing app bundle and restart the app:
+
+```sh
+cmake --build --preset macos-install-app-fast
+open -a /Applications/Deskflow.app
+```
+
+Use `macos-install-app` instead of `macos-install-app-fast` when the destination
+app bundle is missing deployed frameworks or plugins.
+
 ## Refactoring Plan
 
 1. Extract server-side modifier/key translation from `ServerProxy`.

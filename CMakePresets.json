@@ -221,6 +221,7 @@
         "rhs": "Windows"
       },
       "targets": [
+        "app_translations",
         "deskflow",
         "deskflow-core",
         "deskflow-daemon",

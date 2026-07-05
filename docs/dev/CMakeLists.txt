@@ -18,6 +18,7 @@ target_sources(dev-docs PRIVATE
   build.md
   codex_harness.md
   macos_input_clipboard_stability.md
+  post_code_change_workflow.md
   protocol_reference.md
   windows_build_server.md
 )

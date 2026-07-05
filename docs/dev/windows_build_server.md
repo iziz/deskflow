@@ -82,29 +82,26 @@ ssh zenis@192.168.0.5 'powershell -NoProfile -ExecutionPolicy Bypass -Command "S
 
 ## Installer/Package
 
-After the development build succeeds, enable installer support in the build
-directory. The `dev` build preset lists only the development binary targets, so
-it does not expose the CPack `package` target.
+After the development build succeeds, build the installer from the Windows
+Release preset. Do not create installers from the Debug build directory: Debug
+binaries and custom actions depend on debug MSVC runtime DLLs such as
+`MSVCP140D.dll`, `VCRUNTIME140D.dll`, and `ucrtbased.dll`, which are not valid
+installer dependencies.
 
-```powershell
-Set-Location -LiteralPath 'Z:\@Development\deskflow'
-cmake --preset dev -DBUILD_INSTALLER=ON
-```
-
-Build the WiX custom action target inside the Visual Studio development
-environment if it is missing or stale:
+Configure and build the Release binaries, application translations, and WiX
+custom action inside the Visual Studio development environment:
 
 ```powershell
 $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
 $vsDevCmd = 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat'
-cmd.exe /d /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"Z:\@Development\deskflow`" && cmake --build --preset windows-debug-vcpkg --target wix-custom"
+cmd.exe /d /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"Z:\@Development\deskflow`" && cmake --preset windows-release-vcpkg && cmake --build --preset windows-release-vcpkg-msi"
 ```
 
 Generate only the MSI with CPack's WIX generator:
 
 ```powershell
 $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-Set-Location -LiteralPath 'Z:\@Development\deskflow\build\windows-debug-vcpkg'
+Set-Location -LiteralPath 'Z:\@Development\deskflow\build\windows-release-vcpkg'
 cpack -G WIX --config .\CPackConfig.cmake
 ```
 
@@ -123,7 +120,7 @@ Do not install WiX v7 for unattended packaging unless the operator has reviewed
 and accepted its OSMF EULA requirement. The expected MSI output is:
 
 ```text
-Z:\@Development\deskflow\build\windows-debug-vcpkg\deskflow-<version>-win-x64.msi
+Z:\@Development\deskflow\build\windows-release-vcpkg\deskflow-<version>-win-x64.msi
 ```
 
 Avoid `cmake --build --preset windows-debug-vcpkg --target package` for routine
@@ -143,13 +140,10 @@ Then, from a PowerShell SSH session:
 
 ```powershell
 $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-Set-Location -LiteralPath 'Z:\@Development\deskflow'
-cmake --preset dev -DBUILD_INSTALLER=ON
-
 $vsDevCmd = 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat'
-cmd.exe /d /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"Z:\@Development\deskflow`" && cmake --build --preset windows-debug-vcpkg --target wix-custom"
+cmd.exe /d /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && cd /d `"Z:\@Development\deskflow`" && cmake --preset windows-release-vcpkg && cmake --build --preset windows-release-vcpkg-msi"
 
-Set-Location -LiteralPath 'Z:\@Development\deskflow\build\windows-debug-vcpkg'
+Set-Location -LiteralPath 'Z:\@Development\deskflow\build\windows-release-vcpkg'
 cpack -G WIX --config .\CPackConfig.cmake
 ```
 
@@ -160,8 +154,14 @@ cpack -G WIX --config .\CPackConfig.cmake
 - `cmake --build --preset windows-debug-vcpkg --target package` creates both
   `7Z` and `WIX` outputs because `deploy/windows/deploy.cmake` configures both
   generators. Use `cpack -G WIX` for MSI-only packaging.
+- An MSI generated from `windows-debug-vcpkg` can fail during installation with
+  missing debug runtime DLLs. Confirmed dependencies include `MSVCP140D.dll`,
+  `VCRUNTIME140D.dll`, `VCRUNTIME140_1D.dll`, and `ucrtbased.dll`.
+- The MSI input build must include `app_translations`; otherwise CPack install
+  can fail because `translations/deskflow_*.qm` files have not been generated.
 - Running CMake build commands outside the Visual Studio development environment
-  can fail with missing standard headers such as `type_traits` and `cstdint`.
+  can fail with compiler detection errors or missing standard headers such as
+  `type_traits` and `cstdint`.
 - Existing `deskflow.exe` or `deskflow-core.exe` processes can lock build
   outputs and cause `LNK1168`. Use `taskkill /F /IM deskflow.exe /IM
   deskflow-core.exe /IM deskflow-daemon.exe /T` if `Stop-Process` does not
