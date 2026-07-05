@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "client/ClientClipboardState.h"
 #include "deskflow/IClient.h"
 
 #include "base/EventTypes.h"
@@ -197,11 +198,7 @@ private:
   bool m_active = false;
   bool m_suspended = false;
   bool m_connectOnResume = false;
-  bool m_ownClipboard[kClipboardEnd];
-  bool m_sentClipboard[kClipboardEnd];
-  IClipboard::Time m_timeClipboard[kClipboardEnd];
-  std::string m_dataClipboard[kClipboardEnd];
-  uint32_t m_clipboardRevision[kClipboardEnd]{};
+  ClientClipboardState m_clipboards;
   IEventQueue *m_events = nullptr;
   bool m_useSecureNetwork = false;
   bool m_enableClipboard = true;

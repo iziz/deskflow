@@ -6,6 +6,8 @@
 add_library(client STATIC
   Client.cpp
   Client.h
+  ClientClipboardState.cpp
+  ClientClipboardState.h
   ServerKeyTranslator.cpp
   ServerKeyTranslator.h
   ServerProxy.cpp

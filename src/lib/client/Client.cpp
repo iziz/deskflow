@@ -15,7 +15,6 @@
 #include "common/NetworkProtocol.h"
 #include "common/Settings.h"
 #include "deskflow/Clipboard.h"
-#include "deskflow/ClipboardTransfer.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/PacketStreamFilter.h"
@@ -232,7 +231,7 @@ bool Client::leave()
   if (m_enableClipboard) {
     // send clipboards that we own and that have changed
     for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-      if (m_ownClipboard[id]) {
+      if (m_clipboards.ownsClipboard(id)) {
         sendClipboard(id);
       }
     }
@@ -248,24 +247,20 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t 
     return;
   }
 
-  if (revision != 0 && isClipboardSequenceOlder(revision, m_clipboardRevision[id])) {
-    LOG_DEBUG("ignored stale remote clipboard %u revision=%u, current=%u", id, revision, m_clipboardRevision[id]);
+  if (m_clipboards.isRemoteRevisionStale(id, revision)) {
+    LOG_DEBUG("ignored stale remote clipboard %u revision=%u, current=%u", id, revision, m_clipboards.revision(id));
     return;
   }
 
   m_screen->setClipboard(id, clipboard);
-  m_clipboardRevision[id] = revision;
-  m_ownClipboard[id] = false;
-  m_sentClipboard[id] = true;
-  m_dataClipboard[id] = IClipboard::marshall(clipboard);
+  m_clipboards.markRemoteClipboardApplied(id, revision, IClipboard::marshall(clipboard));
 
   Clipboard appliedClipboard;
-  if (appliedClipboard.open(m_timeClipboard[id])) {
+  if (appliedClipboard.open(m_clipboards.clipboardTime(id))) {
     appliedClipboard.close();
   }
   if (m_screen->getClipboard(id, &appliedClipboard)) {
-    m_timeClipboard[id] = appliedClipboard.getTime();
-    m_dataClipboard[id] = appliedClipboard.marshall();
+    m_clipboards.updateCachedClipboard(id, appliedClipboard.getTime(), appliedClipboard.marshall());
   }
   LOG_DEBUG("applied remote clipboard %u revision=%u", id, revision);
 }
@@ -273,8 +268,7 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t 
 void Client::grabClipboard(ClipboardID id)
 {
   m_screen->grabClipboard(id);
-  m_ownClipboard[id] = false;
-  m_sentClipboard[id] = false;
+  m_clipboards.markServerClipboardGrabbed(id);
 }
 
 void Client::forgetSentClipboard(ClipboardID id)
@@ -283,9 +277,7 @@ void Client::forgetSentClipboard(ClipboardID id)
     return;
   }
 
-  m_sentClipboard[id] = false;
-  m_timeClipboard[id] = 0;
-  m_dataClipboard[id].clear();
+  m_clipboards.forgetSentClipboard(id);
   LOG_DEBUG("forgot clipboard %u sent cache after failed transfer", id);
 }
 
@@ -410,13 +402,13 @@ void Client::sendClipboard(ClipboardID id)
   // as the screen may detect an unchanged clipboard and
   // avoid copying the data.
   Clipboard clipboard;
-  if (clipboard.open(m_timeClipboard[id])) {
+  if (clipboard.open(m_clipboards.clipboardTime(id))) {
     clipboard.close();
   }
   m_screen->getClipboard(id, &clipboard);
 
   // check time
-  if (m_timeClipboard[id] == 0 || clipboard.getTime() != m_timeClipboard[id]) {
+  if (m_clipboards.clipboardTime(id) == 0 || clipboard.getTime() != m_clipboards.clipboardTime(id)) {
     // marshall the data
     std::string data = clipboard.marshall();
     if (data.size() <= sizeof(uint32_t)) {
@@ -428,14 +420,9 @@ void Client::sendClipboard(ClipboardID id)
       return;
     }
 
-    // save new time
-    m_timeClipboard[id] = clipboard.getTime();
-    // save and send data if different or not yet sent
-    const bool forceTransfer = !m_sentClipboard[id];
-    if (forceTransfer || data != m_dataClipboard[id]) {
-      m_sentClipboard[id] = true;
-      m_dataClipboard[id] = data;
-      m_server->onClipboardChanged(id, &clipboard, forceTransfer);
+    const auto sendDecision = m_clipboards.markLocalClipboardReadForSend(id, clipboard.getTime(), std::move(data));
+    if (sendDecision.shouldSend) {
+      m_server->onClipboardChanged(id, &clipboard, sendDecision.force);
     }
   }
 }
@@ -579,14 +566,7 @@ void Client::handleConnected()
   LOG_VERBOSE("connected, waiting for hello");
   cleanupConnecting();
   setupConnection();
-
-  // reset clipboard state
-  for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-    m_ownClipboard[id] = false;
-    m_sentClipboard[id] = false;
-    m_timeClipboard[id] = 0;
-    m_clipboardRevision[id] = 0;
-  }
+  m_clipboards.reset();
 }
 
 void Client::handleConnectionFailed(const Event &event)
@@ -658,13 +638,13 @@ void Client::handleClipboardGrabbed(const Event &event)
   }
 
   Clipboard clipboard;
-  if (clipboard.open(m_timeClipboard[info->m_id])) {
+  if (clipboard.open(m_clipboards.clipboardTime(info->m_id))) {
     clipboard.close();
   }
   m_screen->getClipboard(info->m_id, &clipboard);
   const auto data = clipboard.marshall();
-  if (m_sentClipboard[info->m_id] && data == m_dataClipboard[info->m_id]) {
-    m_timeClipboard[info->m_id] = clipboard.getTime();
+  if (m_clipboards.shouldIgnoreGrabbedClipboard(info->m_id, data)) {
+    m_clipboards.markGrabbedClipboardIgnored(info->m_id, clipboard.getTime());
     LOG_DEBUG("ignored clipboard %u grab caused by applying remote revision", info->m_id);
     return;
   }
@@ -673,9 +653,7 @@ void Client::handleClipboardGrabbed(const Event &event)
   m_server->onGrabClipboard(info->m_id);
 
   // we now own the clipboard and it has not been sent to the server
-  m_ownClipboard[info->m_id] = true;
-  m_sentClipboard[info->m_id] = false;
-  m_timeClipboard[info->m_id] = 0;
+  m_clipboards.markLocalClipboardOwned(info->m_id);
 
   // Publish the active screen's clipboard immediately. A newer ownership
   // notification supersedes any unfinished transfer for this clipboard.
