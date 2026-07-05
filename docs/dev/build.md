@@ -37,6 +37,20 @@ Deskflow supports the following CMake options:
 Example cmake configuration:
 `cmake -S. -Bbuild -DCMAKE_INSTALL_PREFIX=<INSTALLPREFIX>`
 
+### Presets
+
+The `dev`, `core`, `gui`, `daemon`, `platform`, and `windows-debug-vcpkg*` presets are Windows/vcpkg presets used by `dev.cmd` and `dev.ps1`.
+
+On macOS with Homebrew Qt dependencies installed, use the macOS release presets:
+
+```sh
+export HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix)}"
+cmake --preset macos-release
+cmake --build --preset macos-release-gui
+```
+
+The macOS preset adds `QT_ADDITIONAL_PACKAGES_PREFIX_PATH` for Homebrew's split `qttools` package so `Qt6LinguistTools` can be found during a fresh configure.
+
 ### Windows Configuration
 
  It is recommended to use vcpkg to install the dependencies. The first time you configure Deskflow, all dependencies other than Qt will be built. If you don't want to use vcpkg, you must manually setup the dependencies. However, that will not be covered by this document.
