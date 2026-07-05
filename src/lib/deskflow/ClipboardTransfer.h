@@ -121,7 +121,7 @@ class ClipboardTransferAssembler
 public:
   ClipboardTransferReceiveResult process(
       ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data,
-      size_t maxDataSize = std::numeric_limits<size_t>::max()
+      size_t maxDataSize = (std::numeric_limits<size_t>::max)()
   );
   void cancel(uint32_t transferId);
   void reset();

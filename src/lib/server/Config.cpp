@@ -690,7 +690,7 @@ void Config::readSectionOptions(ConfigReadContext &s)
 
     bool handled = true;
 
-    if (m_oldNames.contains(name))
+    if (m_oldNames.contains(QString::fromStdString(name)))
       continue;
 
     if (name == "address") {

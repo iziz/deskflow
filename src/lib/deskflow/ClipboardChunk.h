@@ -63,7 +63,7 @@ class ClipboardChunkAssembler
 public:
   TransferState process(
       deskflow::IStream *stream, ClipboardID &id, uint32_t &sequence,
-      size_t maxDataSize = std::numeric_limits<size_t>::max()
+      size_t maxDataSize = (std::numeric_limits<size_t>::max)()
   );
   void reset();
 
