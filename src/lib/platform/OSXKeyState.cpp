@@ -160,6 +160,28 @@ std::string inputSourceId(TISInputSourceRef source)
   return cfStringToUtf8((CFStringRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceID));
 }
 
+AutoCFData copyUnicodeKeyLayoutData(TISInputSourceRef source)
+{
+  if (!source) {
+    return AutoCFData(nullptr, CFRelease);
+  }
+
+  const auto resourceRef = (CFDataRef)TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData);
+  return AutoCFData(resourceRef != nullptr ? CFDataCreateCopy(nullptr, resourceRef) : nullptr, CFRelease);
+}
+
+AutoCFData copyAsciiCapableKeyLayoutData()
+{
+  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentASCIICapableKeyboardLayoutInputSource(), CFRelease);
+  if (!keyboardLayout) {
+    LOG_WARN("can't get the ASCII-capable keyboard layout for IME fallback");
+    return AutoCFData(nullptr, CFRelease);
+  }
+
+  LOG_VERBOSE("using ASCII-capable keyboard layout '%s' for IME fallback", inputSourceId(keyboardLayout.get()).c_str());
+  return copyUnicodeKeyLayoutData(keyboardLayout.get());
+}
+
 io_connect_t getService(io_iterator_t iter)
 {
   io_connect_t service = 0;
@@ -347,12 +369,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   // get keyboard info
   auto layoutData = runTISOnMainThread([] {
     AutoTISInputSourceRef currentKeyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    if (!currentKeyboardLayout) {
-      return AutoCFData(nullptr, CFRelease);
-    }
-    const auto ref =
-        (CFDataRef)TISGetInputSourceProperty(currentKeyboardLayout.get(), kTISPropertyUnicodeKeyLayoutData);
-    return AutoCFData(ref != nullptr ? CFDataCreateCopy(nullptr, ref) : nullptr, CFRelease);
+    return copyUnicodeKeyLayoutData(currentKeyboardLayout.get());
   });
 
   if (!layoutData) {
@@ -593,6 +610,8 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
   }
 
   uint32_t keyboardType = LMGetKbdType();
+  auto fallbackResourceData = runTISOnMainThread([] { return copyAsciiCapableKeyLayoutData(); });
+
   for (int32_t g = 0; g < numGroups; ++g) {
     // add special keys
     getKeyMapForSpecialKeys(keyMap, g);
@@ -601,19 +620,28 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     // try uchr resource first
     TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
     auto resourceData = runTISOnMainThread([keyboardLayout] {
-      const auto resourceRef =
-          (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyUnicodeKeyLayoutData);
-      return AutoCFData(resourceRef != nullptr ? CFDataCreateCopy(nullptr, resourceRef) : nullptr, CFRelease);
+      return copyUnicodeKeyLayoutData(keyboardLayout);
     });
 
-    if (resourceData) {
-      const auto *resource = CFDataGetBytePtr(resourceData.get());
+    const auto addKeyResource = [&](CFDataRef data, bool fallback) {
+      if (data == nullptr) {
+        return false;
+      }
+      const auto *resource = CFDataGetBytePtr(data);
       OSXUchrKeyResource uchr(resource, keyboardType);
       if (uchr.isValid()) {
-        LOG_VERBOSE("using uchr resource for group %d", g);
+        LOG_VERBOSE("using %s uchr resource for group %d", fallback ? "fallback" : "native", g);
         getKeyMap(keyMap, g, uchr);
-        continue;
+        return true;
       }
+      return false;
+    };
+
+    if (addKeyResource(resourceData.get(), false)) {
+      continue;
+    }
+    if (addKeyResource(fallbackResourceData.get(), true)) {
+      continue;
     }
 
     LOG_VERBOSE("no keyboard resource for group %d", g);

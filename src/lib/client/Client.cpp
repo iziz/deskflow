@@ -277,6 +277,18 @@ void Client::grabClipboard(ClipboardID id)
   m_sentClipboard[id] = false;
 }
 
+void Client::forgetSentClipboard(ClipboardID id)
+{
+  if (id >= kClipboardEnd) {
+    return;
+  }
+
+  m_sentClipboard[id] = false;
+  m_timeClipboard[id] = 0;
+  m_dataClipboard[id].clear();
+  LOG_DEBUG("forgot clipboard %u sent cache after failed transfer", id);
+}
+
 void Client::setClipboardDirty(ClipboardID, bool)
 {
   assert(0 && "shouldn't be called");

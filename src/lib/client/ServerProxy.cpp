@@ -21,11 +21,19 @@
 #include "deskflow/ipc/CoreIpc.h"
 #include "io/IStream.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace {
 constexpr double kClipboardTransferHeartbeatAlarm = 60.0;
+
+KeyModifierID clampModifierID(uint32_t id)
+{
+  return std::clamp<KeyModifierID>(
+      static_cast<KeyModifierID>(id), kKeyModifierIDNull, kKeyModifierIDLast - 1
+  );
 }
+} // namespace
 
 //
 // ServerProxy
@@ -493,6 +501,8 @@ void ServerProxy::restoreKeepAliveAfterClipboardOutgoingTransfer()
 
 void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle)
 {
+  std::vector<ClipboardID> failedClipboardIds;
+
   for (auto &action : actions) {
     switch (action.type) {
     case ClipboardTransferActionType::Start:
@@ -519,6 +529,11 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
           "cancelling clipboard transfer %u to server, reason=%u", action.transferId,
           static_cast<uint8_t>(action.cancelReason)
       );
+      if (action.cancelReason != ClipboardTransferCancelReason::Superseded &&
+          std::find(failedClipboardIds.begin(), failedClipboardIds.end(), action.clipboardId) ==
+              failedClipboardIds.end()) {
+        failedClipboardIds.push_back(action.clipboardId);
+      }
       sendClipboardCancel(action.transferId, action.cancelReason);
       break;
     }
@@ -526,7 +541,10 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
 
   if (!m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
-    if (restoreKeepAliveWhenIdle) {
+    for (const auto id : failedClipboardIds) {
+      m_client->forgetSentClipboard(id);
+    }
+    if (restoreKeepAliveWhenIdle || !failedClipboardIds.empty()) {
       restoreKeepAliveAfterClipboardOutgoingTransfer();
     }
   }
@@ -696,11 +714,9 @@ KeyID ServerProxy::translateKey(KeyID id) const
   }
 
   if (id2 != kKeyModifierIDNull) {
-    return std::clamp<KeyModifierMask>(
-        s_translationTable[m_modifierTranslationTable[id2]][side], 0, kKeyModifierIDLast - 1
-    );
+    return s_translationTable[clampModifierID(m_modifierTranslationTable[id2])][side];
   } else {
-    return std::clamp<KeyModifierMask>(id, 0, kKeyModifierIDLast - 1);
+    return id;
   }
 }
 
@@ -713,24 +729,24 @@ KeyModifierMask ServerProxy::translateModifierMask(KeyModifierMask mask) const
   KeyModifierMask newMask = mask & ~(KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierMeta |
                                      KeyModifierSuper | KeyModifierAltGr);
   if ((mask & KeyModifierShift) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDShift]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDShift])];
   }
   if ((mask & KeyModifierControl) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDControl]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDControl])];
   }
   if ((mask & KeyModifierAlt) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDAlt]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDAlt])];
   }
   if ((mask & KeyModifierAltGr) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDAltGr]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDAltGr])];
   }
   if ((mask & KeyModifierMeta) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDMeta]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDMeta])];
   }
   if ((mask & KeyModifierSuper) != 0) {
-    newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDSuper]];
+    newMask |= s_masks[clampModifierID(m_modifierTranslationTable[kKeyModifierIDSuper])];
   }
-  return std::clamp<KeyModifierMask>(newMask, 0, kKeyModifierIDLast - 1);
+  return newMask;
 }
 
 void ServerProxy::enter()
@@ -1171,7 +1187,7 @@ void ServerProxy::setOptions()
     }
 
     if (id != kKeyModifierIDNull) {
-      m_modifierTranslationTable[id] = std::clamp<KeyModifierMask>(options[i + 1], 0, kKeyModifierIDLast - 1);
+      m_modifierTranslationTable[id] = clampModifierID(options[i + 1]);
       LOG_VERBOSE("modifier %d mapped to %d", id, m_modifierTranslationTable[id]);
     }
   }
