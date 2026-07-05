@@ -13,7 +13,7 @@ class ClipboardTransferTests : public QObject
   Q_OBJECT
 
 private Q_SLOTS:
-  void queuesCompleteTransferWithoutFlushGap();
+  void queuesTransferInFlushLimitedBatches();
   void supersedesActiveClipboard();
   void remoteOwnershipSupersedesWithoutRetry();
   void ignoresAcknowledgedDuplicate();
@@ -28,25 +28,34 @@ private Q_SLOTS:
   void sameSequenceSupersedesDifferentPayload();
 };
 
-void ClipboardTransferTests::queuesCompleteTransferWithoutFlushGap()
+void ClipboardTransferTests::queuesTransferInFlushLimitedBatches()
 {
   ClipboardTransferQueue queue;
-  const std::string data(kClipboardTransferChunkSize + 5, 'x');
+  const std::string data((kClipboardTransferChunksPerFlush + 1) * kClipboardTransferChunkSize + 5, 'x');
 
   auto actions = queue.queue(kClipboardClipboard, 7, data);
-  QCOMPARE(actions.size(), 4);
+  QCOMPARE(actions.size(), kClipboardTransferChunksPerFlush + 1);
   QCOMPARE(actions[0].type, ClipboardTransferActionType::Start);
-  QCOMPARE(actions[1].type, ClipboardTransferActionType::Data);
-  QCOMPARE(actions[1].data.size(), kClipboardTransferChunkSize);
-  QCOMPARE(actions[2].type, ClipboardTransferActionType::Data);
-  QCOMPARE(actions[2].data.size(), 5);
-  QCOMPARE(actions[3].type, ClipboardTransferActionType::End);
+  for (size_t i = 1; i < actions.size(); ++i) {
+    QCOMPARE(actions[i].type, ClipboardTransferActionType::Data);
+    QCOMPARE(actions[i].data.size(), kClipboardTransferChunkSize);
+  }
 
   const auto transferId = queue.activeTransferId();
   QVERIFY(transferId != 0);
   QCOMPARE(queue.activeClipboardId(), kClipboardClipboard);
-  QVERIFY(queue.canAcknowledge(transferId));
+  QVERIFY(!queue.canAcknowledge(transferId));
   QVERIFY(!queue.canAcknowledge(transferId + 1));
+
+  actions = queue.outputFlushed();
+  QCOMPARE(actions.size(), 3);
+  QCOMPARE(actions[0].type, ClipboardTransferActionType::Data);
+  QCOMPARE(actions[0].data.size(), kClipboardTransferChunkSize);
+  QCOMPARE(actions[1].type, ClipboardTransferActionType::Data);
+  QCOMPARE(actions[1].data.size(), 5);
+  QCOMPARE(actions[2].type, ClipboardTransferActionType::End);
+
+  QVERIFY(queue.canAcknowledge(transferId));
   QVERIFY(queue.outputFlushed().empty());
   QVERIFY(queue.acknowledged(transferId).empty());
   QVERIFY(!queue.active());

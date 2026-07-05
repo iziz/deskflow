@@ -18,6 +18,7 @@
 #include <vector>
 
 constexpr size_t kClipboardTransferChunkSize = 16 * 1024;
+constexpr size_t kClipboardTransferChunksPerFlush = 4;
 constexpr double kClipboardTransferInactivityTimeout = 10.0;
 constexpr int kClipboardTransferMaxRetries = 2;
 

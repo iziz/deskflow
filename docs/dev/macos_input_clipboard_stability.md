@@ -95,6 +95,10 @@ language ko has group id <korean-group>
   final outgoing transfer becomes idle, including final failure paths.
 - Server acknowledgment confirms that the server accepted the clipboard data. It
   does not prove that every target client has already applied it.
+- Transactional clipboard output must be paced by stream flush progress. Large
+  payloads must not enqueue every data chunk in one event-loop turn, because
+  that can delay input, later clipboard grabs, cancellation, and timeout
+  handling behind the clipboard write backlog.
 
 Expected log evidence for a local macOS text copy is:
 

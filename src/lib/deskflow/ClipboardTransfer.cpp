@@ -191,7 +191,8 @@ void ClipboardTransferQueue::appendPendingOutput(std::vector<ClipboardTransferAc
     return;
   }
 
-  while (transfer.offset < transfer.data.size()) {
+  size_t chunks = 0;
+  while (transfer.offset < transfer.data.size() && chunks < kClipboardTransferChunksPerFlush) {
     const auto size = std::min(kClipboardTransferChunkSize, transfer.data.size() - transfer.offset);
     actions.push_back(
         {ClipboardTransferActionType::Data,
@@ -203,6 +204,11 @@ void ClipboardTransferQueue::appendPendingOutput(std::vector<ClipboardTransferAc
     );
     transfer.offset += size;
     transfer.phase = Phase::DataPendingFlush;
+    ++chunks;
+  }
+
+  if (transfer.offset < transfer.data.size()) {
+    return;
   }
 
   transfer.phase = Phase::EndPendingFlush;
