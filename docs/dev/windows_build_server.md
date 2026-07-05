@@ -128,6 +128,45 @@ MSI generation. That target runs every configured CPack generator, including the
 portable `7Z` package, and can also build unrelated test targets before
 packaging.
 
+## Install And Launch UI
+
+Silent MSI installation starts or updates the installed binaries and the
+Deskflow service, but it does not guarantee that the user-facing GUI is running
+on the logged-in desktop. After installing the MSI, verify both the service/core
+processes and `deskflow.exe`.
+
+```powershell
+$msi = 'Z:\@Development\deskflow\build\windows-release-vcpkg\deskflow-<version>-win-x64.msi'
+Stop-Service -Name Deskflow -Force -ErrorAction SilentlyContinue
+Get-Process deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait
+Start-Service -Name Deskflow -ErrorAction SilentlyContinue
+```
+
+When launching the GUI from SSH, do not use a plain `Start-Process` call because
+it may not appear on the active desktop. Use an interactive scheduled task for
+the logged-in Windows account, then remove the temporary task after
+`deskflow.exe` is running:
+
+```powershell
+$taskName = 'DeskflowLaunchOnce'
+$exe = 'C:\Program Files\Deskflow\deskflow.exe'
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+$action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory 'C:\Program Files\Deskflow'
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5)
+$principal = New-ScheduledTaskPrincipal -UserId 'rurubros\zenis' -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force
+Start-ScheduledTask -TaskName $taskName
+Start-Sleep -Seconds 5
+Get-Process deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue |
+  Select-Object ProcessName,Id,SessionId,Path
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+```
+
+The expected process layout after a server PC install is `deskflow-daemon.exe`
+in session `0`, and `deskflow-core.exe` plus `deskflow.exe` in the active user
+session.
+
 ## Confirmed Windows Flow
 
 The current verified flow from macOS is:
@@ -166,6 +205,10 @@ cpack -G WIX --config .\CPackConfig.cmake
   outputs and cause `LNK1168`. Use `taskkill /F /IM deskflow.exe /IM
   deskflow-core.exe /IM deskflow-daemon.exe /T` if `Stop-Process` does not
   release them.
+- After a silent MSI install, seeing only `deskflow-daemon.exe` and
+  `deskflow-core.exe` means the service/core path is running but the GUI is not.
+  Launch `deskflow.exe` in the active desktop session with the interactive task
+  flow above.
 - WiX v7 currently requires OSMF EULA acceptance before extension installation.
   Use WiX v4.0.6 for unattended MSI generation.
 - If macOS archive-based sync is used for untracked files, disable AppleDouble

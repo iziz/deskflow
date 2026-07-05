@@ -20,7 +20,7 @@ do not describe the code change as fully complete.
 | Target | Role | Host | Workspace | Required action |
 | --- | --- | --- | --- | --- |
 | Local macOS | Local validation | This computer | `/Volumes/AI.DEV/@Dev/deskflow` | Build `macos-release`, install `/Applications/Deskflow.app`, restart Deskflow |
-| Windows 11 server PC | Server validation | `192.168.0.5` | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries |
+| Windows 11 server PC | Server validation | `192.168.0.5` | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
 | Windows 11 client PC | Client validation | Pending | Pending | Sync, build, replace binaries |
 
 Update this table and `AGENTS.md` as soon as the Windows client PC connection
@@ -76,7 +76,10 @@ cpack -G WIX --config .\CPackConfig.cmake
 ```
 
 Install or otherwise replace the server PC binaries with the generated Release
-MSI. Do not use Debug MSI outputs.
+MSI. Do not use Debug MSI outputs. A silent MSI install starts the service/core
+path but does not guarantee that the GUI is visible on the logged-in desktop;
+launch `deskflow.exe` in the active user session as documented in
+`docs/dev/windows_build_server.md`.
 
 ## Windows Client Build And Replacement
 
