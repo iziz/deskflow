@@ -993,34 +993,6 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>Расширенные</translation>
     </message>
     <message>
-        <source>&amp;Dead corners (for this computer)</source>
-        <translation>&amp;Мертвые зоны (для этого компьютера)</translation>
-    </message>
-    <message>
-        <source>&amp;Bottom-left</source>
-        <translation>&amp;Снизу слева</translation>
-    </message>
-    <message>
-        <source>To&amp;p-left</source>
-        <translation>Свер&amp;ху слева</translation>
-    </message>
-    <message>
-        <source>Bottom-ri&amp;ght</source>
-        <translation>Снизу с&amp;права</translation>
-    </message>
-    <message>
-        <source>Top-rig&amp;ht</source>
-        <translation>Сверху спр&amp;ава</translation>
-    </message>
-    <message>
-        <source>Cor&amp;ner size</source>
-        <translation>Разме&amp;р угла</translation>
-    </message>
-    <message>
-        <source>px</source>
-        <translation>пикс</translation>
-    </message>
-    <message>
         <source>&amp;Misc</source>
         <translation>&amp;Разное</translation>
     </message>
@@ -1203,10 +1175,6 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Язык</translation>
     </message>
     <message>
-        <source>Enable wl-clipboard support</source>
-        <translation>Включить поддержку wl-clipboard</translation>
-    </message>
-    <message>
         <source>TLS Certificate Regenerated</source>
         <translation>Сертификат TLS перевыпущен</translation>
     </message>
@@ -1261,10 +1229,6 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Reset to default values</source>
         <translation type="unfinished">Сбросить до значений по умолчанию</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Требуется пакет wl-clipboard. В версии 2.2.1 есть ошибка перехвата фокуса.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>

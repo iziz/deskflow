@@ -246,26 +246,6 @@ public:
   */
   bool addAlias(const std::string &canonical, const std::string &alias);
 
-  //! Remove alias
-  /*!
-  Removes an alias for a screen name.  It returns false if the
-  alias is unknown or a canonical name, otherwise returns true.
-  */
-  bool removeAlias(const std::string &alias);
-
-  //! Remove aliases
-  /*!
-  Removes all aliases for a canonical screen name.  It returns false
-  if the canonical name is unknown, otherwise returns true.
-  */
-  bool removeAliases(const std::string &canonical);
-
-  //! Remove all aliases
-  /*!
-  This removes all aliases but not the screens.
-  */
-  void removeAllAliases();
-
   //! Connect screens
   /*!
   Establishes a one-way connection between portions of opposite edges
@@ -497,6 +477,21 @@ private:
   InputFilter m_inputFilter;
   bool m_hasLockToScreenAction = false;
   IEventQueue *m_events;
+  inline static const QStringList m_oldNames = {
+      QStringLiteral("clipboardSharing"),
+      QStringLiteral("clipboardSharingSize"),
+      QStringLiteral("switchCornerSize"),
+      QStringLiteral("switchCorners"),
+      QStringLiteral("switchNeeds"),
+      QStringLiteral("protocol"),
+      QStringLiteral("heartbeat"),
+      QStringLiteral("switchDelay"),
+      QStringLiteral("switchDoubleTap"),
+      QStringLiteral("relativeMouseMoves"),
+      QStringLiteral("win32KeepForeground"),
+      QStringLiteral("disableLockToScreen"),
+      QStringLiteral("defaultLockToScreenState")
+  };
 };
 
 //! Configuration read context

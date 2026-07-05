@@ -11,6 +11,7 @@
 #include "deskflow/Clipboard.h"
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
+#include "server/Server.h"
 
 #include <cstring>
 
@@ -279,7 +280,7 @@ bool ClientProxy1_9::recvClipboardTransfer()
   }
 
   const bool wasCurrent = m_incoming.active() && m_incoming.transferId() == transferId;
-  auto result = m_incoming.process(id, sequence, transferId, mark, data);
+  auto result = m_incoming.process(id, sequence, transferId, mark, data, m_server->getMaximumClipboardSizeBytes());
   if (result.replacedTransferId != 0) {
     sendClipboardCancel(result.replacedTransferId, ClipboardTransferCancelReason::Superseded);
   }

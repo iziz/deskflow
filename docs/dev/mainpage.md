@@ -52,4 +52,4 @@ Deskflow is built with a modular, cross-platform architecture:
 
 For more info, see our [Wiki](https://github.com/deskflow/deskflow/wiki).
 
-Check out our [Building guide](build.md) or our general @ref contributing_guide "Contributing section". We also have a detailed [Protocol Reference](protocol_reference.md).
+Check out our [Building guide](build.md), our [Codex development harnesses](codex_harness.md), or our general @ref contributing_guide "Contributing section". We also have a detailed [Protocol Reference](protocol_reference.md).

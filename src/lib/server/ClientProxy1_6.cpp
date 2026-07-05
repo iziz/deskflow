@@ -141,14 +141,14 @@ bool ClientProxy1_6::recvClipboard()
   ClipboardID id;
   uint32_t seq;
 
-  auto r = m_legacyClipboardIncoming.process(getStream(), id, seq);
+  auto r = m_legacyClipboardIncoming.process(getStream(), id, seq, m_server->getMaximumClipboardSizeBytes());
   if (r == TransferState::Started) {
     extendHeartbeatForClipboardIncomingTransfer();
-    LOG_DEBUG("receiving clipboard %d size=%d", id, m_legacyClipboardIncoming.expectedSize());
+    LOG_DEBUG("receiving clipboard %d size=%zu", id, m_legacyClipboardIncoming.expectedSize());
   } else if (r == TransferState::Finished) {
     restoreHeartbeatAfterClipboardIncomingTransfer();
     LOG(
-        (CLOG_DEBUG "received client \"%s\" clipboard %d seqnum=%d, size=%d", getName().c_str(), id, seq,
+        (CLOG_DEBUG "received client \"%s\" clipboard %d seqnum=%d, size=%zu", getName().c_str(), id, seq,
          m_legacyClipboardIncoming.data().size())
     );
     // save clipboard
@@ -167,6 +167,7 @@ bool ClientProxy1_6::recvClipboard()
     m_legacyClipboardIncoming.reset();
   } else if (r == TransferState::Error) {
     restoreHeartbeatAfterClipboardIncomingTransfer();
+    return false;
   }
 
   return true;

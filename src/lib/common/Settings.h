@@ -56,7 +56,6 @@ public:
     inline static const auto Display = QStringLiteral("core/display");
     inline static const auto UseHooks = QStringLiteral("core/useHooks");
     inline static const auto Language = QStringLiteral("core/language");
-    inline static const auto UseWlClipboard = QStringLiteral("core/wlClipboard");
     inline static const auto EnableEnterCommand = QStringLiteral("core/enableEnterCommand");
     inline static const auto ScreenEnterCommand = QStringLiteral("core/enterCommand");
     inline static const auto EnableExitCommand = QStringLiteral("core/enableExitCommand");
@@ -104,6 +103,10 @@ public:
   };
   struct Server
   {
+    inline static const auto ClipboardSize = QStringLiteral("server/clipboardSize");
+    inline static const auto DefaultLockToComputerState = QStringLiteral("server/defaultLockToComputerState");
+    inline static const auto DisableLockToComputer = QStringLiteral("server/disableLockToComputer");
+    inline static const auto EnableClipboard = QStringLiteral("server/enableClipboard");
     inline static const auto EnableHeatbeat = QStringLiteral("server/enableHeatbeat");
     inline static const auto EnableSwitchDelay = QStringLiteral("server/enableSwitchDelay");
     inline static const auto EnableSwitchDoubleTap = QStringLiteral("server/enableSwitchDoubleTap");
@@ -111,8 +114,39 @@ public:
     inline static const auto ExternalConfigFile = QStringLiteral("server/externalConfigFile");
     inline static const auto GridHeight = QStringLiteral("server/gridHeight");
     inline static const auto GridWidth = QStringLiteral("server/gridWidth");
+    inline static const auto Heartbeat = QStringLiteral("server/heartbeat");
     inline static const auto Protocol = QStringLiteral("server/protocol");
+    inline static const auto RelativeMouseMoves = QStringLiteral("server/relativeMouseMoves");
+    inline static const auto SwitchDelay = QStringLiteral("server/switchDelay");
+    inline static const auto SwitchDoubleTap = QStringLiteral("server/switchDoubleTap");
+    inline static const auto Win32KeepForeground = QStringLiteral("server/win32KeepForeground");
     inline static const auto XdpRestoreToken = QStringLiteral("server/xdpRestoreToken");
+  };
+
+  struct Screen
+  {
+    inline static const auto Aliases = QStringLiteral("screen_%1/aliases");
+  };
+
+  // Track Removed keys to make upgrading config easier
+  // REMOVE FOR 2.0
+  struct InternalConfig
+  {
+    inline static const auto NumRows = QStringLiteral("internalConfig/numRows");
+    inline static const auto NumColumns = QStringLiteral("internalConfig/numColumns");
+    inline static const auto ClipboardSharing = QStringLiteral("internalConfig/clipboardSharing");
+    inline static const auto Heatbeat = QStringLiteral("internalConfig/heartbeat");
+    inline static const auto SwitchDelay = QStringLiteral("internalConfig/switchDelay");
+    inline static const auto HasHeartbeat = QStringLiteral("internalConfig/hasHeartbeat");
+    inline static const auto HasSwitchDelay = QStringLiteral("internalConfig/hasSwitchDelay");
+    inline static const auto HasSwitchDoubleTap = QStringLiteral("internalConfig/hasSwitchDoubleTap");
+    inline static const auto DefaultLockToScreenState = QStringLiteral("internalConfig/defaultLockToScreenState");
+    inline static const auto DisableLockToScreen = QStringLiteral("internalConfig/disableLockToScreen");
+    inline static const auto SwitchDoubleTapDelay = QStringLiteral("internalConfig/switchDoubleTap");
+    inline static const auto Win32KeepForeground = QStringLiteral("internalConfig/win32KeepForeground");
+    inline static const auto RelativeMouseMoves = QStringLiteral("internalConfig/relativeMouseMoves");
+    inline static const auto Protocol = QStringLiteral("internalConfig/protocol");
+    inline static const auto ClipboardSharingSize = QStringLiteral("internalConfig/clipboardSharingSize");
   };
 
   // Enums types used in settings
@@ -158,7 +192,9 @@ public:
   static NetworkProtocol networkProtocol();
   static void save(bool emitSaving = true);
   static QStringList validKeys();
+  static QStringList validGroups();
   static QString portableSettingsFile();
+  static void removeUnknownScreens(const QStringList &knownScreens);
 
 Q_SIGNALS:
   void settingsChanged(const QString key);
@@ -196,6 +232,17 @@ private:
   std::shared_ptr<QSettingsProxy> m_settingsProxy;
 
   // clang-format off
+  inline static const QStringList m_validGroup = {
+      QStringLiteral("client")
+    , QStringLiteral("core")
+    , QStringLiteral("daemon")
+    , QStringLiteral("gui")
+    , QStringLiteral("log")
+    , QStringLiteral("security")
+    , QStringLiteral("server")
+    , QStringLiteral("internalConfig")
+  };
+
   inline static const QStringList m_validKeys = {
       Settings::Client::DynamicConnectionRetry
     , Settings::Client::InvertYScroll
@@ -219,7 +266,6 @@ private:
     , Settings::Core::ComputerName
     , Settings::Core::Display
     , Settings::Core::UseHooks
-    , Settings::Core::UseWlClipboard
     , Settings::Core::Language
     , Settings::Daemon::ConfigFile
     , Settings::Daemon::Elevate
@@ -246,6 +292,10 @@ private:
     , Settings::Security::CheckPeers
     , Settings::Security::KeySize
     , Settings::Security::TlsEnabled
+    , Settings::Server::ClipboardSize
+    , Settings::Server::DefaultLockToComputerState
+    , Settings::Server::DisableLockToComputer
+    , Settings::Server::EnableClipboard
     , Settings::Server::EnableHeatbeat
     , Settings::Server::EnableSwitchDelay
     , Settings::Server::EnableSwitchDoubleTap
@@ -253,7 +303,12 @@ private:
     , Settings::Server::ExternalConfigFile
     , Settings::Server::GridHeight
     , Settings::Server::GridWidth
+    , Settings::Server::Heartbeat
     , Settings::Server::Protocol
+    , Settings::Server::RelativeMouseMoves
+    , Settings::Server::SwitchDelay
+    , Settings::Server::SwitchDoubleTap
+    , Settings::Server::Win32KeepForeground
     , Settings::Server::XdpRestoreToken
   };
 
@@ -266,7 +321,6 @@ private:
     , Settings::Gui::ShowVersionInTitle
     , Settings::Gui::IgnoreMissingKeyboardLayouts
     , Settings::Core::PreventSleep
-    , Settings::Core::UseWlClipboard
     , Settings::Core::EnableEnterCommand
     , Settings::Core::EnableExitCommand
     , Settings::Client::DynamicConnectionRetry
@@ -274,10 +328,13 @@ private:
     , Settings::Client::InvertXScroll
     , Settings::Log::ToFile
     , Settings::Log::GuiDebug
+    , Settings::Server::DefaultLockToComputerState
+    , Settings::Server::DisableLockToComputer
     , Settings::Server::EnableHeatbeat
     , Settings::Server::EnableSwitchDelay
     , Settings::Server::EnableSwitchDoubleTap
     , Settings::Server::ExternalConfig
+    , Settings::Server::RelativeMouseMoves
   };
 
   // When checking the default values this list contains the ones that default to true.
@@ -290,6 +347,8 @@ private:
     , Settings::Gui::SymbolicTrayIcon
     , Settings::Security::TlsEnabled
     , Settings::Security::CheckPeers
+    , Settings::Server::EnableClipboard
+    , Settings::Server::Win32KeepForeground
   };
 
   // Settings saved in our State file
@@ -298,16 +357,42 @@ private:
   // Contains settings keys to be upgraded.
   inline static const QMap<QString, QString> m_upgradedMap = {
     /*             OLD KEY                        NEW KEY          */
-    {QStringLiteral("core/screenName"), Settings::Core::ComputerName}
+      {Core::ScreenName, Core::ComputerName}
+    , {InternalConfig::NumColumns, Server::GridWidth}
+    , {InternalConfig::NumRows, Server::GridHeight}
+    , {InternalConfig::Heatbeat, Server::Heartbeat}
+    , {InternalConfig::SwitchDelay, Server::SwitchDelay}
+    , {InternalConfig::HasHeartbeat, Server::EnableHeatbeat}
+    , {InternalConfig::HasSwitchDelay, Server::EnableSwitchDelay}
+    , {InternalConfig::HasSwitchDoubleTap, Server::EnableSwitchDoubleTap}
+    , {InternalConfig::ClipboardSharing, Server::EnableClipboard}
+    , {InternalConfig::DisableLockToScreen, Server::DisableLockToComputer}
+    , {InternalConfig::DefaultLockToScreenState, Server::DefaultLockToComputerState}
+    , {InternalConfig::SwitchDoubleTapDelay, Server::SwitchDoubleTap}
+    , {InternalConfig::Win32KeepForeground, Server::Win32KeepForeground}
+    , {InternalConfig::RelativeMouseMoves, Server::RelativeMouseMoves}
+    , {InternalConfig::Protocol, Server::Protocol}
+    , {InternalConfig::ClipboardSharingSize, Server::ClipboardSize}
   };
-  // Contains settings removed from server-configuration file
+
+// Contains settings removed from server-configuration file
   inline static const QStringList m_oldServerConfigKeys = {
-      QStringLiteral("internalConfig/hasHeartbeat")
-    , QStringLiteral("internalConfig/hasSwitchDelay")
-    , QStringLiteral("internalConfig/hasSwitchDoubleTap")
-    , QStringLiteral("internalConfig/protocol")
-    , QStringLiteral("internalConfig/numColumns")
-    , QStringLiteral("internalConfig/numRows")
+      InternalConfig::DefaultLockToScreenState
+    , InternalConfig::DisableLockToScreen
+    , InternalConfig::ClipboardSharing
+    , InternalConfig::ClipboardSharingSize
+    , InternalConfig::HasHeartbeat
+    , InternalConfig::HasSwitchDelay
+    , InternalConfig::HasSwitchDoubleTap
+    , InternalConfig::Heatbeat
+    , InternalConfig::NumColumns
+    , InternalConfig::NumRows
+    , InternalConfig::RelativeMouseMoves
+    , InternalConfig::SwitchDelay
+    , InternalConfig::SwitchDoubleTapDelay
+    , InternalConfig::Win32KeepForeground
+    , InternalConfig::Protocol
+    , QStringLiteral("internalConfig/switchCorner")
   };
   // clang-format on
 };

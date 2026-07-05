@@ -96,12 +96,18 @@ Settings::Settings(QObject *parent) : QObject(parent)
 
 void Settings::upgradeSettings()
 {
-  const auto logValue = m_settings->value(Settings::Log::Level).toString();
-  if (!LogLevel::logLevelOptions().contains(logValue, Qt::CaseInsensitive))
+  if (const auto logValue = m_settings->value(Settings::Log::Level).toString();
+      !LogLevel::logLevelOptions().contains(logValue, Qt::CaseInsensitive))
     m_settings->setValue(Settings::Log::Level, defaultValue(Settings::Log::Level));
 
   for (const auto [oldKey, newKey] : m_upgradedMap.asKeyValueRange()) {
-    if (m_settings->contains(oldKey) && !m_settings->contains(newKey)) {
+    if (m_settings->contains(newKey) || !m_settings->contains(oldKey))
+      continue;
+    if (oldKey == InternalConfig::Protocol) {
+      m_settings->setValue(newKey, networkProtocolToOption(NetworkProtocol(m_settings->value(oldKey).toInt())));
+    } else if (oldKey == InternalConfig::ClipboardSharingSize) {
+      m_settings->setValue(newKey, m_settings->value(oldKey).toUInt() / 1024);
+    } else {
       m_settings->setValue(newKey, m_settings->value(oldKey));
     }
   }
@@ -115,9 +121,9 @@ void Settings::cleanSettings()
       m_settings->remove(key);
     if (key.startsWith(QStringLiteral("internalConfig")))
       continue;
-    if (!m_validKeys.contains(key))
+    if (const auto group = key.mid(0, key.indexOf('/')); !m_validKeys.contains(key) && m_validGroup.contains(group))
       m_settings->remove(key);
-    if (m_settings->value(key).toString().isEmpty())
+    if (!m_settings->value(key).canConvert<QStringList>() && m_settings->value(key).toString().isEmpty())
       m_settings->remove(key);
   }
 }
@@ -215,6 +221,15 @@ QVariant Settings::defaultValue(const QString &key)
 
   if (key == Server::GridHeight)
     return kServerGridHeight;
+
+  if (key == Server::Heartbeat)
+    return 5000;
+
+  if (key == Server::SwitchDelay || key == Server::SwitchDoubleTap)
+    return 250;
+
+  if (key == Server::ClipboardSize)
+    return 3; // 3 MiB
 
   return QVariant();
 }
@@ -340,4 +355,14 @@ QString Settings::portableSettingsFile()
   static const auto filename =
       QStringLiteral("%1/settings/%2.conf").arg(QCoreApplication::applicationDirPath(), kAppName);
   return QFileInfo(filename).absoluteFilePath();
+}
+
+void Settings::removeUnknownScreens(const QStringList &knownScreens)
+{
+  const QStringList knownGroups = instance()->m_settings->childGroups();
+  for (const auto &group : knownGroups) {
+    if (m_validGroup.contains(group) || knownScreens.contains(group))
+      continue;
+    instance()->m_settings->remove(group);
+  }
 }

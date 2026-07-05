@@ -9,7 +9,6 @@
 #include "server/Config.h"
 
 #include "base/IEventQueue.h"
-#include "deskflow/DeskflowException.h"
 #include "deskflow/KeyMap.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/OptionTypes.h"
@@ -83,10 +82,15 @@ bool Config::addScreen(const std::string &name)
   }
 
   // add cell
-  m_map.insert(std::make_pair(name, Cell()));
+  m_map.try_emplace(name, Cell());
 
   // add name
-  m_nameToCanonicalName.insert(std::make_pair(name, name));
+  m_nameToCanonicalName.try_emplace(name, name);
+
+  // add aliases
+  const auto aliases = Settings::value(Settings::Screen::Aliases.arg(QString::fromStdString(name))).toStringList();
+  for (const auto &alias : aliases)
+    m_nameToCanonicalName.try_emplace(alias.toStdString(), name);
 
   return true;
 }
@@ -185,58 +189,9 @@ bool Config::addAlias(const std::string &canonical, const std::string &alias)
   }
 
   // insert alias
-  m_nameToCanonicalName.insert(std::make_pair(alias, canonical));
+  m_nameToCanonicalName.try_emplace(alias, canonical);
 
   return true;
-}
-
-bool Config::removeAlias(const std::string &alias)
-{
-  // must not be a canonical name
-  if (m_map.contains(alias)) {
-    return false;
-  }
-
-  // find alias
-  NameMap::iterator index = m_nameToCanonicalName.find(alias);
-  if (index == m_nameToCanonicalName.end()) {
-    return false;
-  }
-
-  // remove alias
-  m_nameToCanonicalName.erase(index);
-
-  return true;
-}
-
-bool Config::removeAliases(const std::string &canonical)
-{
-  // must be a canonical name
-  if (!m_map.contains(canonical)) {
-    return false;
-  }
-
-  // find and removing matching aliases
-  for (auto index = m_nameToCanonicalName.begin(); index != m_nameToCanonicalName.end();) {
-    if (index->second == canonical && index->first != canonical) {
-      m_nameToCanonicalName.erase(index++);
-    } else {
-      ++index;
-    }
-  }
-
-  return true;
-}
-
-void Config::removeAllAliases()
-{
-  // remove all names
-  m_nameToCanonicalName.clear();
-
-  // put the canonical names back in
-  for (auto index = m_map.begin(); index != m_map.end(); ++index) {
-    m_nameToCanonicalName.insert(std::make_pair(index->first, index->first));
-  }
 }
 
 bool Config::connect(
@@ -694,6 +649,25 @@ void Config::readSection(ConfigReadContext &s)
 
 void Config::readSectionOptions(ConfigReadContext &s)
 {
+  if (Settings::value(Settings::Server::EnableHeatbeat).toBool()) {
+    addOption("", kOptionHeartbeat, Settings::value(Settings::Server::Heartbeat).toInt());
+  }
+
+  if (Settings::value(Settings::Server::EnableSwitchDelay).toBool()) {
+    addOption("", kOptionScreenSwitchDelay, Settings::value(Settings::Server::SwitchDelay).toInt());
+  }
+
+  if (Settings::value(Settings::Server::EnableSwitchDoubleTap).toBool()) {
+    addOption("", kOptionScreenSwitchTwoTap, Settings::value(Settings::Server::SwitchDoubleTap).toInt());
+  }
+
+  addOption("", kOptionDefaultLockToScreenState, Settings::value(Settings::Server::DefaultLockToComputerState).toInt());
+  addOption("", kOptionDisableLockToScreen, Settings::value(Settings::Server::DisableLockToComputer).toInt());
+  addOption("", kOptionRelativeMouseMoves, Settings::value(Settings::Server::RelativeMouseMoves).toInt());
+  addOption("", kOptionWin32KeepForeground, Settings::value(Settings::Server::Win32KeepForeground).toInt());
+  addOption("", kOptionClipboardSharing, Settings::value(Settings::Server::EnableClipboard).toBool());
+  addOption("", kOptionClipboardSharingSize, Settings::value(Settings::Server::ClipboardSize).toUInt() * 1024);
+
   std::string line;
   while (s.readLine(line)) {
     // check for end of section
@@ -714,11 +688,10 @@ void Config::readSectionOptions(ConfigReadContext &s)
     ++i;
     s.parseNameWithArgs("value", line, ",;\n", i, value, valueArgs);
 
-    // Skip old protocol name
-    if (name == "protocol")
-      continue;
-
     bool handled = true;
+
+    if (m_oldNames.contains(name))
+      continue;
 
     if (name == "address") {
       try {
@@ -727,34 +700,6 @@ void Config::readSectionOptions(ConfigReadContext &s)
       } catch (SocketAddressException &e) {
         throw ServerConfigReadException(s, std::string("invalid address argument ") + e.what());
       }
-    } else if (name == "heartbeat") {
-      addOption("", kOptionHeartbeat, s.parseInt(value));
-    } else if (name == "switchCorners") {
-      addOption("", kOptionScreenSwitchCorners, s.parseCorners(value));
-    } else if (name == "switchCornerSize") {
-      addOption("", kOptionScreenSwitchCornerSize, s.parseInt(value));
-    } else if (name == "switchDelay") {
-      addOption("", kOptionScreenSwitchDelay, s.parseInt(value));
-    } else if (name == "switchDoubleTap") {
-      addOption("", kOptionScreenSwitchTwoTap, s.parseInt(value));
-    } else if (name == "switchNeedsShift") {
-      addOption("", kOptionScreenSwitchNeedsShift, s.parseBoolean(value));
-    } else if (name == "switchNeedsControl") {
-      addOption("", kOptionScreenSwitchNeedsControl, s.parseBoolean(value));
-    } else if (name == "switchNeedsAlt") {
-      addOption("", kOptionScreenSwitchNeedsAlt, s.parseBoolean(value));
-    } else if (name == "relativeMouseMoves") {
-      addOption("", kOptionRelativeMouseMoves, s.parseBoolean(value));
-    } else if (name == "win32KeepForeground") {
-      addOption("", kOptionWin32KeepForeground, s.parseBoolean(value));
-    } else if (name == "defaultLockToScreenState") {
-      addOption("", kOptionDefaultLockToScreenState, s.parseBoolean(value));
-    } else if (name == "disableLockToScreen") {
-      addOption("", kOptionDisableLockToScreen, s.parseBoolean(value));
-    } else if (name == "clipboardSharing") {
-      addOption("", kOptionClipboardSharing, s.parseBoolean(value));
-    } else if (name == "clipboardSharingSize") {
-      addOption("", kOptionClipboardSharingSize, s.parseInt(value));
     } else {
       handled = false;
     }
@@ -802,6 +747,7 @@ void Config::readSectionOptions(ConfigReadContext &s)
       m_inputFilter.addFilterRule(rule);
     }
   }
+
   throw ServerConfigReadException(s, "unexpected end of options section");
 }
 
@@ -1562,7 +1508,7 @@ bool Config::Cell::add(const CellEdge &src, const CellEdge &dst)
   }
 
   m_neighbors.erase(src);
-  m_neighbors.insert(std::make_pair(src, dst));
+  m_neighbors.try_emplace(src, dst);
   return true;
 }
 
@@ -1765,9 +1711,13 @@ std::ostream &operator<<(std::ostream &s, const Config &config)
     s << "end" << std::endl;
   }
 
-  // options section
-  s << "section: options" << std::endl;
-  if (const Config::ScreenOptions *options = config.getOptions(""); options && options->size() > 0) {
+  const Config::ScreenOptions *options = config.getOptions("");
+  const auto inputFilter = config.m_inputFilter.format("\t");
+  if ((options != nullptr && !options->empty()) || config.m_deskflowAddress.isValid() || !inputFilter.empty()) {
+    // options section
+    s << "section: options" << std::endl;
+  }
+  if (options != nullptr && !options->empty()) {
     for (auto [optionId, optionValue] : *options) {
       const char *name = Config::getOptionName(optionId);
       std::string value = Config::getOptionValue(optionId, optionValue);
@@ -1779,8 +1729,10 @@ std::ostream &operator<<(std::ostream &s, const Config &config)
   if (config.m_deskflowAddress.isValid()) {
     s << "\taddress = " << config.m_deskflowAddress.getHostname().c_str() << std::endl;
   }
-  s << config.m_inputFilter.format("\t");
-  s << "end" << std::endl;
+  s << inputFilter;
+  if ((options != nullptr && !options->empty()) || config.m_deskflowAddress.isValid() || !inputFilter.empty()) {
+    s << "end" << std::endl;
+  }
 
   return s;
 }

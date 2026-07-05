@@ -77,7 +77,6 @@ This section contains general options it will begin with `[core]`
 | computerName  | string            | Name used to identify the computer [default: machine's hostname] |
 | useHooks      | `true` or `false` | If Windows uses hooks or not [default: true] |
 | language      | 639 language      | The language to display the GUI in [default: en] |
-| wlClipboard   | `true` or `false` | When true the wl-clipboard backend will be enabled [default: false] |
 | enableEnterCommand | `true` or `false` | Should the enter command be triggered when the screen is entered [defaut: false] |
 | enterCommand  | command | A command to run when the screen is entered. |
 | enableExitCommand | `true` or `false` | Should the exit command be triggered when the screen is exited [defaut: false] |
@@ -142,6 +141,10 @@ This section contains options used when in server mode it will begin with `[serv
 
 |Option              |    Valid Values   |Description|
 |:-------------------|:-----------------:|:-----------|
+| clipboardSize      | int > 0           | Deskflow will send a maximum of `N` megabytes of clipboard data to another computer when the mouse transitions to that computer.|
+| defaultLockToComputerState| `true` or `false` | When this is true the cursor is locked to the new computer when switching (default: false)|
+| disableLockToComputer| `true` or `false` | If false pressing scroll lock will toggle your cursor to be locked to current computer. (default: false) |
+| enableClipboard    | `true` or `false` | When `true` the clipboard will be shared with all clients If set to ''true'' then clipboard shared and the ''clipboardSharingSize'' setting will be used. If set to false, then clipboard sharing will be disabled and the the ''clipboardSharingSize'' setting will be ignored.|
 | enableHeartbeat    | `true` or `false` | Send a heartbeat to connected clients; this has been replaced by internal keep alive (default: false)|
 | enableSwitchDelay  | `true` or `false` | Switching will be delayed by the set value (default: false)|
 | enableSwitchDoubleTap  | `true` or `false` | Enables the doubletap to switch method (default: false)|
@@ -149,8 +152,24 @@ This section contains options used when in server mode it will begin with `[serv
 | externalConfigFile | Filepath          | Path the server config file if it does not exist the GUI will it generated based on the `internalConfig` section.|
 | gridHeight         | int               | Height of the server's intenal grid used for the computer layout (default: 3)|
 | gridWidth          | int               | Width of the server's intenal grid used for the computer layout (default: 5) |
+| heartbeat          | int               | The server will expect each client to send a message no less than every `N` milliseconds. If no message arrives from a client within `3N` seconds the server forces that client to disconnect. If deskflow fails to detect clients disconnecting while the server is sleeping or vice versa, try using this option.|
 | protocol           | `barrier` or `synergy` | The protocol to use when saying hello to clients. Can be set to barrier or synergy. If not set barrier is used as the default |
+|relativeMouseMoves  | `true` or `false` | If set to ''true'' then secondary computers move the mouse using relative rather than absolute mouse moves when and only when the cursor is locked to the computer (by ''Scroll Lock'' or a configured hot key). This is intended to make Deskflow work better with certain games. If set to ''false'' or not set then all mouse moves are absolute.|
+| switchDelay        | int               | Deskflow won't switch computers when the mouse reaches edge of a computer unless it stays on the edge for `N` milliseconds. This helps prevent unintentional switching when working near an edge. (default: 250)|
+| switchDoubleTap    | int               | Deskflow won't switch computers when the mouse reaches the edge of a computer unless it's moved away from the edge and then back to the edge within `N` milliseconds. With the option you have to quickly tap the edge twice to switch. This helps prevent unintentional switching when working near the edge.|
+|win32KeepForeground | `true` or `false` | If set to ''true'' (the default), Deskflow will grab the foreground focus on a Windows server (thereby putting all other windows in the background) upon switching to a client. If set to ''false'', it will leave the currently foreground window in the foreground. Deskflow grabs the focus to avoid issues with other apps interfering with Deskflow's ability to read the hardware inputs. |
 | xdpRestoreToken   | UUID               | Restore token provided by XDG portals |
+
+ - You can use both the ''switchDelay'' and ''switchDoubleTap'' options at the same time. Deskflow will switch when either requirement is satisfied.
+
+### Screen Settings
+
+Each screen will have a section where its configuration will be stored, if the screen was named "foo" the section will be named `[screen_foo]`
+
+|Option              |    Valid Values    |Description|
+|:-------------------|:------------------:|:-----------|
+| aliases            | Comma separated list of hostnames | Names here will be used as alternatives for the computer. Names must be valid hostnames. |
+
 
 ### InternalConfig
 
@@ -159,11 +178,6 @@ block of a server config file as seen below. This section is used by the GUI to 
 
 ```
 [internalConfig]
-clipboardSharing=true
-clipboardSharingSize=@Variant(\0\0\0\x84\0\0\0\0\0\0<\0)
-defaultLockToScreenState=false
-disableLockToScreen=false
-heartbeat=5000
 hotkeys\1\actions\1\activeOnRelease=false
 hotkeys\1\actions\1\hasScreens=true
 hotkeys\1\actions\1\keys\1\key=83
@@ -178,9 +192,7 @@ hotkeys\1\actions\size=1
 hotkeys\1\keys\1\key=83
 hotkeys\1\keys\size=1
 hotkeys\size=1
-relativeMouseMoves=false
 screens\1\name=
-screens\10\aliasArray\size=0
 screens\10\fixArray\1\fix=false
 screens\10\fixArray\2\fix=false
 screens\10\fixArray\3\fix=false
@@ -210,7 +222,6 @@ screens\3\name=
 screens\4\name=
 screens\5\name=
 screens\6\name=
-screens\7\aliasArray\size=0
 screens\7\fixArray\1\fix=false
 screens\7\fixArray\2\fix=false
 screens\7\fixArray\3\fix=false
@@ -230,7 +241,6 @@ screens\7\switchCornerArray\3\switchCorner=false
 screens\7\switchCornerArray\4\switchCorner=false
 screens\7\switchCornerArray\size=4
 screens\7\switchCornerSize=0
-screens\8\aliasArray\size=0
 screens\8\fixArray\1\fix=false
 screens\8\fixArray\2\fix=false
 screens\8\fixArray\3\fix=false
@@ -250,7 +260,6 @@ screens\8\switchCornerArray\3\switchCorner=false
 screens\8\switchCornerArray\4\switchCorner=false
 screens\8\switchCornerArray\size=4
 screens\8\switchCornerSize=0
-screens\9\aliasArray\size=0
 screens\9\fixArray\1\fix=false
 screens\9\fixArray\2\fix=false
 screens\9\fixArray\3\fix=false
@@ -271,15 +280,6 @@ screens\9\switchCornerArray\4\switchCorner=false
 screens\9\switchCornerArray\size=4
 screens\9\switchCornerSize=0
 screens\size=15
-switchCornerArray\1\switchCorner=false
-switchCornerArray\2\switchCorner=false
-switchCornerArray\3\switchCorner=false
-switchCornerArray\4\switchCorner=false
-switchCornerArray\size=4
-switchCornerSize=0
-switchDelay=250
-switchDoubleTap=250
-win32KeepForeground=false
 ```
 
 
@@ -297,11 +297,10 @@ end
 Comments are introduced by ''#'' and continue to the end of the line. ''name'' must be one of the following:
 
 * ''screens''
-* ''aliases''
 * ''links''
 * ''options''
 
-The file is parsed top to bottom and names cannot be used before they've been defined in the <code>screens</code> or <code>aliases</code> sections. So the <code>links</code> and <code>aliases</code> must appear after the <code>screens</code> and <code>links</code> cannot refer to aliases unless the <code>aliases</code> appear before the <code>links</code>.
+The file is parsed top to bottom and names cannot be used before they've been defined in the `screens` or as an alias in the general config. So the `links` must appear after the `screens`.
 
 ### The screens section
 
@@ -330,28 +329,13 @@ A computer can have the following options:
 |halfDuplexScrollLock| `true` or `false`| This computer has a ''Scroll Lock'' key that doesn't report a press and a release event when the user presses it but instead reports a press event when it's turned on and a release event when it's turned off. If ''Scroll Lock'' acts strangely on all computers then you may need to set this option to true on the server. If it acts strangely on one computer then that computer may need the option set to true.|
 |xtestIsXineramaUnaware| `true` or `false`| This option works around a bug in the XTest extension when used in combination with Xinerama. It affects X11 clients only. Not all versions of the XTest extension are aware of the Xinerama extension. As a result, they do not move the mouse correctly when using multiple Xinerama screens. This option is currently ''true'' by default. If you know your XTest extension is Xinerama aware then set this option to ''false''.|
 |preserveFocus| `true` or `false` | When true don't drop focus when switching computers
-|switchCorners| corners |See <a href="#switch-corners">switchCorners</a> below.|
-|switchCornerSize | integer | see switchCornerSize below.|
+|switchCorners | none top-left top-right bottom-left bottom-right left right top bottom all | Deskflow won't switch computers when the mouse reaches the edge of the computer if it's in a listed corner. The size of all corners is given by the `switchCornerSize` option. The first name in the list is one of the above names and defines the initial set of corners. Subsequent names are prefixed with + or - to add the corner to or remove the corner from the set, respectively. For example: `all -left +top-left` starts will all corners, removes the left corners (top and bottom) then adds the top-left back in, resulting in the top-left, bottom-left and bottom-right corners.|
+|switchCornerSize | integer (N) | Sets the size of all corners in pixels. The cursor must be within `N` pixels of the corner to be considered to be in the corner.|
 |shift | shift ctrl alt meta super none | Map the server's shift modifer to different key on a client computer|
 |ctrl  | shift ctrl alt meta super none | Map the server's ctrl modifer to different key on a client computer|
 |alt | shift ctrl alt meta super none | Map the server's alt modifer to different key on a client computer|
 |meta|  shift ctrl alt meta super none | Map the server's meta modifer to different key on a client computer|
 |super|  shift ctrl alt meta super none | Map the server's super modifer to different key on a client computer|
-
-### aliases section
-
-''args'' is a list of computer names just like in the ''screens'' section except each computer is followed by a list of aliases, one per line, not followed by a colon. An ''alias'' is a computer name and must be unique. When searching for computers each alias is equivalent to the computer name it aliases. So a client can connect using its canonical computer name or any of its aliases.
-
-```
-section: aliases
-	larry:
-		larry.stooges.com
-	curly:
-		shemp
-end
-```
-
-Computer ''larry'' is also known as ''larry.stooges.com'' and can connect as either name. Computer ''curly'' is also known as ''shemp'' (hey, it's just an example).
 
 ### links secion
 
@@ -410,8 +394,7 @@ The units can be millimeters or any other consistent unit. When this section is 
 
 ```
 section: options
-	heartbeat = 5000
-	switchDelay = 500
+        name = value
 end
 ```
 
@@ -419,21 +402,9 @@ end
 
 | Options | Value Values| Description|
 |:--------|:-----------:|:-----------|
-|heartbeat| integer (N) | The server will expect each client to send a message no less than every `N` milliseconds. If no message arrives from a client within `3N` seconds the server forces that client to disconnect. If deskflow fails to detect clients disconnecting while the server is sleeping or vice versa, try using this option. |
-|switchCorners | none top-left top-right bottom-left bottom-right left right top bottom all | Deskflow won't switch computers when the mouse reaches the edge of the computer if it's in a listed corner. The size of all corners is given by the `switchCornerSize` option. The first name in the list is one of the above names and defines the initial set of corners. Subsequent names are prefixed with + or - to add the corner to or remove the corner from the set, respectively. For example: `all -left +top-left` starts will all corners, removes the left corners (top and bottom) then adds the top-left back in, resulting in the top-left, bottom-left and bottom-right corners.|
-|switchCornerSize | integer (N) | Sets the size of all corners in pixels. The cursor must be within `N` pixels of the corner to be considered to be in the corner.|
-|switchDelay | integer| Deskflow won't switch computers when the mouse reaches edge of a computer unless it stays on the edge for `N` milliseconds. This helps prevent unintentional switching when working near an edge.|
-|switchDoubleTap| integer(N) | Deskflow won't switch computers when the mouse reaches the edge of a computer unless it's moved away from the edge and then back to the edge within `N` milliseconds. With the option you have to quickly tap the edge twice to switch. This helps prevent unintentional switching when working near the edge.|
 |screenSaverSync| `true` or `false`| ''Note: Removed in v1.14.1'' If set to ''false'' then Deskflow won't synchronize screen savers. Client screen savers will start according to their individual configurations. The server screen saver won't start if there is input, even if that input is directed toward a client computer.|
-|relativeMouseMoves| `true` or `false`| If set to ''true'' then secondary computers move the mouse using relative rather than absolute mouse moves when and only when the cursor is locked to the computer (by ''Scroll Lock'' or a configured hot key). This is intended to make Deskflow work better with certain games. If set to ''false'' or not set then all mouse moves are absolute.|
-|clipboardSharing| `true` or `false`|If set to ''true'' then clipboard sharing will be enabled and the ''clipboardSharingSize'' setting will be used. If set to false, then clipboard sharing will be disabled and the the ''clipboardSharingSize'' setting will be ignored.|
-|clipboardSharingSize| integer (N)| Deskflow will send a maximum of `N` kilobytes of clipboard data to another computer when the mouse transitions to that computer.|
-|win32KeepForeground | `true` or `false`| If set to ''true'' (the default), Deskflow will grab the foreground focus on a Windows server (thereby putting all other windows in the background) upon switching to a client. If set to ''false'', it will leave the currently foreground window in the foreground. Deskflow grabs the focus to avoid issues with other apps interfering with Deskflow's ability to read the hardware inputs. |
 |keystroke(key) | actions | Binds the ''key'' combination key to the given ''actions''. ''key'' is an optional list of modifiers (''shift'', ''control'', ''alt'', ''meta'' or ''super'') optionally followed by a character or a key name, all separated by + (plus signs). You must have either modifiers or a character/key name or both. See below for `valid key names` and `actions`. Keyboard hot keys are handled while the cursor any computer. Separate actions can be assigned to press and release.|
 |mousebutton(button) | actions| Binds the modifier and mouse button combination ''button'' to the given ''actions''. ''button'' is an optional list of modifiers (''shift'', ''control'', ''alt'', ''meta'' or ''super'') followed by a button number. The primary button (the left button for right handed users) is button 1, the middle button is 2, etc. Actions can be found below. Mouse button actions are not handled while the cursor is on the server. You cannot use these to perform an action while on the server. Separate actions can be assigned to press and release.|
-
-
-You can use both the ''switchDelay'' and ''switchDoubleTap'' options at the same time. Deskflow will switch when either requirement is satisfied.
 
 ##### Actions
 
@@ -634,6 +605,8 @@ Valid key names are:
 Additionally, a name of the form `\uXXXX` where ''XXXX'' is a hexadecimal number is interpreted as a unicode character code. Key and modifier names are case-insensitive. Keys that don't exist on the keyboard or in the default keyboard layout will not work.
 
 ### Example textual configuration file
+
+The alias section is no longer in the server config
 
 This example comes from doc/deskflow-basic.conf
 

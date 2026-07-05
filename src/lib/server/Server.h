@@ -198,6 +198,7 @@ public:
   */
   void getClients(std::vector<std::string> &list) const;
   void sendConnectedClientsIpc() const;
+  size_t getMaximumClipboardSizeBytes() const;
 
   //@}
 
@@ -470,11 +471,6 @@ private:
 
   bool m_switchTwoTapEngaged = false;
   bool m_switchTwoTapArmed = false;
-
-  // modifiers needed before switching
-  bool m_switchNeedsShift = false;
-  bool m_switchNeedsControl = false;
-  bool m_switchNeedsAlt = false;
 
   // relative mouse move option
   bool m_relativeMoves = false;

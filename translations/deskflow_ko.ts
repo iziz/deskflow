@@ -993,34 +993,6 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>고급</translation>
     </message>
     <message>
-        <source>&amp;Dead corners (for this computer)</source>
-        <translation>화면 걸림 방지(&amp;D) (이 컴퓨터)</translation>
-    </message>
-    <message>
-        <source>&amp;Bottom-left</source>
-        <translation>왼쪽 아래(&amp;B)</translation>
-    </message>
-    <message>
-        <source>To&amp;p-left</source>
-        <translation>왼쪽 위(&amp;P)</translation>
-    </message>
-    <message>
-        <source>Bottom-ri&amp;ght</source>
-        <translation>오른쪽 아래(&amp;G)</translation>
-    </message>
-    <message>
-        <source>Top-rig&amp;ht</source>
-        <translation>오른쪽 위(&amp;H)</translation>
-    </message>
-    <message>
-        <source>Cor&amp;ner size</source>
-        <translation>모서리 크기(&amp;N)</translation>
-    </message>
-    <message>
-        <source>px</source>
-        <translation>픽셀</translation>
-    </message>
-    <message>
         <source>&amp;Misc</source>
         <translation>기타(&amp;M)</translation>
     </message>
@@ -1259,14 +1231,6 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Reset to default values</source>
         <translation type="unfinished">기본값으로 재설정</translation>
-    </message>
-    <message>
-        <source>Enable wl-clipboard support</source>
-        <translation>wl-clipboard 지원 사용</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;wl-clipboard 패키지가 필요합니다.&lt;/p&gt;&lt;p&gt;wl-clipboard v2.2.1 사용 시 포커스 탈취 버그로 인해 Deskflow 사용이 어려워질 수 있습니다. 이 문제는 wl-clipboard master 브랜치를 사용하면 해결되지만, 사용 중인 컴포지터가 wlroots-data-control 프로토콜을 지원하지 않으면 해결이 안 될 수 있습니다.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>

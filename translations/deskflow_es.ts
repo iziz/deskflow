@@ -993,34 +993,6 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
         <translation type="unfinished">Avanzado</translation>
     </message>
     <message>
-        <source>&amp;Dead corners (for this computer)</source>
-        <translation type="unfinished">Esquinas &amp;muertas (para esta computadora)</translation>
-    </message>
-    <message>
-        <source>&amp;Bottom-left</source>
-        <translation type="unfinished">A&amp;bajo a la izquierda</translation>
-    </message>
-    <message>
-        <source>To&amp;p-left</source>
-        <translation type="unfinished">Arriba y abajo a la iz&amp;quierda</translation>
-    </message>
-    <message>
-        <source>Bottom-ri&amp;ght</source>
-        <translation type="unfinished">Aba&amp;jo a la derecha</translation>
-    </message>
-    <message>
-        <source>Top-rig&amp;ht</source>
-        <translation type="unfinished">Derecha superio&amp;r</translation>
-    </message>
-    <message>
-        <source>Cor&amp;ner size</source>
-        <translation type="unfinished">Tamaño de la esqui&amp;na</translation>
-    </message>
-    <message>
-        <source>px</source>
-        <translation type="unfinished">px</translation>
-    </message>
-    <message>
         <source>&amp;Misc</source>
         <translation type="unfinished">&amp;Misc</translation>
     </message>
@@ -1259,14 +1231,6 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     <message>
         <source>Enable GUI debug messages</source>
         <translation type="unfinished">Habilitar mensajes de depuración de la interfaz gráfica de usuario</translation>
-    </message>
-    <message>
-        <source>Enable wl-clipboard support</source>
-        <translation type="unfinished">Habilitar la compatibilidad con wl-clipboard</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requiere el paquete wl-clipboard&lt;/p&gt;&lt;p&gt;Al usar wl-clipboard v2.2.1, existe un error que provoca la pérdida del foco y que puede dificultar el uso de Deskflow. Este error se ha corregido al usar la rama principal de wl-clipboard, a menos que su Compositor no sea compatible con el protocolo wlroots-data-control.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>

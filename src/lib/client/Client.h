@@ -126,6 +126,7 @@ public:
   {
     return m_resolvedAddressesCount;
   }
+  size_t getMaximumClipboardReceiveSizeBytes() const;
 
   //@}
 
@@ -155,6 +156,7 @@ public:
   std::string getName() const override;
 
 private:
+  void saveRelativeRestorePosition();
   void sendClipboard(ClipboardID);
   void sendEvent(deskflow::EventTypes);
   void sendConnectionFailedEvent(const char *msg);
@@ -202,6 +204,11 @@ private:
   IEventQueue *m_events = nullptr;
   bool m_useSecureNetwork = false;
   bool m_enableClipboard = true;
+  bool m_relativeMouseMoves = false;
+  bool m_hasRelativeRestorePosition = false;
+  int32_t m_relativeRestoreX = 0;
+  int32_t m_relativeRestoreY = 0;
+  size_t m_maximumClipboardReceiveSize = 0;
   size_t m_maximumClipboardSize = INT_MAX;
   size_t m_resolvedAddressesCount = 0;
   int16_t m_serverProtocolMinor = 0;

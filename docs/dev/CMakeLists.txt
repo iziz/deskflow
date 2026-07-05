@@ -16,6 +16,7 @@ target_sources(dev-docs PRIVATE
   mainpage.md
   contributing.md
   build.md
+  codex_harness.md
   protocol_reference.md
 )
 

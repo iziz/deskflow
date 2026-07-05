@@ -995,34 +995,6 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>高级</translation>
     </message>
     <message>
-        <source>&amp;Dead corners (for this computer)</source>
-        <translation>屏幕死角 (针对此计算机)(&amp;D)</translation>
-    </message>
-    <message>
-        <source>&amp;Bottom-left</source>
-        <translation>左下(&amp;B)</translation>
-    </message>
-    <message>
-        <source>To&amp;p-left</source>
-        <translation>左上(&amp;P)</translation>
-    </message>
-    <message>
-        <source>Bottom-ri&amp;ght</source>
-        <translation>右下(&amp;G)</translation>
-    </message>
-    <message>
-        <source>Top-rig&amp;ht</source>
-        <translation>右上(&amp;H)</translation>
-    </message>
-    <message>
-        <source>Cor&amp;ner size</source>
-        <translation>角落大小(&amp;N)</translation>
-    </message>
-    <message>
-        <source>px</source>
-        <translation>像素</translation>
-    </message>
-    <message>
         <source>&amp;Misc</source>
         <translation>杂项(&amp;M)</translation>
     </message>
@@ -1261,14 +1233,6 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Reset to default values</source>
         <translation type="unfinished">重置为默认值</translation>
-    </message>
-    <message>
-        <source>Enable wl-clipboard support</source>
-        <translation>启用 wl-clipboard 支持</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;需要 wl-clipboard 包&lt;/p&gt;&lt;p&gt;使用 wl-clipboard v2.2.1 时存在一个焦点抢夺 Bug，可能导致 Deskflow 使用不便。该问题已在 wl-clipboard 的 master 分支中修复，除非您的合成器不支持 wlroots-data-control 协议。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>

@@ -235,7 +235,7 @@ uint32_t ClipboardTransferQueue::nextTransferId()
 }
 
 ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
-    ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data
+    ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data, size_t maxDataSize
 )
 {
   ClipboardTransferReceiveResult result{ClipboardTransferReceiveStatus::Ignored, 0, transferId, id, sequence};
@@ -256,6 +256,10 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
     const auto *end = begin + data.size();
     const auto parsed = std::from_chars(begin, end, expectedSize);
     if (parsed.ec != std::errc{} || parsed.ptr != end) {
+      result.status = ClipboardTransferReceiveStatus::Error;
+      return result;
+    }
+    if (expectedSize > maxDataSize) {
       result.status = ClipboardTransferReceiveStatus::Error;
       return result;
     }

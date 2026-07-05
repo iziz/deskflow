@@ -695,9 +695,11 @@ KeyID ServerProxy::translateKey(KeyID id) const
   }
 
   if (id2 != kKeyModifierIDNull) {
-    return s_translationTable[m_modifierTranslationTable[id2]][side];
+    return std::clamp<KeyModifierMask>(
+        s_translationTable[m_modifierTranslationTable[id2]][side], 0, kKeyModifierIDLast - 1
+    );
   } else {
-    return id;
+    return std::clamp<KeyModifierMask>(id, 0, kKeyModifierIDLast - 1);
   }
 }
 
@@ -727,7 +729,7 @@ KeyModifierMask ServerProxy::translateModifierMask(KeyModifierMask mask) const
   if ((mask & KeyModifierSuper) != 0) {
     newMask |= s_masks[m_modifierTranslationTable[kKeyModifierIDSuper]];
   }
-  return newMask;
+  return std::clamp<KeyModifierMask>(newMask, 0, kKeyModifierIDLast - 1);
 }
 
 void ServerProxy::enter()
@@ -773,12 +775,12 @@ void ServerProxy::setClipboard()
   ClipboardID id;
   uint32_t seq;
 
-  auto r = m_legacyClipboardIncoming.process(m_stream, id, seq);
+  auto r = m_legacyClipboardIncoming.process(m_stream, id, seq, m_client->getMaximumClipboardReceiveSizeBytes());
 
   if (r == TransferState::Started) {
-    LOG_DEBUG("receiving clipboard %d size=%d", id, m_legacyClipboardIncoming.expectedSize());
+    LOG_DEBUG("receiving clipboard %d size=%zu", id, m_legacyClipboardIncoming.expectedSize());
   } else if (r == TransferState::Finished) {
-    LOG_DEBUG("received clipboard %d size=%d", id, m_legacyClipboardIncoming.data().size());
+    LOG_DEBUG("received clipboard %d size=%zu", id, m_legacyClipboardIncoming.data().size());
 
     // forward
     Clipboard clipboard;
@@ -789,6 +791,8 @@ void ServerProxy::setClipboard()
       LOG_WARN("ignored invalid clipboard update from server");
     }
     m_legacyClipboardIncoming.reset();
+  } else if (r == TransferState::Error) {
+    m_client->disconnect("invalid clipboard data from server");
   }
 }
 
@@ -804,7 +808,8 @@ void ServerProxy::setClipboardTransfer()
   }
 
   const bool wasCurrent = m_clipboardIncoming.active() && m_clipboardIncoming.transferId() == transferId;
-  auto result = m_clipboardIncoming.process(id, sequence, transferId, mark, data);
+  auto result =
+      m_clipboardIncoming.process(id, sequence, transferId, mark, data, m_client->getMaximumClipboardReceiveSizeBytes());
   if (result.replacedTransferId != 0) {
     sendClipboardCancel(result.replacedTransferId, ClipboardTransferCancelReason::Superseded);
   }
@@ -1136,6 +1141,11 @@ void ServerProxy::setOptions()
   ProtocolUtil::readf(m_stream, kMsgDSetOptions + 4, &options);
   LOG_VERBOSE("recv set options size=%d", options.size());
 
+  if (options.size() % 2 != 0) {
+    LOG_ERR("options are the incorrect size, can not process them");
+    return;
+  }
+
   // forward
   m_client->setOptions(options);
 
@@ -1160,7 +1170,7 @@ void ServerProxy::setOptions()
     }
 
     if (id != kKeyModifierIDNull) {
-      m_modifierTranslationTable[id] = options[i + 1];
+      m_modifierTranslationTable[id] = std::clamp<KeyModifierMask>(options[i + 1], 0, kKeyModifierIDLast - 1);
       LOG_VERBOSE("modifier %d mapped to %d", id, m_modifierTranslationTable[id]);
     }
   }

@@ -11,6 +11,7 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/AppUtil.h"
+#include "deskflow/ClipboardTransfer.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/OptionTypes.h"
@@ -266,6 +267,11 @@ Server::~Server()
   // disable and disconnect primary client
   m_primaryClient->disable();
   removeClient(m_primaryClient);
+}
+
+size_t Server::getMaximumClipboardSizeBytes() const
+{
+  return m_maximumClipboardSize * 1024;
 }
 
 bool Server::setConfig(const ServerConfig &config)
@@ -1043,7 +1049,6 @@ bool Server::isSwitchOkay(
     if (i != options->end()) {
       size = i->second;
     }
-
     // see if we're in a locked corner
     if ((getCorner(m_active, xActive, yActive, size) & corners) != 0) {
       // yep, no switching
@@ -1056,16 +1061,6 @@ bool Server::isSwitchOkay(
   // ignore if mouse is locked to screen and don't try to switch later
   if (!preventSwitch && isLockedToScreen()) {
     LOG_VERBOSE("locked to screen");
-    preventSwitch = true;
-    stopSwitch();
-  }
-
-  // check for optional needed modifiers
-  if (KeyModifierMask mods = this->m_primaryClient->getToggleMask();
-      !preventSwitch && ((this->m_switchNeedsShift && ((mods & KeyModifierShift) != KeyModifierShift)) ||
-                         (this->m_switchNeedsControl && ((mods & KeyModifierControl) != KeyModifierControl)) ||
-                         (this->m_switchNeedsAlt && ((mods & KeyModifierAlt) != KeyModifierAlt)))) {
-    LOG_VERBOSE("need modifiers to switch");
     preventSwitch = true;
     stopSwitch();
   }
@@ -1293,10 +1288,6 @@ void Server::processOptions()
     return;
   }
 
-  m_switchNeedsShift = false;   // it seems if i don't add these
-  m_switchNeedsControl = false; // lines, the 'reload config' option
-  m_switchNeedsAlt = false;     // doesnt' work correct.
-
   bool newRelativeMoves = m_relativeMoves;
   for (auto [optionId, optionValue] : *options) {
     const OptionID id = optionId;
@@ -1313,12 +1304,6 @@ void Server::processOptions()
         m_switchTwoTapDelay = 0.0;
       }
       stopSwitchTwoTap();
-    } else if (id == kOptionScreenSwitchNeedsControl) {
-      m_switchNeedsControl = (value != 0);
-    } else if (id == kOptionScreenSwitchNeedsShift) {
-      m_switchNeedsShift = (value != 0);
-    } else if (id == kOptionScreenSwitchNeedsAlt) {
-      m_switchNeedsAlt = (value != 0);
     } else if (id == kOptionRelativeMouseMoves) {
       newRelativeMoves = (value != 0);
     } else if (id == kOptionDefaultLockToScreenState) {
@@ -1426,6 +1411,10 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   }
 
   ClipboardInfo &clipboard = m_clipboards[info->m_id];
+  if (grabber != m_primaryClient && isClipboardSequenceOlder(info->m_sequenceNumber, clipboard.m_sourceSequence)) {
+    LOG_DEBUG("ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id);
+    return;
+  }
 
   // mark screen as owning clipboard
   const auto revision = nextClipboardRevision();
@@ -1741,10 +1730,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     return;
   }
   if (data.size() > m_maximumClipboardSize * 1024) {
-    LOG_INFO(
-        "not updating clipboard because it's over the size limit (%i KB) configured by the server",
-        m_maximumClipboardSize
-    );
+    LOG_WARN("not sending clipboard data, exceeds limit: %i KB", m_maximumClipboardSize);
     return;
   }
 
@@ -2246,7 +2232,7 @@ bool Server::addClient(BaseClientProxy *client)
 
   // add to list
   m_clientSet.insert(client);
-  m_clients.insert(std::make_pair(name, client));
+  m_clients.try_emplace(name, client);
 
   // initialize client data
   int32_t x;
@@ -2310,7 +2296,7 @@ void Server::closeClient(BaseClientProxy *client, const char *msg)
   // move client to closing list
   removeClient(client);
 
-  m_oldClients.insert(std::make_pair(client, timer));
+  m_oldClients.try_emplace(client, timer);
 
   // if this client is the active screen then we have to
   // jump off of it

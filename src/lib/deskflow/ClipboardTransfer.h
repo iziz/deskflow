@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -118,8 +119,10 @@ struct ClipboardTransferReceiveResult
 class ClipboardTransferAssembler
 {
 public:
-  ClipboardTransferReceiveResult
-  process(ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data);
+  ClipboardTransferReceiveResult process(
+      ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data,
+      size_t maxDataSize = std::numeric_limits<size_t>::max()
+  );
   void cancel(uint32_t transferId);
   void reset();
 
