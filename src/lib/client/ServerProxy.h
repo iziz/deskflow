@@ -13,6 +13,7 @@
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
+#include "client/ServerKeyTranslator.h"
 
 class Client;
 class ClientInfo;
@@ -87,10 +88,6 @@ private:
   void armClipboardIncomingTimer();
   void clearClipboardIncomingTimer();
 
-  // modifier key translation
-  KeyID translateKey(KeyID) const;
-  KeyModifierMask translateModifierMask(KeyModifierMask) const;
-
   // event handlers
   void handleData();
   void handleKeepAliveAlarm();
@@ -139,7 +136,7 @@ private:
 
   bool m_ignoreMouse = false;
 
-  KeyModifierID m_modifierTranslationTable[kKeyModifierIDLast];
+  ServerKeyTranslator m_keyTranslator;
 
   double m_keepAliveAlarm = 0.0;
   EventQueueTimer *m_keepAliveAlarmTimer = nullptr;

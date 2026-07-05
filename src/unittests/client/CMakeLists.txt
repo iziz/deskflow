@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 create_test(
-  NAME ServerProxyTests
+  NAME ServerKeyTranslatorTests
   DEPENDS client
-  LIBS base arch io
-  SOURCE ServerProxyTests.cpp
+  LIBS base
+  SOURCE ServerKeyTranslatorTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/client"
 )

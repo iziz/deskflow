@@ -17,6 +17,7 @@ target_sources(dev-docs PRIVATE
   contributing.md
   build.md
   codex_harness.md
+  macos_input_clipboard_stability.md
   protocol_reference.md
 )
 
