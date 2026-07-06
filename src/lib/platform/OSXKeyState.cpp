@@ -250,6 +250,7 @@ void OSXKeyState::syncModifiersFromOSX(void *target, uint32_t mask)
   const auto eventMask = mapModifiersFromOSX(mask);
   const auto newMask = (oldMask & ~s_syncableModifiers) | (eventMask & s_syncableModifiers);
   if (newMask == oldMask) {
+    setShadowModifiers(newMask);
     return;
   }
 
@@ -414,6 +415,48 @@ CGEventFlags OSXKeyState::getModifierStateAsOSXFlags() const
   }
 
   return modifiers;
+}
+
+void OSXKeyState::clearStaleModifiers()
+{
+  const auto shadowMask = getShadowModifiers();
+  const auto systemMask = pollActiveModifiers() & s_syncableModifiers;
+  if ((shadowMask & s_syncableModifiers) != systemMask) {
+    LOG_DEBUG("refreshing macOS modifier shadow: old=0x%04x system=0x%04x", shadowMask, systemMask);
+  }
+
+  setShadowModifiers(systemMask);
+}
+
+KeyModifierMask OSXKeyState::getShadowModifiers() const
+{
+  KeyModifierMask mask = 0;
+  if (m_shiftPressed) {
+    mask |= KeyModifierShift;
+  }
+  if (m_controlPressed) {
+    mask |= KeyModifierControl;
+  }
+  if (m_altPressed) {
+    mask |= KeyModifierAlt;
+  }
+  if (m_superPressed) {
+    mask |= KeyModifierSuper;
+  }
+  if (m_capsPressed) {
+    mask |= KeyModifierCapsLock;
+  }
+
+  return mask;
+}
+
+void OSXKeyState::setShadowModifiers(KeyModifierMask mask)
+{
+  m_shiftPressed = (mask & KeyModifierShift) != 0;
+  m_controlPressed = (mask & KeyModifierControl) != 0;
+  m_altPressed = (mask & KeyModifierAlt) != 0;
+  m_superPressed = (mask & KeyModifierSuper) != 0;
+  m_capsPressed = (mask & KeyModifierCapsLock) != 0;
 }
 
 KeyModifierMask OSXKeyState::pollActiveModifiers() const
@@ -922,6 +965,8 @@ void OSXKeyState::handleModifierKeys(void *target, KeyModifierMask oldMask, KeyM
   if ((changed & KeyModifierNumLock) != 0) {
     handleModifierKey(target, s_numLockVK, kKeyNumLock, (newMask & KeyModifierNumLock) != 0, newMask);
   }
+
+  setShadowModifiers(newMask);
 }
 
 void OSXKeyState::handleModifierKey(void *target, uint32_t virtualKey, KeyID id, bool down, KeyModifierMask newMask)

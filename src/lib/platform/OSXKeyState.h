@@ -89,6 +89,7 @@ public:
   // IKeyState overrides
   bool fakeCtrlAltDel() override;
   bool fakeMediaKey(KeyID id) override;
+  void clearStaleModifiers() override;
   KeyModifierMask pollActiveModifiers() const override;
   int32_t pollActiveGroup() const override;
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
@@ -99,6 +100,8 @@ protected:
   // KeyState overrides
   void getKeyMap(deskflow::KeyMap &keyMap) override;
   void fakeKey(const Keystroke &keystroke) override;
+
+  void setShadowModifiers(KeyModifierMask mask);
 
 private:
   class KeyResource;
@@ -155,6 +158,7 @@ private:
   CGEventFlags getDeviceDependedFlags() const;
 
   void setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown);
+  KeyModifierMask getShadowModifiers() const;
 
   void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
 
