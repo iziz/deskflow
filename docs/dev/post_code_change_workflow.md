@@ -20,7 +20,7 @@ do not describe the code change as fully complete.
 | Target | Role | Host | Workspace | Required action |
 | --- | --- | --- | --- | --- |
 | Local macOS | Local validation | This computer | `/Volumes/AI.DEV/@Dev/deskflow` | Build `macos-release`, install `/Applications/Deskflow.app`, restart Deskflow |
-| Windows 11 server PC | Server validation | `192.168.0.5` | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
+| Windows 11 server PC | Server validation | `deskflow-server` (`192.168.0.5`) | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
 | Windows 11 client PC | Client validation | Pending | Pending | Sync, build, replace binaries |
 
 Update this table and `AGENTS.md` as soon as the Windows client PC connection
@@ -61,7 +61,7 @@ The Windows 11 server PC is documented in
 Minimum required steps:
 
 ```sh
-ssh zenis@192.168.0.5 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 Then generate the MSI from the Windows Release preset:

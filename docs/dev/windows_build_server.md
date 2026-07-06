@@ -6,6 +6,7 @@ creation.
 ## Host
 
 - Host: `192.168.0.5`
+- SSH alias: `deskflow-server`
 - Workspace: `Z:\@Development\deskflow`
 - Usual Windows account: `zenis`
 
@@ -25,10 +26,11 @@ creation.
 The preferred remote command path is OpenSSH:
 
 ```sh
-ssh zenis@192.168.0.5
+ssh deskflow-server
 ```
 
-If the Windows username changes, update this document and `AGENTS.md`.
+If the SSH alias, host, or Windows username changes, update this document and
+`AGENTS.md`.
 
 ## Process Cleanup
 
@@ -42,7 +44,7 @@ Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue
 From macOS through SSH:
 
 ```sh
-ssh zenis@192.168.0.5 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue | Stop-Process -Force"'
+ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue | Stop-Process -Force"'
 ```
 
 ## Sync Verification
@@ -77,7 +79,7 @@ dev.cmd dev
 From macOS through SSH:
 
 ```sh
-ssh zenis@192.168.0.5 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 ## Installer/Package
@@ -172,7 +174,7 @@ session.
 The current verified flow from macOS is:
 
 ```sh
-ssh zenis@192.168.0.5 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 Then, from a PowerShell SSH session:

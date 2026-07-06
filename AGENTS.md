@@ -29,6 +29,7 @@
 ## Windows Build Server
 
 - The Windows 11 build server is `192.168.0.5`.
+- Use the SSH alias `deskflow-server` for routine access to the Windows build server.
 - The Windows workspace path is `Z:\@Development\deskflow`.
 - Any Deskflow code changes made in this repository must be synced to the Windows workspace and built there before the work is considered complete.
 - Before running a freshly built Windows binary, stop any existing Deskflow processes on the Windows host.
