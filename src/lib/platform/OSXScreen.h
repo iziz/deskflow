@@ -19,6 +19,7 @@
 #include <mach/mach_port.h>
 
 #include <bitset>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <thread>
@@ -258,6 +259,8 @@ private:
   // clipboards
   OSXClipboard m_pasteboard;
   uint32_t m_sequenceNumber;
+  int64_t m_pasteboardChangeCount;
+  int64_t m_lastDeskflowPasteboardChangeCount;
 
   // screen saver stuff
   OSXScreenSaver *m_screensaver;

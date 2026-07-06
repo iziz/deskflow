@@ -34,6 +34,7 @@
 #include "platform/OSXScreenSaver.h"
 
 #include <AppKit/NSEvent.h>
+#include <AppKit/NSPasteboard.h>
 #include <AvailabilityMacros.h>
 #include <IOKit/hidsystem/event_status_driver.h>
 #include <dispatch/dispatch.h>
@@ -69,6 +70,11 @@ namespace {
 constexpr double kClipboardPollInterval = 0.25;
 constexpr double kClipboardFastCheckDelay = 0.02;
 constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
+
+int64_t currentPasteboardChangeCount()
+{
+  return static_cast<int64_t>([[NSPasteboard generalPasteboard] changeCount]);
+}
 
 bool shouldLogMouseMotion()
 {
@@ -108,6 +114,8 @@ OSXScreen::OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync)
       m_cursorHidden(false),
       m_keyState(nullptr),
       m_sequenceNumber(0),
+      m_pasteboardChangeCount(currentPasteboardChangeCount()),
+      m_lastDeskflowPasteboardChangeCount(-1),
       m_screensaver(nullptr),
       m_screensaverNotify(false),
       m_ownClipboard(false),
@@ -690,6 +698,9 @@ void OSXScreen::hideCursor()
 
 void OSXScreen::enable()
 {
+  m_pasteboardChangeCount = currentPasteboardChangeCount();
+  m_lastDeskflowPasteboardChangeCount = -1;
+
   // watch the clipboard
   m_clipboardTimer = m_events->newTimer(kClipboardPollInterval, nullptr);
   m_events->addHandler(EventTypes::Timer, m_clipboardTimer, [this](const auto &) { checkClipboards(); });
@@ -836,6 +847,13 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
   if (src != nullptr) {
     LOG_DEBUG("setting clipboard");
     Clipboard::copy(&m_pasteboard, src);
+    m_pasteboard.synchronize();
+    m_pasteboardChangeCount = currentPasteboardChangeCount();
+    m_lastDeskflowPasteboardChangeCount = m_pasteboardChangeCount;
+    LOG_DEBUG(
+        "recorded Deskflow-owned pasteboard change count: %lld",
+        static_cast<long long>(m_lastDeskflowPasteboardChangeCount)
+    );
   }
   return true;
 }
@@ -843,15 +861,34 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
 void OSXScreen::checkClipboards()
 {
   LOG_VERBOSE("checking clipboard");
-  if (m_pasteboard.synchronize()) {
-    if (OSXClipboard::isOwnedByDeskflow()) {
-      LOG_DEBUG("ignored Deskflow-owned clipboard change");
-      return;
-    }
+  const bool carbonModified = m_pasteboard.synchronize();
+  const auto changeCount = currentPasteboardChangeCount();
+  const bool countChanged = changeCount != m_pasteboardChangeCount;
 
-    LOG_DEBUG("clipboard changed");
-    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
+  if (!countChanged && !carbonModified) {
+    return;
   }
+
+  LOG_DEBUG(
+      "pasteboard state changed, change_count=%lld previous_change_count=%lld carbon_modified=%s",
+      static_cast<long long>(changeCount), static_cast<long long>(m_pasteboardChangeCount),
+      carbonModified ? "true" : "false"
+  );
+  m_pasteboardChangeCount = changeCount;
+
+  if (changeCount == m_lastDeskflowPasteboardChangeCount) {
+    LOG_DEBUG("ignored Deskflow-owned clipboard change by change count");
+    return;
+  }
+
+  if (!countChanged && OSXClipboard::isOwnedByDeskflow()) {
+    LOG_DEBUG("ignored Deskflow-owned clipboard change");
+    m_lastDeskflowPasteboardChangeCount = changeCount;
+    return;
+  }
+
+  LOG_DEBUG("clipboard changed");
+  sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
 }
 
 bool OSXScreen::isClipboardShortcut(uint32_t virtualKey, CGEventFlags macMask) const
