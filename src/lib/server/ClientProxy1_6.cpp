@@ -30,6 +30,7 @@ ClientProxy1_6::ClientProxy1_6(const std::string &name, deskflow::IStream *strea
     if (chunk != nullptr && chunk->clipboardId() < kClipboardEnd &&
         chunk->generation() == m_legacyClipboardGeneration[chunk->clipboardId()]) {
       ClipboardChunk::send(getStream(), chunk);
+      extendHeartbeatForClipboardOutgoingTransfer();
     }
   });
 }
@@ -88,6 +89,8 @@ void ClientProxy1_6::extendHeartbeatForClipboardTransfer(bool &extended)
   extended = true;
   if (currentAlarm < kClipboardTransferHeartbeatAlarm) {
     setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
+  } else {
+    resetHeartbeatTimer();
   }
 }
 
@@ -145,6 +148,8 @@ bool ClientProxy1_6::recvClipboard()
   if (r == TransferState::Started) {
     extendHeartbeatForClipboardIncomingTransfer();
     LOG_DEBUG("receiving clipboard %d size=%zu", id, m_legacyClipboardIncoming.expectedSize());
+  } else if (r == TransferState::InProgress) {
+    extendHeartbeatForClipboardIncomingTransfer();
   } else if (r == TransferState::Finished) {
     restoreHeartbeatAfterClipboardIncomingTransfer();
     LOG(

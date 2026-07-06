@@ -67,6 +67,7 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
     if (chunk != nullptr && chunk->clipboardId() < kClipboardEnd &&
         chunk->generation() == m_legacyClipboardGeneration[chunk->clipboardId()]) {
       ClipboardChunk::send(m_stream, chunk);
+      extendKeepAliveForClipboardOutgoingTransfer();
     }
   });
   m_events->addHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget(), [this](const auto &) {
@@ -486,8 +487,8 @@ void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
   extended = true;
   if (m_keepAliveAlarm < kClipboardTransferHeartbeatAlarm) {
     m_keepAliveAlarm = kClipboardTransferHeartbeatAlarm;
-    resetKeepAliveAlarm();
   }
+  resetKeepAliveAlarm();
 }
 
 void ServerProxy::restoreKeepAliveAfterClipboardTransfer(bool &extended)
@@ -749,6 +750,8 @@ void ServerProxy::handleClipboardOutputFlushed()
     return;
   }
 
+  extendKeepAliveForClipboardOutgoingTransfer();
+
   auto actions = m_clipboardOutgoing.outputFlushed();
   if (actions.empty()) {
     markClipboardTransferOutputFlushed();
@@ -883,8 +886,12 @@ void ServerProxy::setClipboard()
   auto r = m_legacyClipboardIncoming.process(m_stream, id, seq, m_client->getMaximumClipboardReceiveSizeBytes());
 
   if (r == TransferState::Started) {
+    extendKeepAliveForClipboardIncomingTransfer();
     LOG_DEBUG("receiving clipboard %d size=%zu", id, m_legacyClipboardIncoming.expectedSize());
+  } else if (r == TransferState::InProgress) {
+    extendKeepAliveForClipboardIncomingTransfer();
   } else if (r == TransferState::Finished) {
+    restoreKeepAliveAfterClipboardIncomingTransfer();
     LOG_DEBUG("received clipboard %d size=%zu", id, m_legacyClipboardIncoming.data().size());
 
     // forward
@@ -897,6 +904,7 @@ void ServerProxy::setClipboard()
     }
     m_legacyClipboardIncoming.reset();
   } else if (r == TransferState::Error) {
+    restoreKeepAliveAfterClipboardIncomingTransfer();
     m_client->disconnect("invalid clipboard data from server");
   }
 }

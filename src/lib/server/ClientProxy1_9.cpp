@@ -144,6 +144,8 @@ void ClientProxy1_9::handleOutputFlushed()
     return;
   }
 
+  extendOutgoingHeartbeat();
+
   auto actions = m_outgoing.outputFlushed();
   if (actions.empty()) {
     armOutgoingTimer();
@@ -228,6 +230,8 @@ void ClientProxy1_9::extendClipboardHeartbeat(bool &extended)
   extended = true;
   if (currentAlarm < kClipboardTransferHeartbeatAlarm) {
     setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
+  } else {
+    resetHeartbeatTimer();
   }
 }
 
