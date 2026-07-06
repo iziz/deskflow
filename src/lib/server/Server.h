@@ -261,6 +261,9 @@ private:
   // after entering the client in the given direction.
   void avoidJumpZone(const BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
 
+  // adjusts a restored jump position away from every switchable edge.
+  void avoidJumpRestoreZone(const BaseClientProxy *, int32_t &x, int32_t &y) const;
+
   // test if a switch is permitted.  this includes testing user
   // options like switch delay and tracking any state required to
   // implement them.  returns true iff a switch is permitted.

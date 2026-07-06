@@ -27,10 +27,8 @@
 #include "server/ClientProxyUnknown.h"
 #include "server/PrimaryClient.h"
 
-#ifdef _WIN32
 #include <algorithm>
 #include <array>
-#endif
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -601,6 +599,7 @@ void Server::jumpToScreen(BaseClientProxy *newScreen, const char *reason)
   int32_t x;
   int32_t y;
   newScreen->getJumpCursorPos(x, y);
+  avoidJumpRestoreZone(newScreen, x, y);
 
   switchScreen(newScreen, x, y, false, reason);
 }
@@ -983,6 +982,68 @@ void Server::avoidJumpZone(const BaseClientProxy *dst, Direction dir, int32_t &x
 
   case NoDirection:
     assert(0 && "bad direction");
+  }
+}
+
+void Server::avoidJumpRestoreZone(const BaseClientProxy *dst, int32_t &x, int32_t &y) const
+{
+  const std::string dstName(getName(dst));
+  int32_t dx;
+  int32_t dy;
+  int32_t dw;
+  int32_t dh;
+  dst->getShape(dx, dy, dw, dh);
+
+  const int32_t maxX = dx + dw - 1;
+  const int32_t maxY = dy + dh - 1;
+  int32_t z = getJumpZoneSize(dst);
+  const int32_t minZoneSize = (dst == m_primaryClient) ? 1 : kSecondarySwitchEdgeMargin;
+  if (z < minZoneSize) {
+    z = minZoneSize;
+  }
+
+  int32_t minX = dx;
+  int32_t restoreMaxX = maxX;
+  int32_t minY = dy;
+  int32_t restoreMaxY = maxY;
+
+  const int32_t probeX = std::clamp(x, dx, maxX);
+  const int32_t probeY = std::clamp(y, dy, maxY);
+  const auto hasNeighborAt = [&](Direction dir) {
+    const float t = mapToFraction(dst, dir, probeX, probeY);
+    return !m_config->getNeighbor(dstName, dir, t, nullptr).empty() || hasPhysicalNeighbor(dst, dir);
+  };
+
+  if (hasNeighborAt(Direction::Left)) {
+    minX = std::min(dx + z, maxX);
+  }
+  if (hasNeighborAt(Direction::Right)) {
+    restoreMaxX = std::max(maxX - z, dx);
+  }
+  if (minX > restoreMaxX) {
+    minX = restoreMaxX = dx + (dw / 2);
+  }
+
+  if (hasNeighborAt(Direction::Top)) {
+    minY = std::min(dy + z, maxY);
+  }
+  if (hasNeighborAt(Direction::Bottom)) {
+    restoreMaxY = std::max(maxY - z, dy);
+  }
+  if (minY > restoreMaxY) {
+    minY = restoreMaxY = dy + (dh / 2);
+  }
+
+  const int32_t oldX = x;
+  const int32_t oldY = y;
+  x = std::clamp(x, minX, restoreMaxX);
+  y = std::clamp(y, minY, restoreMaxY);
+
+  if (x != oldX || y != oldY) {
+    LOG_DEBUG(
+        "adjusted jump restore on \"%s\" away from switch edge: old=%d,%d new=%d,%d bounds=%d,%d %dx%d margin=%d",
+        dstName.c_str(), oldX, oldY, x, y, dx, dy, dw, dh, z
+    );
   }
 }
 
