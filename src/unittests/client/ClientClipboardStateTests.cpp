@@ -42,6 +42,7 @@ void ClientClipboardStateTests::localSendTracksPendingAndAcknowledgedStates()
   const auto firstSend = state.markLocalClipboardReadForSend(kClipboardClipboard, 10, "payload");
   QVERIFY(firstSend.shouldSend);
   QVERIFY(firstSend.force);
+  QCOMPARE(firstSend.data, std::string("payload"));
   QCOMPARE(state.cacheState(kClipboardClipboard), ClientClipboardState::CacheState::AwaitingServerAck);
 
   const auto duplicateSend = state.markLocalClipboardReadForSend(kClipboardClipboard, 11, "payload");
@@ -54,6 +55,7 @@ void ClientClipboardStateTests::localSendTracksPendingAndAcknowledgedStates()
 
   const auto acknowledgedDuplicate = state.markLocalClipboardReadForSend(kClipboardClipboard, 12, "payload");
   QVERIFY(!acknowledgedDuplicate.shouldSend);
+  QVERIFY(acknowledgedDuplicate.data.empty());
   QVERIFY(!acknowledgedDuplicate.force);
 }
 

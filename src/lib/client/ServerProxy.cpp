@@ -428,26 +428,50 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
   return true;
 }
 
-void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard, bool force)
+bool ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard, bool force)
 {
   if (id >= kClipboardEnd) {
-    return;
+    return false;
   }
-  std::string data = IClipboard::marshall(clipboard);
+
+  return onClipboardChanged(id, IClipboard::marshall(clipboard), force);
+}
+
+bool ServerProxy::onClipboardChanged(ClipboardID id, std::string data, bool force)
+{
+  if (id >= kClipboardEnd) {
+    return false;
+  }
+
   if (data.size() <= sizeof(uint32_t)) {
     LOG_DEBUG("skipping clipboard %d transfer because it has no supported formats", id);
-    return;
+    return false;
   }
   LOG_DEBUG("sending clipboard %d seqnum=%d", id, m_seqNum);
 
   if (m_transactionalClipboard) {
     rememberClipboardQueued(id, m_seqNum, data.size(), force);
-    sendClipboardActions(m_clipboardOutgoing.queue(id, m_seqNum, std::move(data), force));
+    auto actions = m_clipboardOutgoing.queue(id, m_seqNum, std::move(data), force);
+    sendClipboardActions(std::move(actions));
+    return m_clipboardOutgoing.active();
   } else {
     extendKeepAliveForClipboardOutgoingTransfer();
     StreamChunker::sendClipboard(
         data, data.size(), id, m_seqNum, m_events, this, m_legacyClipboardGeneration[id]
     );
+    return true;
+  }
+}
+
+void ServerProxy::beginClipboardSend()
+{
+  extendKeepAliveForClipboardOutgoingTransfer();
+}
+
+void ServerProxy::finishClipboardSend()
+{
+  if (!m_clipboardOutgoing.active()) {
+    restoreKeepAliveAfterClipboardOutgoingTransfer();
   }
 }
 

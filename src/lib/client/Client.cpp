@@ -9,6 +9,7 @@
 #include "client/Client.h"
 
 #include "arch/Arch.h"
+#include "base/FinalAction.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "client/ServerProxy.h"
@@ -33,6 +34,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 //
 // Client
@@ -419,11 +421,43 @@ std::string Client::getName() const
   return m_name;
 }
 
-void Client::sendClipboard(ClipboardID id)
+bool Client::sendClipboardData(ClipboardID id, IClipboard::Time time, std::string data)
+{
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_DEBUG("skipping clipboard transfer because the clipboard has no supported formats");
+    return false;
+  }
+  if (data.size() >= m_maximumClipboardSize * 1024) {
+    LOG_WARN("not sending clipboard data, exceeds limit: %zu KB", m_maximumClipboardSize);
+    return false;
+  }
+
+  auto sendDecision = m_clipboards.markLocalClipboardReadForSend(id, time, std::move(data));
+  if (!sendDecision.shouldSend) {
+    return false;
+  }
+
+  const auto dataSize = sendDecision.data.size();
+  LOG_DEBUG(
+      "local clipboard %u queued for transfer, size=%zu, force=%s", id, dataSize,
+      sendDecision.force ? "true" : "false"
+  );
+  return m_server->onClipboardChanged(id, std::move(sendDecision.data), sendDecision.force);
+}
+
+bool Client::sendClipboard(ClipboardID id)
 {
   // note -- m_mutex must be locked on entry
   assert(m_screen != nullptr);
   assert(m_server != nullptr);
+
+  m_server->beginClipboardSend();
+  bool transferStarted = false;
+  auto restoreKeepAlive = deskflow::finally([this, &transferStarted]() {
+    if (!transferStarted && m_server != nullptr) {
+      m_server->finishClipboardSend();
+    }
+  });
 
   // get clipboard data.  set the clipboard time to the last
   // clipboard time before getting the data from the screen
@@ -439,25 +473,9 @@ void Client::sendClipboard(ClipboardID id)
   if (m_clipboards.clipboardTime(id) == 0 || clipboard.getTime() != m_clipboards.clipboardTime(id)) {
     // marshall the data
     std::string data = clipboard.marshall();
-    if (data.size() <= sizeof(uint32_t)) {
-      LOG_DEBUG("skipping clipboard transfer because the clipboard has no supported formats");
-      return;
-    }
-    if (data.size() >= m_maximumClipboardSize * 1024) {
-      LOG_WARN("not sending clipboard data, exceeds limit: %zu KB", m_maximumClipboardSize);
-      return;
-    }
-
-    const auto dataSize = data.size();
-    const auto sendDecision = m_clipboards.markLocalClipboardReadForSend(id, clipboard.getTime(), std::move(data));
-    if (sendDecision.shouldSend) {
-      LOG_DEBUG(
-          "local clipboard %u queued for transfer, size=%zu, force=%s", id, dataSize,
-          sendDecision.force ? "true" : "false"
-      );
-      m_server->onClipboardChanged(id, &clipboard, sendDecision.force);
-    }
+    transferStarted = sendClipboardData(id, clipboard.getTime(), std::move(data));
   }
+  return transferStarted;
 }
 
 void Client::sendEvent(EventTypes type)
@@ -670,12 +688,20 @@ void Client::handleClipboardGrabbed(const Event &event)
     return;
   }
 
+  m_server->beginClipboardSend();
+  bool transferStarted = false;
+  auto restoreKeepAlive = deskflow::finally([this, &transferStarted]() {
+    if (!transferStarted && m_server != nullptr) {
+      m_server->finishClipboardSend();
+    }
+  });
+
   Clipboard clipboard;
   if (clipboard.open(m_clipboards.clipboardTime(info->m_id))) {
     clipboard.close();
   }
   m_screen->getClipboard(info->m_id, &clipboard);
-  const auto data = clipboard.marshall();
+  auto data = clipboard.marshall();
   if (m_clipboards.shouldIgnoreGrabbedClipboard(info->m_id, data)) {
     m_clipboards.markGrabbedClipboardIgnored(info->m_id, clipboard.getTime());
     LOG_DEBUG("ignored clipboard %u grab caused by applying remote revision", info->m_id);
@@ -690,7 +716,7 @@ void Client::handleClipboardGrabbed(const Event &event)
 
   // Publish the active screen's clipboard immediately. A newer ownership
   // notification supersedes any unfinished transfer for this clipboard.
-  sendClipboard(info->m_id);
+  transferStarted = sendClipboardData(info->m_id, clipboard.getTime(), std::move(data));
 }
 
 void Client::handleHello()

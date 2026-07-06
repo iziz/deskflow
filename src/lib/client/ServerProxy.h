@@ -54,7 +54,10 @@ public:
 
   void onInfoChanged();
   bool onGrabClipboard(ClipboardID);
-  void onClipboardChanged(ClipboardID, const IClipboard *, bool force = false);
+  bool onClipboardChanged(ClipboardID, const IClipboard *, bool force = false);
+  bool onClipboardChanged(ClipboardID, std::string data, bool force = false);
+  void beginClipboardSend();
+  void finishClipboardSend();
 
   //@}
 

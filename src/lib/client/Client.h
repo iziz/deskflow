@@ -163,7 +163,8 @@ public:
 
 private:
   void saveRelativeRestorePosition();
-  void sendClipboard(ClipboardID);
+  bool sendClipboard(ClipboardID);
+  bool sendClipboardData(ClipboardID, IClipboard::Time, std::string data);
   void sendEvent(deskflow::EventTypes);
   void sendConnectionFailedEvent(const char *msg);
   void setupConnecting();

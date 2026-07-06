@@ -147,8 +147,8 @@ ClientClipboardState::SendDecision ClientClipboardState::markLocalClipboardReadF
   }
 
   clipboard.cacheState = CacheState::AwaitingServerAck;
-  clipboard.data = std::move(data);
-  return {true, force};
+  clipboard.data = data;
+  return {true, force, std::move(data)};
 }
 
 bool ClientClipboardState::isValidId(ClipboardID id)

@@ -27,6 +27,7 @@ public:
   {
     bool shouldSend = false;
     bool force = false;
+    std::string data;
   };
 
   void reset();
