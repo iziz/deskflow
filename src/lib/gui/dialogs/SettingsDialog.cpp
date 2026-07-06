@@ -373,6 +373,8 @@ void SettingsDialog::updateControls()
 
   ui->buttonBox->button(QDialogButtonBox::Save)->setEnabled(writable);
 
+  ui->lblLanguage->setEnabled(writable);
+  ui->comboLanguage->setEnabled(writable);
   ui->sbPort->setEnabled(writable);
   ui->comboInterface->setEnabled(writable);
   ui->comboLogLevel->setEnabled(writable);

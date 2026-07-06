@@ -214,6 +214,11 @@ void I18N::detectLanguages()
   for (const QString &lang : keys)
     m_translations.insert(lang, {appTranslations.value(lang), qtTranslations.value(lang)});
 
+  if (!m_nameMap.contains(QStringLiteral("en"))) {
+    m_nameMap.insert(QStringLiteral("en"), QStringLiteral("English"));
+    m_translations.insert(QStringLiteral("en"), {});
+  }
+
   if (oldList != m_translations)
     Q_EMIT languagesChanged(m_translations.keys());
 }

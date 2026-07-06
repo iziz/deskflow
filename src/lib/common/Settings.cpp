@@ -12,9 +12,71 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QRect>
 #include <QRegularExpression>
 #include <QStandardPaths>
+
+namespace {
+
+#if defined(Q_OS_WIN)
+bool isDaemonApp()
+{
+  return QCoreApplication::applicationName().endsWith(QStringLiteral(" Daemon"));
+}
+
+bool isGuiApp()
+{
+  return QCoreApplication::applicationName() == kAppName;
+}
+
+void ensureSettingsDir(const QString &settingsFile)
+{
+  QDir().mkpath(QFileInfo(settingsFile).absolutePath());
+}
+
+QString migrateSystemSettingsToUserSettings()
+{
+  ensureSettingsDir(Settings::UserSettingFile);
+
+  if (QFile::copy(Settings::SystemSettingFile, Settings::UserSettingFile)) {
+    qInfo().noquote() << "migrated system settings to user settings:" << Settings::UserSettingFile;
+    return Settings::UserSettingFile;
+  }
+
+  qWarning().noquote() << "failed to migrate system settings to user settings:" << Settings::UserSettingFile;
+  return Settings::SystemSettingFile;
+}
+
+QString windowsSettingsFileToLoad()
+{
+  const auto portableFile = Settings::portableSettingsFile();
+  qDebug().noquote() << "checking for portable settings file at:" << portableFile;
+
+  if (QFile(portableFile).exists()) {
+    return portableFile;
+  }
+
+  if (isDaemonApp()) {
+    return Settings::SystemSettingFile;
+  }
+
+  if (QFile(Settings::UserSettingFile).exists()) {
+    return Settings::UserSettingFile;
+  }
+
+  if (QFile(Settings::SystemSettingFile).exists()) {
+    if (isGuiApp()) {
+      return migrateSystemSettingsToUserSettings();
+    }
+    return Settings::SystemSettingFile;
+  }
+
+  return Settings::UserSettingFile;
+}
+#endif
+
+} // namespace
 
 Settings *Settings::instance()
 {
@@ -60,20 +122,23 @@ Settings::Settings(QObject *parent) : QObject(parent)
 {
   QString fileToLoad;
 #ifdef Q_OS_WIN
-  const auto portableFile = portableSettingsFile();
-  qDebug().noquote() << "checking for portable settings file at:" << portableFile;
-  if (QFile(portableFile).exists())
-    fileToLoad = portableFile;
+  fileToLoad = windowsSettingsFileToLoad();
 #else
   if (const auto xdgConfigHome = qEnvironmentVariable("XDG_CONFIG_HOME"); !xdgConfigHome.isEmpty())
     fileToLoad = QStringLiteral("%1/%2/%2.conf").arg(xdgConfigHome, kAppName);
-#endif
   else if (QFile(UserSettingFile).exists())
     fileToLoad = UserSettingFile;
   else if (QFile(SystemSettingFile).exists())
     fileToLoad = SystemSettingFile;
   else
     fileToLoad = UserSettingFile;
+#endif
+
+#if defined(Q_OS_WIN)
+  ensureSettingsDir(fileToLoad);
+#else
+  QDir().mkpath(QFileInfo(fileToLoad).absolutePath());
+#endif
 
   m_settings = new QSettings(fileToLoad, QSettings::IniFormat, this);
   m_settingsProxy = std::make_shared<QSettingsProxy>();

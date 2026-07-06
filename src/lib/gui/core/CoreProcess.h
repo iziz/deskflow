@@ -47,6 +47,7 @@ public:
   void applyLogLevel();
   void clearSettings();
   void retryDaemon();
+  void attachToRunningServiceCore();
 
   // getters
   Settings::CoreMode mode() const
@@ -115,6 +116,7 @@ private:
   QString correctedAddress(const QString &address) const;
   void setupDaemonLogTail(const QString &logPath);
   void checkExistingProcess();
+  void ensureCoreIpcClient();
   static QString makeQuotedArgs(const QString &app, const QStringList &args);
   static QString processModeToString(const Settings::ProcessMode mode);
   static QString processStateToString(const CoreProcess::ProcessState state);

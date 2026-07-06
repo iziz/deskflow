@@ -648,7 +648,12 @@ void MainWindow::open()
     qDebug() << "skipping check for new version, disabled";
   }
 
-  if (Settings::value(Settings::Gui::AutoStartCore).toBool()) {
+  const bool autoStartCore = Settings::value(Settings::Gui::AutoStartCore).toBool();
+  if (!autoStartCore) {
+    m_coreProcess.attachToRunningServiceCore();
+  }
+
+  if (autoStartCore) {
     if (ui->rbModeClient->isChecked() && ui->lineHostname->text().isEmpty())
       return;
     startCore();

@@ -171,6 +171,76 @@ void CoreProcess::checkExistingProcess()
   client->connectToServer();
 }
 
+void CoreProcess::ensureCoreIpcClient()
+{
+  if (m_coreIpcClient) {
+    qDebug("core ipc client already exists");
+    return;
+  }
+
+  m_coreIpcClient = new ipc::CoreIpcClient(this);
+  connect(m_coreIpcClient, &ipc::CoreIpcClient::commandReceived, this, &CoreProcess::onCoreIpcMessageReceived);
+  connect(m_coreIpcClient, &ipc::CoreIpcClient::connected, this, [] {
+    qDebug("connected to core ipc server");
+  });
+  connect(m_coreIpcClient, &ipc::CoreIpcClient::connectionFailed, this, [] {
+    qWarning("failed to establish core ipc connection");
+  });
+  connect(m_coreIpcClient, &ipc::CoreIpcClient::serverShutdown, this, [this] {
+    qDebug("core ipc server shut down cleanly");
+    setConnectionState(ConnectionState::Disconnected);
+    if (m_processState == ProcessState::Started) {
+      setProcessState(ProcessState::Stopped);
+    }
+  });
+}
+
+void CoreProcess::attachToRunningServiceCore()
+{
+  const auto processMode = Settings::value(Settings::Core::ProcessMode).value<ProcessMode>();
+  if (processMode != ProcessMode::Service) {
+    qDebug("skipping existing core attach outside service mode");
+    return;
+  }
+
+  if (m_processState != ProcessState::Stopped) {
+    qDebug("skipping existing core attach, core is not stopped in gui state");
+    return;
+  }
+
+  qInfo("checking for running service core");
+  ensureCoreIpcClient();
+
+  connect(
+      m_coreIpcClient, &ipc::CoreIpcClient::connected, this,
+      [this] {
+        if (m_processState != ProcessState::Stopped) {
+          return;
+        }
+
+        qInfo("attached to running service core");
+        m_lastProcessMode = ProcessMode::Service;
+        setProcessState(ProcessState::Started);
+      },
+      Qt::SingleShotConnection
+  );
+
+  connect(
+      m_coreIpcClient, &ipc::CoreIpcClient::connectionFailed, this,
+      [this] {
+        if (m_processState != ProcessState::Stopped || !m_coreIpcClient) {
+          return;
+        }
+
+        m_coreIpcClient->deleteLater();
+        m_coreIpcClient = nullptr;
+      },
+      Qt::SingleShotConnection
+  );
+
+  m_coreIpcClient->connectToServer();
+}
+
 void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
 {
   using enum ProcessState;
@@ -425,18 +495,7 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
             return;
           }
 
-          m_coreIpcClient = new ipc::CoreIpcClient(this);
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::commandReceived, this, &CoreProcess::onCoreIpcMessageReceived);
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::connected, this, [] {
-            qDebug("connected to core ipc server");
-          });
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::connectionFailed, this, [] {
-            qWarning("failed to establish core ipc connection");
-          });
-          connect(m_coreIpcClient, &ipc::CoreIpcClient::serverShutdown, this, [] {
-            qDebug("core ipc server shut down cleanly");
-          });
-
+          ensureCoreIpcClient();
           m_coreIpcClient->connectToServer();
         });
       },

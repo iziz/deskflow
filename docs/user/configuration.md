@@ -28,9 +28,12 @@ The path of the settings file will be used as the base for all other config file
 ### Windows
 
   1. `<install-path>/settings/Deskflow.conf`
-  2. Windows Registry `HKCU\Software\Deskflow\Deskflow`
+  2. `%APPDATA%\Deskflow\Deskflow.conf`
+  3. `%ProgramData%\Deskflow\Deskflow.conf`
 
-Windows will save to the install dir if settings are loaded from there. If not, it saves any other config files in: `C:\ProgramData\Deskflow\`
+Windows will save to the install dir if settings are loaded from there. If not, the GUI saves user preferences in `%APPDATA%\Deskflow\Deskflow.conf` and saves shared service files in `C:\ProgramData\Deskflow\`.
+
+If a GUI starts without a user settings file but finds an existing system settings file in `%ProgramData%`, it copies those settings into `%APPDATA%` so preferences remain writable for the logged-in user. The daemon continues to use `%ProgramData%` for service state.
 
 When using settings from the install dir, the service mode will not be available.
 
