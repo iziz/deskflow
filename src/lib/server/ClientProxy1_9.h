@@ -20,6 +20,8 @@ public:
   void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
   void grabClipboard(ClipboardID id) override;
   void supersedeClipboardTransfers(ClipboardID id) override;
+  void beginClipboardSend() override;
+  void finishClipboardSend() override;
   bool parseMessage(const uint8_t *code) override;
 
 private:

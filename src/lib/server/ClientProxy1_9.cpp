@@ -74,6 +74,18 @@ void ClientProxy1_9::supersedeClipboardTransfers(ClipboardID id)
   }
 }
 
+void ClientProxy1_9::beginClipboardSend()
+{
+  extendOutgoingHeartbeat();
+}
+
+void ClientProxy1_9::finishClipboardSend()
+{
+  if (!m_outgoing.active()) {
+    restoreOutgoingHeartbeat();
+  }
+}
+
 bool ClientProxy1_9::parseMessage(const uint8_t *code)
 {
   if (memcmp(code, kMsgDClipboardTransfer, 4) == 0) {

@@ -58,6 +58,7 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard, u
     LOG_DEBUG("sending clipboard %d to \"%s\"", id, getName().c_str());
 
     ++m_legacyClipboardGeneration[id];
+    m_legacyClipboardOutgoingActive = true;
     extendHeartbeatForClipboardOutgoingTransfer();
     StreamChunker::sendClipboard(data, size, id, revision, m_events, this, m_legacyClipboardGeneration[id]);
   }
@@ -73,6 +74,18 @@ void ClientProxy1_6::supersedeClipboardTransfers(ClipboardID id)
   if (m_legacyClipboardIncoming.active() && m_legacyClipboardIncoming.clipboardId() == id) {
     m_legacyClipboardIncoming.reset();
     restoreHeartbeatAfterClipboardIncomingTransfer();
+  }
+}
+
+void ClientProxy1_6::beginClipboardSend()
+{
+  extendHeartbeatForClipboardOutgoingTransfer();
+}
+
+void ClientProxy1_6::finishClipboardSend()
+{
+  if (!m_legacyClipboardOutgoingActive) {
+    restoreHeartbeatAfterClipboardOutgoingTransfer();
   }
 }
 
@@ -135,6 +148,7 @@ void ClientProxy1_6::restoreHeartbeatAfterClipboardOutgoingTransfer()
 void ClientProxy1_6::handleInputProgress()
 {
   ClientProxy1_0::handleInputProgress();
+  m_legacyClipboardOutgoingActive = false;
   restoreHeartbeatAfterClipboardOutgoingTransfer();
 }
 

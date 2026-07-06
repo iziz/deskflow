@@ -23,6 +23,8 @@ public:
 
   void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
   void supersedeClipboardTransfers(ClipboardID id) override;
+  void beginClipboardSend() override;
+  void finishClipboardSend() override;
   bool recvClipboard() override;
 
 protected:
@@ -38,6 +40,7 @@ private:
   IEventQueue *m_events;
   ClipboardChunkAssembler m_legacyClipboardIncoming;
   uint64_t m_legacyClipboardGeneration[kClipboardEnd]{};
+  bool m_legacyClipboardOutgoingActive = false;
   bool m_clipboardIncomingHeartbeatExtended = false;
   bool m_clipboardOutgoingHeartbeatExtended = false;
   double m_savedHeartbeatAlarm = 0.0;

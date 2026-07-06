@@ -8,6 +8,7 @@
 
 #include "server/Server.h"
 
+#include "base/FinalAction.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/AppUtil.h"
@@ -1713,6 +1714,27 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     );
     return;
   }
+
+  const bool prepareClipboardReceivers = sender == m_primaryClient;
+  if (prepareClipboardReceivers) {
+    for (const auto &entry : m_clients) {
+      auto *client = entry.second;
+      if (client != sender) {
+        client->beginClipboardSend();
+      }
+    }
+  }
+  auto finishClipboardReceivers = deskflow::finally([this, sender, prepareClipboardReceivers]() {
+    if (!prepareClipboardReceivers) {
+      return;
+    }
+    for (const auto &entry : m_clients) {
+      auto *client = entry.second;
+      if (client != sender) {
+        client->finishClipboardSend();
+      }
+    }
+  });
 
   Clipboard candidate;
   if (!sender->getClipboard(id, &candidate)) {

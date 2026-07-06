@@ -83,6 +83,12 @@ public:
   virtual void supersedeClipboardTransfers(ClipboardID)
   {
   }
+  virtual void beginClipboardSend()
+  {
+  }
+  virtual void finishClipboardSend()
+  {
+  }
   std::string getName() const override;
   virtual deskflow::IStream *getStream() const = 0;
 
