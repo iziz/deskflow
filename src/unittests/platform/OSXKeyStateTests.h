@@ -20,6 +20,8 @@ private Q_SLOTS:
   void mapKeyFromEventUsesEventModifierFlags();
   void syncModifiersFromOSX_releasesStaleSuper();
   void syncModifiersFromOSX_ignoresNumericPadFlag();
+  void syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged();
+  void clearStaleModifiers_refreshesShadowFromSystemState();
   void fakePollShift();
   void fakePollChar();
   void fakePollCharWithModifier();

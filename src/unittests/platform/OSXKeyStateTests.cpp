@@ -107,6 +107,25 @@ public:
   std::vector<RecordedKeyEvent> keyEvents;
 };
 
+class TestOSXKeyState : public OSXKeyState
+{
+public:
+  using OSXKeyState::OSXKeyState;
+
+  void setShadowModifiersForTest(KeyModifierMask mask)
+  {
+    setShadowModifiers(mask);
+  }
+};
+
+constexpr KeyModifierMask kTrackedOSXShadowModifiers =
+    KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper | KeyModifierCapsLock;
+
+KeyModifierMask getShadowModifierMask(const OSXKeyState &keyState)
+{
+  return keyState.mapModifiersFromOSX(keyState.getModifierStateAsOSXFlags()) & kTrackedOSXShadowModifiers;
+}
+
 } // namespace
 
 void OSXKeyStateTests::initTestCase()
@@ -204,6 +223,37 @@ void OSXKeyStateTests::syncModifiersFromOSX_ignoresNumericPadFlag()
 
   QCOMPARE(keyState.getActiveModifiers(), 0);
   QVERIFY(eventQueue.keyEvents.empty());
+}
+
+void OSXKeyStateTests::syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged()
+{
+  deskflow::KeyMap keyMap;
+  RecordingEventQueue eventQueue;
+  TestOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  auto *target = reinterpret_cast<void *>(0x1);
+
+  keyState.setShadowModifiersForTest(KeyModifierCapsLock | KeyModifierSuper);
+  QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(KeyModifierCapsLock | KeyModifierSuper));
+
+  keyState.syncModifiersFromOSX(target, 0);
+
+  QCOMPARE(keyState.getActiveModifiers(), 0);
+  QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(0));
+  QVERIFY(eventQueue.keyEvents.empty());
+}
+
+void OSXKeyStateTests::clearStaleModifiers_refreshesShadowFromSystemState()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  TestOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  const auto systemMask = keyState.pollActiveModifiers() & kTrackedOSXShadowModifiers;
+  keyState.setShadowModifiersForTest(systemMask ^ KeyModifierCapsLock);
+
+  keyState.clearStaleModifiers();
+
+  QCOMPARE(getShadowModifierMask(keyState), systemMask);
 }
 
 void OSXKeyStateTests::fakePollShift()
