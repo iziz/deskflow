@@ -224,6 +224,16 @@ private:
   // change the active screen
   void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver, const char *reason);
 
+  void startSwitchBackGuard(BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection);
+  void updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y);
+  void clearSwitchBackGuard();
+  bool isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const;
+
+  void startNoNeighborEdgeGuard(BaseClientProxy *screen, Direction blockedDirection);
+  void updateNoNeighborEdgeGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y);
+  void clearNoNeighborEdgeGuard();
+  bool isNoNeighborEdgeGuardBlocked(BaseClientProxy *screen, Direction dir) const;
+
   // jump to screen
   void jumpToScreen(BaseClientProxy *, const char *reason);
 
@@ -406,6 +416,9 @@ private:
   BaseClientProxy *m_activeSaver = nullptr;
 
   BaseClientProxy *m_switchScreen = nullptr;
+  BaseClientProxy *m_switchBackGuardScreen = nullptr;
+  BaseClientProxy *m_switchBackGuardTarget = nullptr;
+  BaseClientProxy *m_noNeighborEdgeGuardScreen = nullptr;
   double m_switchWaitDelay = 0.0;
   EventQueueTimer *m_switchWaitTimer = nullptr;
 
@@ -471,6 +484,8 @@ private:
   // common state for screen switch tests.  all tests are always
   // trying to reach the same screen in the same direction.
   Direction m_switchDir = Direction::NoDirection;
+  Direction m_switchBackGuardDirection = Direction::NoDirection;
+  Direction m_noNeighborEdgeGuardDirection = Direction::NoDirection;
 
   bool m_switchTwoTapEngaged = false;
   bool m_switchTwoTapArmed = false;

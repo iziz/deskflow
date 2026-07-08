@@ -40,6 +40,7 @@ using namespace deskflow::server;
 namespace {
 
 constexpr int32_t kSecondarySwitchEdgeMargin = 16;
+constexpr int32_t kSwitchBackGuardReleaseMargin = 64;
 constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
 
 bool shouldLogMouseMotion()
@@ -51,6 +52,29 @@ bool shouldLogMouseMotion()
   }
   lastLogTime = now;
   return true;
+}
+
+Direction oppositeDirection(Direction direction)
+{
+  switch (direction) {
+    using enum Direction;
+  case Left:
+    return Right;
+
+  case Right:
+    return Left;
+
+  case Top:
+    return Bottom;
+
+  case Bottom:
+    return Top;
+
+  case NoDirection:
+    return NoDirection;
+  }
+
+  return Direction::NoDirection;
 }
 
 bool containsPhysicalPosition(float start, float length, float position)
@@ -283,6 +307,8 @@ bool Server::setConfig(const ServerConfig &config)
   // close clients that are connected but being dropped from the
   // configuration.
   closeClients(config);
+  clearSwitchBackGuard();
+  clearNoNeighborEdgeGuard();
 
   // cut over
   processOptions();
@@ -586,6 +612,148 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
   } else {
     m_active->mouseMove(x, y);
   }
+}
+
+void Server::startSwitchBackGuard(
+    BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection
+)
+{
+  if (screen == nullptr || blockedTarget == nullptr || blockedDirection == Direction::NoDirection) {
+    clearSwitchBackGuard();
+    return;
+  }
+
+  m_switchBackGuardScreen = screen;
+  m_switchBackGuardTarget = blockedTarget;
+  m_switchBackGuardDirection = blockedDirection;
+  clearNoNeighborEdgeGuard();
+}
+
+void Server::updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y)
+{
+  if (m_switchBackGuardScreen == nullptr) {
+    return;
+  }
+
+  if (m_active != m_switchBackGuardScreen) {
+    clearSwitchBackGuard();
+    return;
+  }
+
+  const bool horizontal =
+      m_switchBackGuardDirection == Direction::Left || m_switchBackGuardDirection == Direction::Right;
+  const int32_t edgeLength = horizontal ? aw : ah;
+  const int32_t margin = std::min(kSwitchBackGuardReleaseMargin, std::max<int32_t>(1, edgeLength / 4));
+
+  switch (m_switchBackGuardDirection) {
+    using enum Direction;
+  case Left:
+    if (x >= ax + margin) {
+      clearSwitchBackGuard();
+    }
+    break;
+
+  case Right:
+    if (x <= ax + aw - 1 - margin) {
+      clearSwitchBackGuard();
+    }
+    break;
+
+  case Top:
+    if (y >= ay + margin) {
+      clearSwitchBackGuard();
+    }
+    break;
+
+  case Bottom:
+    if (y <= ay + ah - 1 - margin) {
+      clearSwitchBackGuard();
+    }
+    break;
+
+  case NoDirection:
+    clearSwitchBackGuard();
+    break;
+  }
+}
+
+void Server::clearSwitchBackGuard()
+{
+  m_switchBackGuardScreen = nullptr;
+  m_switchBackGuardTarget = nullptr;
+  m_switchBackGuardDirection = Direction::NoDirection;
+}
+
+bool Server::isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const
+{
+  return m_switchBackGuardScreen != nullptr && m_active == m_switchBackGuardScreen &&
+         newScreen == m_switchBackGuardTarget && dir == m_switchBackGuardDirection;
+}
+
+void Server::startNoNeighborEdgeGuard(BaseClientProxy *screen, Direction blockedDirection)
+{
+  if (screen == nullptr || blockedDirection == Direction::NoDirection) {
+    clearNoNeighborEdgeGuard();
+    return;
+  }
+
+  m_noNeighborEdgeGuardScreen = screen;
+  m_noNeighborEdgeGuardDirection = blockedDirection;
+}
+
+void Server::updateNoNeighborEdgeGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y)
+{
+  if (m_noNeighborEdgeGuardScreen == nullptr) {
+    return;
+  }
+
+  if (m_active != m_noNeighborEdgeGuardScreen) {
+    clearNoNeighborEdgeGuard();
+    return;
+  }
+
+  switch (m_noNeighborEdgeGuardDirection) {
+    using enum Direction;
+  case Left:
+    if (x > ax) {
+      clearNoNeighborEdgeGuard();
+    }
+    break;
+
+  case Right:
+    if (x < ax + aw - 1) {
+      clearNoNeighborEdgeGuard();
+    }
+    break;
+
+  case Top:
+    if (y > ay) {
+      clearNoNeighborEdgeGuard();
+    }
+    break;
+
+  case Bottom:
+    if (y < ay + ah - 1) {
+      clearNoNeighborEdgeGuard();
+    }
+    break;
+
+  case NoDirection:
+    clearNoNeighborEdgeGuard();
+    break;
+  }
+}
+
+void Server::clearNoNeighborEdgeGuard()
+{
+  m_noNeighborEdgeGuardScreen = nullptr;
+  m_noNeighborEdgeGuardDirection = Direction::NoDirection;
+}
+
+bool Server::isNoNeighborEdgeGuardBlocked(BaseClientProxy *screen, Direction dir) const
+{
+  return m_noNeighborEdgeGuardScreen != nullptr && screen == m_noNeighborEdgeGuardScreen &&
+         dir == m_noNeighborEdgeGuardDirection;
 }
 
 void Server::jumpToScreen(BaseClientProxy *newScreen, const char *reason)
@@ -1058,6 +1226,16 @@ bool Server::isSwitchOkay(
     // there's no neighbor.  we don't want to switch and we don't
     // want to try to switch later.
     LOG_VERBOSE("no neighbor %s", Config::dirName(dir));
+    startNoNeighborEdgeGuard(m_active, dir);
+    stopSwitch();
+    return false;
+  }
+
+  if (isSwitchBackGuardBlocked(newScreen, dir)) {
+    LOG_DEBUG(
+        "blocked immediate switch back from \"%s\" to \"%s\" on %s",
+        getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir)
+    );
     stopSwitch();
     return false;
   }
@@ -2000,7 +2178,8 @@ void Server::onMouseUp(ButtonID id)
 
 bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 {
-  if (shouldLogMouseMotion()) {
+  const bool logMouseMotion = shouldLogMouseMotion();
+  if (logMouseMotion) {
     LOG_VERBOSE("mouse position on primary: %d,%d", x, y);
   }
 
@@ -2029,6 +2208,8 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   int32_t ah;
   m_active->getShape(ax, ay, aw, ah);
   int32_t zoneSize = getJumpZoneSize(m_active);
+  updateSwitchBackGuard(ax, ay, aw, ah, m_x, m_y);
+  updateNoNeighborEdgeGuard(ax, ay, aw, ah, m_x, m_y);
 
   // clamp position to screen
   int32_t xc = x;
@@ -2083,6 +2264,10 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     }
     x = xs.at(i);
     y = ys.at(i);
+    if (isNoNeighborEdgeGuardBlocked(m_active, dir)) {
+      continue;
+    }
+
     // get jump destination
     BaseClientProxy *newScreen = mapToNeighbor(m_active, dir, x, y);
 
@@ -2096,7 +2281,11 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
       );
 
       // switch screen
+      BaseClientProxy *previousScreen = m_active;
       switchScreen(newScreen, x, y, false, "primary-edge-motion");
+      if (m_active == newScreen && previousScreen != newScreen) {
+        startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(dir));
+      }
       return true;
     }
   }
@@ -2106,7 +2295,8 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 
 void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 {
-  if (shouldLogMouseMotion()) {
+  const bool logMouseMotion = shouldLogMouseMotion();
+  if (logMouseMotion) {
     LOG_VERBOSE("mouse delta on secondary: %+d,%+d", dx, dy);
   }
 
@@ -2163,6 +2353,8 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   int32_t aw;
   int32_t ah;
   m_active->getShape(ax, ay, aw, ah);
+  updateSwitchBackGuard(ax, ay, aw, ah, m_x, m_y);
+  updateNoNeighborEdgeGuard(ax, ay, aw, ah, m_x, m_y);
 
   // find direction of neighbor and get the neighbor
   bool jump = true;
@@ -2236,6 +2428,13 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     }
     switchDir = dir;
 
+    if (isNoNeighborEdgeGuardBlocked(m_active, dir)) {
+      newScreen = m_active;
+      jump = false;
+      stopSwitch();
+      break;
+    }
+
     // try to switch screen.  get the neighbor.
     newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
 
@@ -2256,24 +2455,39 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     );
 
     // switch screens
+    BaseClientProxy *previousScreen = m_active;
     switchScreen(newScreen, newX, newY, false, "secondary-edge-motion");
+    if (m_active == newScreen && previousScreen != newScreen) {
+      startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDir));
+    }
   } else {
     // same screen.  clamp mouse to edge.
-    m_x = xOld + dx;
-    m_y = yOld + dy;
+    const int32_t requestedX = xOld + dx;
+    const int32_t requestedY = yOld + dy;
+    m_x = requestedX;
+    m_y = requestedY;
+    bool clamped = false;
     if (m_x < ax) {
       m_x = ax;
-      LOG_VERBOSE("clamp to left of \"%s\"", getName(m_active).c_str());
+      clamped = true;
     } else if (m_x > ax + aw - 1) {
       m_x = ax + aw - 1;
-      LOG_VERBOSE("clamp to right of \"%s\"", getName(m_active).c_str());
+      clamped = true;
     }
     if (m_y < ay) {
       m_y = ay;
-      LOG_VERBOSE("clamp to top of \"%s\"", getName(m_active).c_str());
+      clamped = true;
     } else if (m_y > ay + ah - 1) {
       m_y = ay + ah - 1;
-      LOG_VERBOSE("clamp to bottom of \"%s\"", getName(m_active).c_str());
+      clamped = true;
+    }
+
+    if (clamped && logMouseMotion) {
+      LOG_VERBOSE(
+          "clamped secondary motion on \"%s\": old=%d,%d delta=%+d,%+d requested=%d,%d clamped=%d,%d bounds=%d,%d "
+          "%dx%d",
+          getName(m_active).c_str(), xOld, yOld, dx, dy, requestedX, requestedY, m_x, m_y, ax, ay, aw, ah
+      );
     }
 
     // warp cursor if it moved.
@@ -2336,6 +2550,13 @@ bool Server::removeClient(BaseClientProxy *client)
   ClientSet::iterator i = m_clientSet.find(client);
   if (i == m_clientSet.end()) {
     return false;
+  }
+
+  if (client == m_switchBackGuardScreen || client == m_switchBackGuardTarget) {
+    clearSwitchBackGuard();
+  }
+  if (client == m_noNeighborEdgeGuardScreen) {
+    clearNoNeighborEdgeGuard();
   }
 
   // remove event handlers
