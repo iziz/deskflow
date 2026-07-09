@@ -511,7 +511,7 @@ void MSWindowsScreen::updateDesktopThread()
 void MSWindowsScreen::reconfigure(uint32_t activeSides)
 {
   assert(m_isPrimary);
-  const static auto sidesText = sidesMaskToString(activeSides);
+  const auto sidesText = sidesMaskToString(activeSides);
   LOG_DEBUG("active sides: %s (0x%02x)", sidesText.c_str(), activeSides);
   m_hook.setSides(activeSides);
 }

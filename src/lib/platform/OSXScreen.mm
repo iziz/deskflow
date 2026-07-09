@@ -1157,9 +1157,7 @@ bool OSXScreen::onMouseWheel(int32_t xDelta, int32_t yDelta) const
   return true;
 }
 
-void OSXScreen::displayReconfigurationCallback(
-    CGDirectDisplayID, CGDisplayChangeSummaryFlags flags, void *inUserData
-)
+void OSXScreen::displayReconfigurationCallback(CGDirectDisplayID, CGDisplayChangeSummaryFlags flags, void *inUserData)
 {
   OSXScreen *screen = (OSXScreen *)inUserData;
 
@@ -1455,6 +1453,7 @@ bool OSXScreen::updateScreenShape()
 
   // get center of default screen
   CGDirectDisplayID main = CGMainDisplayID();
+  m_displayID = main;
   const CGRect rect = CGDisplayBounds(main);
   m_xCenter = (rect.origin.x + rect.size.width) / 2;
   m_yCenter = (rect.origin.y + rect.size.height) / 2;
@@ -1463,8 +1462,8 @@ bool OSXScreen::updateScreenShape()
 
   if (xOld == m_x && yOld == m_y && wOld == m_w && hOld == m_h) {
     LOG_DEBUG(
-        "screen shape unchanged: origin=%d,%d center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_xCenter, m_yCenter, m_w,
-        m_h, displayCount, (displayCount == 1) ? "display" : "displays"
+        "screen shape unchanged: origin=%d,%d center=%d,%d size=%dx%d main=%u on %u %s", m_x, m_y, m_xCenter, m_yCenter,
+        m_w, m_h, static_cast<unsigned>(m_displayID), displayCount, (displayCount == 1) ? "display" : "displays"
     );
     return true;
   }
@@ -1473,9 +1472,8 @@ bool OSXScreen::updateScreenShape()
   sendEvent(EventTypes::ScreenShapeChanged);
 
   LOG_DEBUG(
-      "screen shape: origin=%d,%d center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_xCenter, m_yCenter, m_w, m_h,
-      displayCount,
-      (displayCount == 1) ? "display" : "displays"
+      "screen shape: origin=%d,%d center=%d,%d size=%dx%d main=%u on %u %s", m_x, m_y, m_xCenter, m_yCenter, m_w, m_h,
+      static_cast<unsigned>(m_displayID), displayCount, (displayCount == 1) ? "display" : "displays"
   );
 
   return true;
@@ -1794,9 +1792,7 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
     screen->m_yCursor = static_cast<int32_t>(pos.y);
     screen->m_cursorPosValid = true;
     if (shouldLogMouseMotion()) {
-      LOG_VERBOSE(
-          "secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor
-      );
+      LOG_VERBOSE("secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor);
     }
     screen->sendEvent(EventTypes::ScreenInfoChanged);
     break;

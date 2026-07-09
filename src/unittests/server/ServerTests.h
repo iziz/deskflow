@@ -12,4 +12,9 @@ class ServerTests : public QObject
 private Q_SLOTS:
   void SwitchToScreenInfo_alloc_screen();
   void KeyboardBroadcastInfo_alloc_stateAndSceens();
+  void switchBackGuard_releasesNearPerpendicularEdge();
+  void switchBackGuard_blocksFastDirectionReversal();
+  void switchBackGuard_releasesSlowDirectionReversal();
+  void switchBackGuard_isPollingRateIndependent();
+  void switchBackGuard_expiresAtBlockedEdge();
 };

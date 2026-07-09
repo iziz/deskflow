@@ -40,8 +40,6 @@ using namespace deskflow::server;
 namespace {
 
 constexpr int32_t kSecondarySwitchEdgeMargin = 16;
-constexpr int32_t kSwitchBackGuardReleaseMargin = 64;
-constexpr int32_t kSwitchBackGuardReleaseMotionDelta = 3;
 constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
 
 bool shouldLogMouseMotion()
@@ -76,68 +74,6 @@ Direction oppositeDirection(Direction direction)
   }
 
   return Direction::NoDirection;
-}
-
-int32_t switchBackGuardReleaseMargin(int32_t edgeLength)
-{
-  return std::min(kSwitchBackGuardReleaseMargin, std::max<int32_t>(1, edgeLength / 4));
-}
-
-bool isSwitchBackGuardAwayFromBlockedEdge(
-    Direction direction, int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t margin, int32_t x, int32_t y
-)
-{
-  switch (direction) {
-    using enum Direction;
-  case Left:
-    return x >= ax + margin;
-
-  case Right:
-    return x <= ax + aw - 1 - margin;
-
-  case Top:
-    return y >= ay + margin;
-
-  case Bottom:
-    return y <= ay + ah - 1 - margin;
-
-  case NoDirection:
-    return false;
-  }
-
-  return false;
-}
-
-bool isSwitchBackGuardInsideReleaseArea(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y)
-{
-  const int32_t xMargin = switchBackGuardReleaseMargin(aw);
-  const int32_t yMargin = switchBackGuardReleaseMargin(ah);
-  const int32_t minX = ax + xMargin;
-  const int32_t maxX = ax + aw - 1 - xMargin;
-  const int32_t minY = ay + yMargin;
-  const int32_t maxY = ay + ah - 1 - yMargin;
-
-  if (minX <= maxX && (x < minX || x > maxX)) {
-    return false;
-  }
-
-  if (minY <= maxY && (y < minY || y > maxY)) {
-    return false;
-  }
-
-  return true;
-}
-
-bool isSwitchBackGuardMotionSettled(
-    Direction direction, int32_t xDelta, int32_t yDelta, int32_t previousXDelta, int32_t previousYDelta
-)
-{
-  const bool horizontal = direction == Direction::Left || direction == Direction::Right;
-  const int32_t axisDelta = horizontal ? xDelta : yDelta;
-  const int32_t previousAxisDelta = horizontal ? previousXDelta : previousYDelta;
-
-  return std::abs(axisDelta) <= kSwitchBackGuardReleaseMotionDelta &&
-         std::abs(previousAxisDelta) <= kSwitchBackGuardReleaseMotionDelta;
 }
 
 bool containsPhysicalPosition(float start, float length, float position)
@@ -302,15 +238,18 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
   m_primaryClient->enable();
   m_inputFilter->setPrimaryClient(m_primaryClient);
 
-  // Determine if scroll lock is already set. If so, lock the cursor to the
-  // primary screen (unless the user has disabled lock to screen in config)
-  if (!m_disableLockToScreen && (m_primaryClient->getToggleMask() & KeyModifierScrollLock)) {
-    LOG_INFO("scroll lock is on, locking cursor to screen");
-    m_lockedToScreen = true;
-  } else if (m_defaultLockToScreenState) {
-    LOG_INFO("default screen lock is on, locking cursor to screen");
-    m_lockedToScreen = true;
+  if (!m_disableLockToScreen) {
+    if (m_primaryClient->getToggleMask() & KeyModifierScrollLock) {
+      LOG_INFO("scroll lock is on, locking cursor to screen");
+      m_lockedToScreen = true;
+    } else if (m_defaultLockToScreenState) {
+      LOG_INFO("default screen lock is on, locking cursor to screen");
+      m_lockedToScreen = true;
+    }
   }
+
+  // The initial toggle state is only available after the primary client is enabled.
+  m_primaryClient->reconfigure(getActivePrimarySides());
 }
 
 Server::~Server()
@@ -519,21 +458,13 @@ uint32_t Server::getActivePrimarySides() const
 
 bool Server::isLockedToScreenServer() const
 {
-  // locked if scroll-lock is toggled on
-  return m_lockedToScreen;
+  return !m_disableLockToScreen && m_lockedToScreen;
 }
 
 bool Server::isLockedToScreen() const
 {
-  if (m_disableLockToScreen) {
-    return false;
-  }
-
   // locked if we say we're locked
   if (isLockedToScreenServer()) {
-    if (!m_defaultLockToScreenState) {
-      LOG_INFO("cursor is locked to screen, check scroll lock key");
-    }
     return true;
   }
 
@@ -677,9 +608,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
   }
 }
 
-void Server::startSwitchBackGuard(
-    BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection
-)
+void Server::startSwitchBackGuard(BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection)
 {
   if (screen == nullptr || blockedTarget == nullptr || blockedDirection == Direction::NoDirection) {
     clearSwitchBackGuard();
@@ -688,7 +617,7 @@ void Server::startSwitchBackGuard(
 
   m_switchBackGuardScreen = screen;
   m_switchBackGuardTarget = blockedTarget;
-  m_switchBackGuardDirection = blockedDirection;
+  m_switchBackGuard.arm(blockedDirection, m_x, m_y);
   clearNoNeighborEdgeGuard();
 }
 
@@ -703,28 +632,22 @@ void Server::updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t a
     return;
   }
 
-  const bool horizontal =
-      m_switchBackGuardDirection == Direction::Left || m_switchBackGuardDirection == Direction::Right;
-  const int32_t edgeLength = horizontal ? aw : ah;
-  const int32_t margin = switchBackGuardReleaseMargin(edgeLength);
-
-  if (m_switchBackGuardDirection == Direction::NoDirection) {
+  if (!m_switchBackGuard.isArmed()) {
     clearSwitchBackGuard();
     return;
   }
 
-  if (!isSwitchBackGuardAwayFromBlockedEdge(m_switchBackGuardDirection, ax, ay, aw, ah, margin, x, y) ||
-      !isSwitchBackGuardInsideReleaseArea(ax, ay, aw, ah, x, y) ||
-      !isSwitchBackGuardMotionSettled(m_switchBackGuardDirection, m_xDelta, m_yDelta, m_xDelta2, m_yDelta2)) {
+  const auto result = m_switchBackGuard.update({ax, ay, aw, ah}, x, y);
+  if (!result.shouldRelease()) {
     return;
   }
 
   LOG_DEBUG(
-      "released switch-back guard on \"%s\" away from \"%s\" on %s: cursor=%d,%d bounds=%d,%d %dx%d delta=%+d,%+d "
-      "previous=%+d,%+d margin=%d",
+      "released switch-back guard on \"%s\" away from \"%s\" on %s: reason=%s cursor=%d,%d bounds=%d,%d %dx%d "
+      "toward-velocity=%.1fpx/s away=%lldms",
       getName(m_switchBackGuardScreen).c_str(), getName(m_switchBackGuardTarget).c_str(),
-      Config::dirName(m_switchBackGuardDirection), x, y, ax, ay, aw, ah, m_xDelta, m_yDelta, m_xDelta2, m_yDelta2,
-      margin
+      Config::dirName(m_switchBackGuard.direction()), SwitchBackGuard::releaseReasonName(result.reason), x, y, ax, ay,
+      aw, ah, result.towardVelocity, static_cast<long long>(result.awayDuration.count())
   );
   clearSwitchBackGuard();
 }
@@ -733,13 +656,13 @@ void Server::clearSwitchBackGuard()
 {
   m_switchBackGuardScreen = nullptr;
   m_switchBackGuardTarget = nullptr;
-  m_switchBackGuardDirection = Direction::NoDirection;
+  m_switchBackGuard.clear();
 }
 
 bool Server::isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const
 {
   return m_switchBackGuardScreen != nullptr && m_active == m_switchBackGuardScreen &&
-         newScreen == m_switchBackGuardTarget && dir == m_switchBackGuardDirection;
+         newScreen == m_switchBackGuardTarget && dir == m_switchBackGuard.direction();
 }
 
 void Server::startNoNeighborEdgeGuard(BaseClientProxy *screen, Direction blockedDirection)
@@ -1581,6 +1504,7 @@ void Server::processOptions()
     return;
   }
 
+  const bool wasLockedToScreen = isLockedToScreenServer();
   bool newRelativeMoves = m_relativeMoves;
   for (auto [optionId, optionValue] : *options) {
     const OptionID id = optionId;
@@ -1611,14 +1535,22 @@ void Server::processOptions()
     } else if (id == kOptionClipboardSharingSize) {
       if (value <= 0) {
         m_maximumClipboardSize = 0;
-        LOG_INFO("clipboard sharing is disabled because the "
-                 "maximum shared clipboard size is set to 0");
+        LOG_INFO(
+            "clipboard sharing is disabled because the "
+            "maximum shared clipboard size is set to 0"
+        );
       } else {
         m_maximumClipboardSize = static_cast<size_t>(value);
       }
     }
   }
-  if (m_relativeMoves && !newRelativeMoves) {
+
+  if (m_disableLockToScreen && m_lockedToScreen) {
+    m_lockedToScreen = false;
+    LOG_INFO("cursor unlocked because lock to screen is disabled");
+  }
+
+  if ((m_relativeMoves && !newRelativeMoves) || (wasLockedToScreen && !isLockedToScreenServer())) {
     stopRelativeMoves();
   }
   m_relativeMoves = newRelativeMoves;
@@ -1824,8 +1756,13 @@ void Server::handleSwitchWaitTimeout()
     return;
   }
 
-  // switch screen
-  switchScreen(m_switchScreen, m_switchWaitX, m_switchWaitY, false, "switch-wait-timeout");
+  BaseClientProxy *newScreen = m_switchScreen;
+  BaseClientProxy *previousScreen = m_active;
+  const Direction switchDirection = m_switchDir;
+  switchScreen(newScreen, m_switchWaitX, m_switchWaitY, false, "switch-wait-timeout");
+  if (m_active == newScreen && previousScreen != newScreen) {
+    startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDirection));
+  }
 }
 
 void Server::handleClientDisconnected(BaseClientProxy *client)
@@ -1949,6 +1886,16 @@ void Server::handleKeyboardBroadcastEvent(const Event &event)
 void Server::handleLockCursorToScreenEvent(const Event &event)
 {
   const auto *info = static_cast<LockCursorToScreenInfo *>(event.getData());
+
+  if (m_disableLockToScreen) {
+    if (m_lockedToScreen) {
+      m_lockedToScreen = false;
+      stopRelativeMoves();
+      m_primaryClient->reconfigure(getActivePrimarySides());
+    }
+    LOG_DEBUG("ignored lock to screen action because the feature is disabled");
+    return;
+  }
 
   // choose new state
   bool newState;
@@ -2102,8 +2049,7 @@ void Server::onScreensaver(bool activated)
 
   if (activated && m_active != m_primaryClient) {
     LOG_INFO(
-        "primary screen saver activated while \"%s\" is active; keeping remote screen active",
-        getName(m_active).c_str()
+        "primary screen saver activated while \"%s\" is active; keeping remote screen active", getName(m_active).c_str()
     );
     m_activeSaver = nullptr;
     return;
@@ -2329,8 +2275,8 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
       LOG_INFO(
           "primary edge switch from \"%s\" to \"%s\" on %s: cursor=%d,%d clamped=%d,%d target=%d,%d bounds=%d,%d "
           "%dx%d zone=%d delta=%+d,%+d",
-          getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_x, m_y, xc, yc, x, y, ax,
-          ay, aw, ah, zoneSize, m_xDelta, m_yDelta
+          getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_x, m_y, xc, yc, x, y, ax, ay,
+          aw, ah, zoneSize, m_xDelta, m_yDelta
       );
 
       // switch screen

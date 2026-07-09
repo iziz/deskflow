@@ -16,6 +16,7 @@
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "server/Config.h"
+#include "server/SwitchBackGuard.h"
 
 #include <climits>
 #include <map>
@@ -418,6 +419,7 @@ private:
   BaseClientProxy *m_switchScreen = nullptr;
   BaseClientProxy *m_switchBackGuardScreen = nullptr;
   BaseClientProxy *m_switchBackGuardTarget = nullptr;
+  deskflow::server::SwitchBackGuard m_switchBackGuard;
   BaseClientProxy *m_noNeighborEdgeGuardScreen = nullptr;
   double m_switchWaitDelay = 0.0;
   EventQueueTimer *m_switchWaitTimer = nullptr;
@@ -484,7 +486,6 @@ private:
   // common state for screen switch tests.  all tests are always
   // trying to reach the same screen in the same direction.
   Direction m_switchDir = Direction::NoDirection;
-  Direction m_switchBackGuardDirection = Direction::NoDirection;
   Direction m_noNeighborEdgeGuardDirection = Direction::NoDirection;
 
   bool m_switchTwoTapEngaged = false;

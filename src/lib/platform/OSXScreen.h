@@ -228,7 +228,7 @@ private:
   bool m_isOnScreen;
 
   // the display
-  CGDirectDisplayID m_displayID;
+  CGDirectDisplayID m_displayID = 0;
 
   uint32_t m_activeSides = 0;
   // screen shape stuff
