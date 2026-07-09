@@ -141,7 +141,7 @@ OSXScreen::OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync)
       m_impl(nullptr)
 {
   m_displayID = CGMainDisplayID();
-  if (!updateScreenShape(m_displayID, 0)) {
+  if (!updateScreenShape()) {
     throw DisplayInvalidException("failed to initialize screen shape");
   }
 
@@ -1158,7 +1158,7 @@ bool OSXScreen::onMouseWheel(int32_t xDelta, int32_t yDelta) const
 }
 
 void OSXScreen::displayReconfigurationCallback(
-    CGDirectDisplayID displayID, CGDisplayChangeSummaryFlags flags, void *inUserData
+    CGDirectDisplayID, CGDisplayChangeSummaryFlags flags, void *inUserData
 )
 {
   OSXScreen *screen = (OSXScreen *)inUserData;
@@ -1174,7 +1174,7 @@ void OSXScreen::displayReconfigurationCallback(
 
   if (flags & mask) { /* Something actually did change */
     LOG_VERBOSE("event: screen changed shape; refreshing dimensions");
-    if (!screen->updateScreenShape(displayID, flags)) {
+    if (!screen->updateScreenShape()) {
       LOG_ERR("failed to update screen shape during display reconfiguration");
     }
   }
@@ -1412,13 +1412,13 @@ IKeyState *OSXScreen::getKeyState() const
   return m_keyState;
 }
 
-bool OSXScreen::updateScreenShape(const CGDirectDisplayID, const CGDisplayChangeSummaryFlags flags)
-{
-  return updateScreenShape();
-}
-
 bool OSXScreen::updateScreenShape()
 {
+  const auto xOld = m_x;
+  const auto yOld = m_y;
+  const auto wOld = m_w;
+  const auto hOld = m_h;
+
   // get info for each display
   CGDisplayCount displayCount = 0;
 
@@ -1460,11 +1460,21 @@ bool OSXScreen::updateScreenShape()
   m_yCenter = (rect.origin.y + rect.size.height) / 2;
 
   delete[] displays;
-  // We want to notify the peer screen whether we are primary screen or not
+
+  if (xOld == m_x && yOld == m_y && wOld == m_w && hOld == m_h) {
+    LOG_DEBUG(
+        "screen shape unchanged: origin=%d,%d center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_xCenter, m_yCenter, m_w,
+        m_h, displayCount, (displayCount == 1) ? "display" : "displays"
+    );
+    return true;
+  }
+
+  // Notify the peer screen whether we are primary screen or not.
   sendEvent(EventTypes::ScreenShapeChanged);
 
   LOG_DEBUG(
-      "screen shape: center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_w, m_h, displayCount,
+      "screen shape: origin=%d,%d center=%d,%d size=%dx%d on %u %s", m_x, m_y, m_xCenter, m_yCenter, m_w, m_h,
+      displayCount,
       (displayCount == 1) ? "display" : "displays"
   );
 
