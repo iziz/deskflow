@@ -41,6 +41,7 @@ namespace {
 
 constexpr int32_t kSecondarySwitchEdgeMargin = 16;
 constexpr int32_t kSwitchBackGuardReleaseMargin = 64;
+constexpr int32_t kSwitchBackGuardReleaseMotionDelta = 3;
 constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
 
 bool shouldLogMouseMotion()
@@ -75,6 +76,68 @@ Direction oppositeDirection(Direction direction)
   }
 
   return Direction::NoDirection;
+}
+
+int32_t switchBackGuardReleaseMargin(int32_t edgeLength)
+{
+  return std::min(kSwitchBackGuardReleaseMargin, std::max<int32_t>(1, edgeLength / 4));
+}
+
+bool isSwitchBackGuardAwayFromBlockedEdge(
+    Direction direction, int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t margin, int32_t x, int32_t y
+)
+{
+  switch (direction) {
+    using enum Direction;
+  case Left:
+    return x >= ax + margin;
+
+  case Right:
+    return x <= ax + aw - 1 - margin;
+
+  case Top:
+    return y >= ay + margin;
+
+  case Bottom:
+    return y <= ay + ah - 1 - margin;
+
+  case NoDirection:
+    return false;
+  }
+
+  return false;
+}
+
+bool isSwitchBackGuardInsideReleaseArea(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y)
+{
+  const int32_t xMargin = switchBackGuardReleaseMargin(aw);
+  const int32_t yMargin = switchBackGuardReleaseMargin(ah);
+  const int32_t minX = ax + xMargin;
+  const int32_t maxX = ax + aw - 1 - xMargin;
+  const int32_t minY = ay + yMargin;
+  const int32_t maxY = ay + ah - 1 - yMargin;
+
+  if (minX <= maxX && (x < minX || x > maxX)) {
+    return false;
+  }
+
+  if (minY <= maxY && (y < minY || y > maxY)) {
+    return false;
+  }
+
+  return true;
+}
+
+bool isSwitchBackGuardMotionSettled(
+    Direction direction, int32_t xDelta, int32_t yDelta, int32_t previousXDelta, int32_t previousYDelta
+)
+{
+  const bool horizontal = direction == Direction::Left || direction == Direction::Right;
+  const int32_t axisDelta = horizontal ? xDelta : yDelta;
+  const int32_t previousAxisDelta = horizontal ? previousXDelta : previousYDelta;
+
+  return std::abs(axisDelta) <= kSwitchBackGuardReleaseMotionDelta &&
+         std::abs(previousAxisDelta) <= kSwitchBackGuardReleaseMotionDelta;
 }
 
 bool containsPhysicalPosition(float start, float length, float position)
@@ -643,38 +706,27 @@ void Server::updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t a
   const bool horizontal =
       m_switchBackGuardDirection == Direction::Left || m_switchBackGuardDirection == Direction::Right;
   const int32_t edgeLength = horizontal ? aw : ah;
-  const int32_t margin = std::min(kSwitchBackGuardReleaseMargin, std::max<int32_t>(1, edgeLength / 4));
+  const int32_t margin = switchBackGuardReleaseMargin(edgeLength);
 
-  switch (m_switchBackGuardDirection) {
-    using enum Direction;
-  case Left:
-    if (x >= ax + margin) {
-      clearSwitchBackGuard();
-    }
-    break;
-
-  case Right:
-    if (x <= ax + aw - 1 - margin) {
-      clearSwitchBackGuard();
-    }
-    break;
-
-  case Top:
-    if (y >= ay + margin) {
-      clearSwitchBackGuard();
-    }
-    break;
-
-  case Bottom:
-    if (y <= ay + ah - 1 - margin) {
-      clearSwitchBackGuard();
-    }
-    break;
-
-  case NoDirection:
+  if (m_switchBackGuardDirection == Direction::NoDirection) {
     clearSwitchBackGuard();
-    break;
+    return;
   }
+
+  if (!isSwitchBackGuardAwayFromBlockedEdge(m_switchBackGuardDirection, ax, ay, aw, ah, margin, x, y) ||
+      !isSwitchBackGuardInsideReleaseArea(ax, ay, aw, ah, x, y) ||
+      !isSwitchBackGuardMotionSettled(m_switchBackGuardDirection, m_xDelta, m_yDelta, m_xDelta2, m_yDelta2)) {
+    return;
+  }
+
+  LOG_DEBUG(
+      "released switch-back guard on \"%s\" away from \"%s\" on %s: cursor=%d,%d bounds=%d,%d %dx%d delta=%+d,%+d "
+      "previous=%+d,%+d margin=%d",
+      getName(m_switchBackGuardScreen).c_str(), getName(m_switchBackGuardTarget).c_str(),
+      Config::dirName(m_switchBackGuardDirection), x, y, ax, ay, aw, ah, m_xDelta, m_yDelta, m_xDelta2, m_yDelta2,
+      margin
+  );
+  clearSwitchBackGuard();
 }
 
 void Server::clearSwitchBackGuard()
@@ -1233,8 +1285,9 @@ bool Server::isSwitchOkay(
 
   if (isSwitchBackGuardBlocked(newScreen, dir)) {
     LOG_DEBUG(
-        "blocked immediate switch back from \"%s\" to \"%s\" on %s",
-        getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir)
+        "blocked immediate switch back from \"%s\" to \"%s\" on %s: delta=%+d,%+d previous=%+d,%+d",
+        getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_xDelta, m_yDelta, m_xDelta2,
+        m_yDelta2
     );
     stopSwitch();
     return false;
