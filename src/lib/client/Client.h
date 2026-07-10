@@ -18,9 +18,11 @@
 #include "net/NetworkAddress.h"
 
 #include <climits>
+#include <memory>
 
 class Event;
 class EventQueueTimer;
+class ClipboardChannelClient;
 namespace deskflow {
 class Screen;
 }
@@ -129,6 +131,7 @@ public:
     return m_resolvedAddressesCount;
   }
   size_t getMaximumClipboardReceiveSizeBytes() const;
+  void connectClipboardChannel(std::string token);
 
   //@}
 
@@ -216,4 +219,5 @@ private:
   size_t m_maximumClipboardSize = INT_MAX;
   size_t m_resolvedAddressesCount = 0;
   int16_t m_serverProtocolMinor = 0;
+  std::unique_ptr<ClipboardChannelClient> m_clipboardChannelClient;
 };

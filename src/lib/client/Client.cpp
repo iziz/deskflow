@@ -12,6 +12,7 @@
 #include "base/FinalAction.h"
 #include "base/IEventQueue.h"
 #include "base/Log.h"
+#include "client/ClipboardChannelClient.h"
 #include "client/ServerProxy.h"
 #include "common/NetworkProtocol.h"
 #include "common/Settings.h"
@@ -57,6 +58,22 @@ Client::Client(
   assert(m_socketFactory != nullptr);
   assert(m_screen != nullptr);
 
+  m_clipboardChannelClient = std::make_unique<ClipboardChannelClient>(
+      m_events, m_socketFactory, m_name,
+      [this](deskflow::IStream *stream) {
+        if (m_server != nullptr) {
+          m_server->attachClipboardChannel(stream);
+        } else {
+          delete stream;
+        }
+      },
+      [this]() {
+        if (m_server != nullptr) {
+          m_server->requestClipboardChannel();
+        }
+      }
+  );
+
   // register suspend/resume event handlers
   m_events->addHandler(EventTypes::ScreenSuspend, getEventTarget(), [this](const auto &) { handleSuspend(); });
   m_events->addHandler(EventTypes::ScreenResume, getEventTarget(), [this](const auto &) { handleResume(); });
@@ -64,6 +81,7 @@ Client::Client(
 
 Client::~Client()
 {
+  m_clipboardChannelClient->stop();
   m_events->removeHandler(EventTypes::ScreenSuspend, getEventTarget());
   m_events->removeHandler(EventTypes::ScreenResume, getEventTarget());
 
@@ -187,6 +205,15 @@ NetworkAddress Client::getServerAddress() const
 size_t Client::getMaximumClipboardReceiveSizeBytes() const
 {
   return m_maximumClipboardReceiveSize;
+}
+
+void Client::connectClipboardChannel(std::string token)
+{
+  if (m_serverProtocolMinor < 11 || m_server == nullptr || token.size() != kClipboardChannelTokenSize) {
+    LOG_WARN("ignored invalid clipboard channel offer");
+    return;
+  }
+  m_clipboardChannelClient->connect(m_serverAddress, m_useSecureNetwork, std::move(token));
 }
 
 void *Client::getEventTarget() const
@@ -442,8 +469,7 @@ bool Client::sendClipboardData(ClipboardID id, IClipboard::Time time, std::strin
 
   const auto dataSize = sendDecision.data.size();
   LOG_DEBUG(
-      "local clipboard %u queued for transfer, size=%zu, force=%s", id, dataSize,
-      sendDecision.force ? "true" : "false"
+      "local clipboard %u queued for transfer, size=%zu, force=%s", id, dataSize, sendDecision.force ? "true" : "false"
   );
   return m_server->onClipboardChanged(id, std::move(sendDecision.data), sendDecision.force);
 }
@@ -592,7 +618,9 @@ void Client::setupScreen()
   assert(m_server == nullptr);
 
   m_ready = false;
-  m_server = new ServerProxy(this, m_stream, m_events, m_serverProtocolMinor >= 9);
+  m_server = new ServerProxy(
+      this, m_stream, m_events, m_serverProtocolMinor >= 9, m_serverProtocolMinor >= 10, m_serverProtocolMinor >= 11
+  );
   m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
     handleShapeChanged();
   });
@@ -641,6 +669,7 @@ void Client::cleanupConnection()
 
 void Client::cleanupScreen()
 {
+  m_clipboardChannelClient->stop();
   if (m_server != nullptr) {
     if (m_ready) {
       m_screen->disable();

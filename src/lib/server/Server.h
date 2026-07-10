@@ -28,8 +28,9 @@ class EventQueueTimer;
 class PrimaryClient;
 class InputFilter;
 namespace deskflow {
+class IStream;
 class Screen;
-}
+} // namespace deskflow
 class IEventQueue;
 class Thread;
 class ClientListener;
@@ -161,6 +162,9 @@ public:
   destroyed when the client disconnects or is disconnected.
   */
   void adoptClient(BaseClientProxy *client);
+
+  //! Attach an authenticated data stream to an existing client control session.
+  bool attachClipboardChannel(const std::string &clientName, const std::string &token, deskflow::IStream *stream);
 
   //! Disconnect clients
   /*!

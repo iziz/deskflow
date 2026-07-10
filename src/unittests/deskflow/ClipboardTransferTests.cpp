@@ -14,6 +14,7 @@ class ClipboardTransferTests : public QObject
 
 private Q_SLOTS:
   void queuesTransferInFlushLimitedBatches();
+  void waitsForReceiverProgressBeforeSendingNextWindow();
   void supersedesActiveClipboard();
   void remoteOwnershipSupersedesWithoutRetry();
   void ignoresAcknowledgedDuplicate();
@@ -26,6 +27,8 @@ private Q_SLOTS:
   void rejectsOlderIncomingRevision();
   void newerRevisionSupersedesMatchingPayload();
   void sameSequenceSupersedesDifferentPayload();
+  void restartsInterruptedTransferOnReplacementTransport();
+  void preservesNewerPendingTransferAcrossTransportReset();
 };
 
 void ClipboardTransferTests::queuesTransferInFlushLimitedBatches()
@@ -60,6 +63,34 @@ void ClipboardTransferTests::queuesTransferInFlushLimitedBatches()
   QVERIFY(queue.acknowledged(transferId).empty());
   QVERIFY(!queue.active());
   QCOMPARE(queue.activeClipboardId(), kClipboardEnd);
+}
+
+void ClipboardTransferTests::waitsForReceiverProgressBeforeSendingNextWindow()
+{
+  ClipboardTransferQueue queue(0x80000000u, true);
+  const std::string data(kClipboardTransferWindowSize + kClipboardTransferChunkSize + 5, 'x');
+
+  auto actions = queue.queue(kClipboardClipboard, 7, data);
+  QCOMPARE(actions.size(), kClipboardTransferChunksPerFlush + 1);
+  const auto transferId = actions[0].transferId;
+  QVERIFY((transferId & 0x80000000u) != 0);
+
+  QVERIFY(queue.outputFlushed().empty());
+  QVERIFY(queue.progressAcknowledged(transferId + 1, kClipboardTransferWindowSize).empty());
+  QVERIFY(queue.progressAcknowledged(transferId, kClipboardTransferWindowSize - 1).empty());
+
+  actions = queue.progressAcknowledged(transferId, kClipboardTransferWindowSize);
+  QCOMPARE(actions.size(), 3);
+  QCOMPARE(actions[0].type, ClipboardTransferActionType::Data);
+  QCOMPARE(actions[0].data.size(), kClipboardTransferChunkSize);
+  QCOMPARE(actions[1].type, ClipboardTransferActionType::Data);
+  QCOMPARE(actions[1].data.size(), 5);
+  QCOMPARE(actions[2].type, ClipboardTransferActionType::End);
+  QVERIFY(queue.canAcknowledge(transferId));
+
+  QVERIFY(queue.outputFlushed().empty());
+  QVERIFY(queue.acknowledged(transferId).empty());
+  QVERIFY(!queue.active());
 }
 
 void ClipboardTransferTests::supersedesActiveClipboard()
@@ -252,6 +283,39 @@ void ClipboardTransferTests::sameSequenceSupersedesDifferentPayload()
   QCOMPARE(actions[0].transferId, first[0].transferId);
   QCOMPARE(actions[1].type, ClipboardTransferActionType::Start);
   QCOMPARE(actions[1].data, std::string("6"));
+}
+
+void ClipboardTransferTests::restartsInterruptedTransferOnReplacementTransport()
+{
+  ClipboardTransferQueue queue(0, true);
+  const std::string data(kClipboardTransferWindowSize + 7, 'x');
+  const auto first = queue.queue(kClipboardClipboard, 42, data);
+  const auto interruptedTransferId = first[0].transferId;
+
+  queue.transportReset();
+  QVERIFY(!queue.active());
+
+  const auto restarted = queue.transportReady();
+  QVERIFY(!restarted.empty());
+  QCOMPARE(restarted[0].type, ClipboardTransferActionType::Start);
+  QCOMPARE(restarted[0].sequence, 42u);
+  QVERIFY(restarted[0].transferId != interruptedTransferId);
+  QCOMPARE(restarted[0].data, std::to_string(data.size()));
+}
+
+void ClipboardTransferTests::preservesNewerPendingTransferAcrossTransportReset()
+{
+  ClipboardTransferQueue queue;
+  queue.queue(kClipboardClipboard, 7, "active");
+  queue.queue(kClipboardSelection, 8, "newer pending");
+
+  queue.transportReset();
+  auto actions = queue.transportReady();
+  QCOMPARE(actions[0].clipboardId, kClipboardClipboard);
+  const auto firstTransferId = actions[0].transferId;
+  actions = queue.acknowledged(firstTransferId);
+  QCOMPARE(actions[0].clipboardId, kClipboardSelection);
+  QCOMPARE(actions[0].sequence, 8u);
 }
 
 QTEST_MAIN(ClipboardTransferTests)

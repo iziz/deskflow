@@ -10,7 +10,9 @@
 #include <charconv>
 #include <iterator>
 
-ClipboardTransferQueue::ClipboardTransferQueue(uint32_t transferIdMask) : m_transferIdMask(transferIdMask & 0x80000000u)
+ClipboardTransferQueue::ClipboardTransferQueue(uint32_t transferIdMask, bool receiverFlowControl)
+    : m_transferIdMask(transferIdMask & 0x80000000u),
+      m_receiverFlowControl(receiverFlowControl)
 {
 }
 
@@ -71,6 +73,24 @@ std::vector<ClipboardTransferAction> ClipboardTransferQueue::outputFlushed()
     return {};
   }
 
+  if (m_receiverFlowControl) {
+    return {};
+  }
+
+  std::vector<ClipboardTransferAction> actions;
+  appendPendingOutput(actions);
+  return actions;
+}
+
+std::vector<ClipboardTransferAction>
+ClipboardTransferQueue::progressAcknowledged(uint32_t transferId, uint32_t receivedSize)
+{
+  if (!m_receiverFlowControl || !m_active || m_active->transferId != transferId ||
+      m_active->phase != Phase::AwaitingProgress || receivedSize != m_active->offset) {
+    return {};
+  }
+
+  m_active->phase = Phase::DataPendingFlush;
   std::vector<ClipboardTransferAction> actions;
   appendPendingOutput(actions);
   return actions;
@@ -136,6 +156,32 @@ std::vector<ClipboardTransferAction> ClipboardTransferQueue::timedOut()
   return retryActive(ClipboardTransferCancelReason::Timeout);
 }
 
+void ClipboardTransferQueue::transportReset()
+{
+  if (!m_active) {
+    return;
+  }
+
+  auto transfer = std::move(*m_active);
+  m_active.reset();
+
+  // A pending value for the same clipboard is newer than the interrupted
+  // transfer. Otherwise retain the complete source snapshot and restart it
+  // with a fresh transfer ID when the replacement transport is ready.
+  if (!m_pending[transfer.clipboardId]) {
+    m_pending[transfer.clipboardId] =
+        PendingTransfer{transfer.clipboardId, transfer.sequence, std::move(transfer.data), transfer.retryCount};
+  }
+}
+
+std::vector<ClipboardTransferAction> ClipboardTransferQueue::transportReady()
+{
+  if (m_active) {
+    return {};
+  }
+  return startNext();
+}
+
 bool ClipboardTransferQueue::active() const
 {
   return m_active.has_value();
@@ -195,12 +241,8 @@ void ClipboardTransferQueue::appendPendingOutput(std::vector<ClipboardTransferAc
   while (transfer.offset < transfer.data.size() && chunks < kClipboardTransferChunksPerFlush) {
     const auto size = std::min(kClipboardTransferChunkSize, transfer.data.size() - transfer.offset);
     actions.push_back(
-        {ClipboardTransferActionType::Data,
-         transfer.clipboardId,
-         transfer.sequence,
-         transfer.transferId,
-         ClipboardTransferCancelReason::Invalid,
-         transfer.data.substr(transfer.offset, size)}
+        {ClipboardTransferActionType::Data, transfer.clipboardId, transfer.sequence, transfer.transferId,
+         ClipboardTransferCancelReason::Invalid, transfer.data.substr(transfer.offset, size)}
     );
     transfer.offset += size;
     transfer.phase = Phase::DataPendingFlush;
@@ -208,6 +250,9 @@ void ClipboardTransferQueue::appendPendingOutput(std::vector<ClipboardTransferAc
   }
 
   if (transfer.offset < transfer.data.size()) {
+    if (m_receiverFlowControl) {
+      transfer.phase = Phase::AwaitingProgress;
+    }
     return;
   }
 

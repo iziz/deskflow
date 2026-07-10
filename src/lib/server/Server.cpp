@@ -371,6 +371,7 @@ void Server::adoptClient(BaseClientProxy *client)
 
   // send configuration options to client
   sendOptions(client);
+  client->offerClipboardChannel();
 
   // activate screen saver on new client if active on the primary screen
   if (m_activeSaver != nullptr) {
@@ -380,6 +381,23 @@ void Server::adoptClient(BaseClientProxy *client)
   // send notification
   auto *info = new Server::ScreenConnectedInfo(getName(client));
   m_events->addEvent(Event(EventTypes::ServerConnected, m_primaryClient->getEventTarget(), info));
+}
+
+bool Server::attachClipboardChannel(const std::string &clientName, const std::string &token, deskflow::IStream *stream)
+{
+  if (stream == nullptr) {
+    return false;
+  }
+
+  auto canonicalName = m_config->getCanonicalName(clientName);
+  if (canonicalName.empty()) {
+    canonicalName = clientName;
+  }
+  const auto client = m_clients.find(canonicalName);
+  if (client == m_clients.end() || client->second == m_primaryClient) {
+    return false;
+  }
+  return client->second->attachClipboardChannel(token, stream);
 }
 
 void Server::disconnect()

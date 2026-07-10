@@ -13,6 +13,7 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/PacketStreamFilter.h"
+#include "io/StreamFilter.h"
 #include "net/IDataSocket.h"
 #include "net/IListenSocket.h"
 #include "net/ISocketFactory.h"
@@ -187,6 +188,37 @@ void ClientListener::handleUnknownClient(ClientProxyUnknown *unknownClient)
 {
   // we should have the client in our new client list
   assert(m_newClients.count(unknownClient) == 1);
+
+  if (unknownClient->isClipboardChannel()) {
+    auto *filter = dynamic_cast<StreamFilter *>(unknownClient->getStream());
+    auto *socket = filter != nullptr ? dynamic_cast<IDataSocket *>(filter->getStream()) : nullptr;
+    const auto clientName = unknownClient->clipboardClientName();
+    const auto token = unknownClient->clipboardChannelToken();
+    auto *stream = unknownClient->orphanClipboardStream();
+
+    if (stream != nullptr && filter != nullptr && socket != nullptr) {
+      // The listener owns sockets during the unknown-client handshake. A
+      // successful role demux transfers both filter and socket ownership to
+      // the existing client proxy so repeated channel reconnects cannot leak
+      // accepted sockets in the listener.
+      filter->adoptStream();
+      m_clientSockets.erase(socket);
+
+      if (!m_server->attachClipboardChannel(clientName, token, stream)) {
+        LOG_WARN("rejected clipboard channel for client \"%s\"", clientName.c_str());
+        delete stream;
+      }
+    } else {
+      LOG_WARN("rejected clipboard channel with invalid stream ownership");
+      delete stream;
+      if (socket != nullptr) {
+        removeClientSocket(socket);
+      }
+    }
+
+    removeUnknownClient(unknownClient);
+    return;
+  }
 
   // get the real client proxy and install it
   if (auto client = unknownClient->orphanClientProxy(); client) {

@@ -78,6 +78,15 @@ protected:
   virtual JobResult doRead();
   virtual JobResult doWrite();
 
+  // Allow protocol wrappers to redirect poll readiness to the I/O operation
+  // that must be retried.
+  virtual bool hasReadInterest() const;
+  virtual bool hasWriteInterest() const;
+  virtual bool shouldServiceRead(bool readable, bool writable) const;
+  virtual bool shouldServiceWrite(bool readable, bool writable) const;
+  // Called with m_mutex held before a TCP half-close.
+  virtual bool mustCloseForHalfClose() const;
+
   void setJob(ISocketMultiplexerJob *);
 
   bool isConnected() const

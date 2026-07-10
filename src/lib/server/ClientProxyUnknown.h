@@ -40,6 +40,15 @@ public:
   */
   ClientProxy *orphanClientProxy();
 
+  //! Return whether the successful handshake identified a clipboard channel.
+  bool isClipboardChannel() const;
+
+  //! Transfer ownership of a successfully authenticated clipboard stream.
+  deskflow::IStream *orphanClipboardStream();
+
+  const std::string &clipboardClientName() const;
+  const std::string &clipboardChannelToken() const;
+
   //! Get the stream
   deskflow::IStream *getStream()
   {
@@ -66,6 +75,9 @@ private:
   EventQueueTimer *m_timer = nullptr;
   ClientProxy *m_proxy = nullptr;
   bool m_ready = false;
+  bool m_isClipboardChannel = false;
+  std::string m_clipboardClientName;
+  std::string m_clipboardChannelToken;
   Server *m_server = nullptr;
   IEventQueue *m_events = nullptr;
 };

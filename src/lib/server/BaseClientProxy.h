@@ -89,6 +89,13 @@ public:
   virtual void finishClipboardSend()
   {
   }
+  virtual void offerClipboardChannel()
+  {
+  }
+  virtual bool attachClipboardChannel(const std::string &, deskflow::IStream *)
+  {
+    return false;
+  }
   std::string getName() const override;
   virtual deskflow::IStream *getStream() const = 0;
 

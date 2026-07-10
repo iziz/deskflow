@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 class Client;
 class ClientInfo;
@@ -42,7 +43,10 @@ public:
   Process messages from the server on \p stream and forward to
   \p client.
   */
-  ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard);
+  ServerProxy(
+      Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard,
+      bool clipboardFlowControl, bool separateClipboardChannel
+  );
   ServerProxy(ServerProxy const &) = delete;
   ServerProxy(ServerProxy &&) = delete;
   ~ServerProxy();
@@ -60,6 +64,8 @@ public:
   bool onClipboardChanged(ClipboardID, std::string data, bool force = false);
   void beginClipboardSend();
   void finishClipboardSend();
+  void attachClipboardChannel(deskflow::IStream *adoptedStream);
+  void requestClipboardChannel();
 
   //@}
 
@@ -97,6 +103,13 @@ private:
   void markClipboardIncomingStarted(ClipboardID id, uint32_t sequence, uint32_t transferId, const std::string &size);
   void markClipboardIncomingCompleted(ClipboardID id, uint32_t sequence, uint32_t transferId, size_t size);
   void clearClipboardIncomingTiming(uint32_t transferId);
+  deskflow::IStream *clipboardStream() const;
+  void handleClipboardChannelData();
+  void handleClipboardChannelFailure(const char *reason);
+  void removeClipboardChannelHandlers();
+  void receiveClipboardChannelOffer();
+  void handleClipboardChannelRequestTimer();
+  void clearClipboardChannelRequestTimer();
 
   void sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle = true);
   void handleInputProgress();
@@ -119,8 +132,10 @@ private:
   void setClipboardTransfer();
   void acknowledgeClipboardTransfer();
   void cancelClipboardTransfer();
+  void progressClipboardTransfer();
   void sendClipboardAck(uint32_t transferId);
   void sendClipboardCancel(uint32_t transferId, ClipboardTransferCancelReason reason);
+  void sendClipboardProgress(uint32_t transferId, uint32_t receivedSize);
   void grabClipboard();
   void keyDown(uint16_t id, uint16_t mask, uint16_t button, const std::string &lang);
   void keyRepeat();
@@ -165,8 +180,15 @@ private:
   bool m_clipboardOutgoingKeepAliveExtended = false;
 
   bool m_transactionalClipboard = false;
-  ClipboardTransferQueue m_clipboardOutgoing{0x80000000u};
+  bool m_clipboardFlowControl = false;
+  bool m_separateClipboardChannel = false;
+  deskflow::IStream *m_clipboardStream = nullptr;
+  EventQueueTimer *m_clipboardChannelRequestTimer = nullptr;
+  bool m_clipboardChannelRequestOutstanding = false;
+  double m_clipboardChannelRequestDelay = 0.25;
+  ClipboardTransferQueue m_clipboardOutgoing;
   ClipboardTransferAssembler m_clipboardIncoming;
+  size_t m_clipboardIncomingProgress = 0;
   ClipboardChunkAssembler m_legacyClipboardIncoming;
   uint64_t m_legacyClipboardGeneration[kClipboardEnd]{};
 

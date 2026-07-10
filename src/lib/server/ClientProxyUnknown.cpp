@@ -10,12 +10,15 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
+#include "deskflow/ClipboardChannelProtocol.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
 #include "server/ClientProxy1_0.h"
 #include "server/ClientProxy1_1.h"
+#include "server/ClientProxy1_10.h"
+#include "server/ClientProxy1_11.h"
 #include "server/ClientProxy1_2.h"
 #include "server/ClientProxy1_3.h"
 #include "server/ClientProxy1_4.h"
@@ -58,7 +61,7 @@ ClientProxyUnknown::~ClientProxyUnknown()
 
 ClientProxy *ClientProxyUnknown::orphanClientProxy()
 {
-  if (m_ready) {
+  if (m_ready && !m_isClipboardChannel) {
     removeHandlers();
     ClientProxy *proxy = m_proxy;
     m_proxy = nullptr;
@@ -66,6 +69,33 @@ ClientProxy *ClientProxyUnknown::orphanClientProxy()
   } else {
     return nullptr;
   }
+}
+
+bool ClientProxyUnknown::isClipboardChannel() const
+{
+  return m_ready && m_isClipboardChannel;
+}
+
+deskflow::IStream *ClientProxyUnknown::orphanClipboardStream()
+{
+  if (!isClipboardChannel()) {
+    return nullptr;
+  }
+
+  removeHandlers();
+  auto *stream = m_stream;
+  m_stream = nullptr;
+  return stream;
+}
+
+const std::string &ClientProxyUnknown::clipboardClientName() const
+{
+  return m_clipboardClientName;
+}
+
+const std::string &ClientProxyUnknown::clipboardChannelToken() const
+{
+  return m_clipboardChannelToken;
 }
 
 void ClientProxyUnknown::sendSuccess()
@@ -182,6 +212,14 @@ void ClientProxyUnknown::initProxy(const std::string &name, int major, int minor
       m_proxy = new ClientProxy1_9(name, m_stream, m_server, m_events);
       break;
 
+    case 10:
+      m_proxy = new ClientProxy1_10(name, m_stream, m_server, m_events);
+      break;
+
+    case 11:
+      m_proxy = new ClientProxy1_11(name, m_stream, m_server, m_events);
+      break;
+
     default:
       break;
     }
@@ -200,8 +238,10 @@ void ClientProxyUnknown::handleData()
   std::string name("<unknown>");
 
   try {
+    const uint32_t helloPacketSize = m_stream->getSize();
+
     // limit the maximum length of the hello
-    if (uint32_t n = m_stream->getSize(); n > kMaxHelloLength) {
+    if (helloPacketSize > kMaxHelloLength) {
       LOG_VERBOSE("hello reply too long");
       throw BadClientException();
     }
@@ -209,13 +249,38 @@ void ClientProxyUnknown::handleData()
     // parse the reply to hello
     int16_t major;
     int16_t minor;
-    if (std::string protocolName; !ProtocolUtil::readf(m_stream, kMsgHelloBack, &protocolName, &major, &minor, &name)) {
+    std::string protocolName;
+    if (!ProtocolUtil::readf(m_stream, kMsgHelloBack, &protocolName, &major, &minor, &name)) {
       throw BadClientException();
     }
 
     // disallow invalid version numbers
     if (major <= 0 || minor < 0) {
       throw IncompatibleClientException(major, minor);
+    }
+
+    // PacketStreamFilter advances to the next packet as soon as the current
+    // packet is consumed. Use the original packet length, not getSize() after
+    // parsing, to distinguish a same-packet role extension from pipelined
+    // control data.
+    const auto helloKind = deskflow::classifyClipboardChannelHello(helloPacketSize, static_cast<uint32_t>(name.size()));
+    if (helloKind == deskflow::ClipboardChannelHelloKind::Clipboard) {
+      uint8_t role[4];
+      if (protocolName != m_server->protocolString() || major != 1 || minor < 11 ||
+          m_stream->read(role, sizeof(role)) != sizeof(role) ||
+          memcmp(role, kMsgDClipboardChannelHello, sizeof(role)) != 0 ||
+          !ProtocolUtil::readf(m_stream, kMsgDClipboardChannelHello + 4, &m_clipboardChannelToken) ||
+          m_clipboardChannelToken.size() != kClipboardChannelTokenSize) {
+        throw BadClientException();
+      }
+
+      m_isClipboardChannel = true;
+      m_clipboardClientName = name;
+      sendSuccess();
+      return;
+    }
+    if (helloKind == deskflow::ClipboardChannelHelloKind::Invalid) {
+      throw BadClientException();
     }
 
     // remove stream event handlers.  the proxy we're about to create
@@ -232,6 +297,9 @@ void ClientProxyUnknown::handleData()
 
     // wait until the proxy signals that it's ready or has disconnected
     addProxyHandlers();
+    if (m_proxy->getStream()->isReady()) {
+      m_events->addEvent(Event(EventTypes::StreamInputReady, m_proxy->getStream()->getEventTarget()));
+    }
     return;
   } catch (IncompatibleClientException &e) {
     // client is incompatible

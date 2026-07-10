@@ -176,24 +176,34 @@ void TCPSocket::flush()
 
 void TCPSocket::shutdownInput()
 {
+  bool closeSocket = false;
   bool useNewJob = false;
   {
     Lock lock(&m_mutex);
 
-    // shutdown socket for reading
-    try {
-      ARCH->closeSocketForRead(m_socket);
-    } catch (const ArchNetworkException &e) {
-      // ignore, there's not much we can do
-      LOG_WARN("error closing socket: %s", e.what());
-    }
+    closeSocket = mustCloseForHalfClose();
+    if (closeSocket) {
+      LOG_DEBUG("closing socket because the protocol does not support input half-close");
+    } else {
+      // shutdown socket for reading
+      try {
+        ARCH->closeSocketForRead(m_socket);
+      } catch (const ArchNetworkException &e) {
+        // ignore, there's not much we can do
+        LOG_WARN("error closing socket: %s", e.what());
+      }
 
-    // shutdown buffer for reading
-    if (m_readable) {
-      sendEvent(EventTypes::StreamInputShutdown);
-      onInputShutdown();
-      useNewJob = true;
+      // shutdown buffer for reading
+      if (m_readable) {
+        sendEvent(EventTypes::StreamInputShutdown);
+        onInputShutdown();
+        useNewJob = true;
+      }
     }
+  }
+  if (closeSocket) {
+    close();
+    return;
   }
   if (useNewJob) {
     setJob(newJob());
@@ -202,24 +212,34 @@ void TCPSocket::shutdownInput()
 
 void TCPSocket::shutdownOutput()
 {
+  bool closeSocket = false;
   bool useNewJob = false;
   {
     Lock lock(&m_mutex);
 
-    // shutdown socket for writing
-    try {
-      ARCH->closeSocketForWrite(m_socket);
-    } catch (const ArchNetworkException &e) {
-      // ignore, there's not much we can do
-      LOG_WARN("error closing socket: %s", e.what());
-    }
+    closeSocket = mustCloseForHalfClose();
+    if (closeSocket) {
+      LOG_DEBUG("closing socket because the protocol does not support output half-close");
+    } else {
+      // shutdown socket for writing
+      try {
+        ARCH->closeSocketForWrite(m_socket);
+      } catch (const ArchNetworkException &e) {
+        // ignore, there's not much we can do
+        LOG_WARN("error closing socket: %s", e.what());
+      }
 
-    // shutdown buffer for writing
-    if (m_writable) {
-      sendEvent(EventTypes::StreamOutputShutdown);
-      onOutputShutdown();
-      useNewJob = true;
+      // shutdown buffer for writing
+      if (m_writable) {
+        sendEvent(EventTypes::StreamOutputShutdown);
+        onOutputShutdown();
+        useNewJob = true;
+      }
     }
+  }
+  if (closeSocket) {
+    close();
+    return;
   }
   if (useNewJob) {
     setJob(newJob());
@@ -358,6 +378,31 @@ TCPSocket::JobResult TCPSocket::doWrite()
   return JobResult::Retry;
 }
 
+bool TCPSocket::hasReadInterest() const
+{
+  return m_readable;
+}
+
+bool TCPSocket::hasWriteInterest() const
+{
+  return m_writable && m_outputBuffer.getSize() > 0;
+}
+
+bool TCPSocket::shouldServiceRead(bool readable, bool) const
+{
+  return readable;
+}
+
+bool TCPSocket::shouldServiceWrite(bool, bool writable) const
+{
+  return writable;
+}
+
+bool TCPSocket::mustCloseForHalfClose() const
+{
+  return false;
+}
+
 void TCPSocket::setJob(ISocketMultiplexerJob *job)
 {
   // multiplexer will delete the old job
@@ -383,11 +428,13 @@ ISocketMultiplexerJob *TCPSocket::newJob()
         this, &TCPSocket::serviceConnecting, m_socket, m_readable, m_writable
     );
   } else {
-    if (!(m_readable || (m_writable && (m_outputBuffer.getSize() > 0)))) {
+    const bool readInterest = hasReadInterest();
+    const bool writeInterest = hasWriteInterest();
+    if (!(readInterest || writeInterest)) {
       return nullptr;
     }
     return new TSocketMultiplexerMethodJob<TCPSocket>(
-        this, &TCPSocket::serviceConnected, m_socket, m_readable, m_writable && (m_outputBuffer.getSize() > 0)
+        this, &TCPSocket::serviceConnected, m_socket, readInterest, writeInterest
     );
   }
 }
@@ -502,7 +549,7 @@ ISocketMultiplexerJob *TCPSocket::serviceConnected(ISocketMultiplexerJob *job, b
   JobResult readResult = Retry;
   JobResult writeResult = Retry;
 
-  if (write) {
+  if (shouldServiceWrite(read, write)) {
     try {
       writeResult = doWrite();
     } catch (ArchNetworkShutdownException &) {
@@ -530,7 +577,7 @@ ISocketMultiplexerJob *TCPSocket::serviceConnected(ISocketMultiplexerJob *job, b
     }
   }
 
-  if (read && m_readable) {
+  if (writeResult != Break && shouldServiceRead(read, write) && m_readable) {
     try {
       readResult = doRead();
     } catch (ArchNetworkDisconnectedException &) {

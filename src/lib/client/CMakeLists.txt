@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 
 add_library(client STATIC
+  ClipboardChannelClient.cpp
+  ClipboardChannelClient.h
   Client.cpp
   Client.h
   ClientClipboardState.cpp

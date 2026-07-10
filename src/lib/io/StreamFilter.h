@@ -53,6 +53,9 @@ public:
 
   bool adoptedStream() const;
 
+  //! Take ownership of the wrapped stream after construction.
+  void adoptStream();
+
 protected:
   //! Handle events from source stream
   /*!

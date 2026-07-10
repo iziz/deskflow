@@ -21,12 +21,16 @@
 #include "deskflow/ipc/CoreIpc.h"
 #include "io/IStream.h"
 
+#include <algorithm>
 #include <chrono>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
+#include <utility>
 
 namespace {
 constexpr double kClipboardTransferHeartbeatAlarm = 60.0;
+constexpr double kClipboardChannelRequestMaxDelay = 5.0;
+constexpr size_t kClipboardChannelPacketsPerDispatch = 4;
 
 double elapsedMilliseconds(
     std::chrono::steady_clock::time_point start,
@@ -46,10 +50,17 @@ size_t parseSize(const std::string &size)
 // ServerProxy
 //
 
-ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard)
+ServerProxy::ServerProxy(
+    Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard,
+    bool clipboardFlowControl, bool separateClipboardChannel
+)
     : m_client(client),
       m_stream(stream),
       m_transactionalClipboard(transactionalClipboard),
+      m_clipboardFlowControl(clipboardFlowControl),
+      m_separateClipboardChannel(separateClipboardChannel),
+      m_clipboardStream(separateClipboardChannel ? nullptr : stream),
+      m_clipboardOutgoing(0x80000000u, clipboardFlowControl),
       m_events(events)
 {
   assert(m_client != nullptr);
@@ -64,15 +75,17 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
   });
   m_events->addHandler(EventTypes::ClipboardSending, this, [this](const auto &e) {
     auto *chunk = dynamic_cast<ClipboardChunk *>(e.getDataObject());
-    if (chunk != nullptr && chunk->clipboardId() < kClipboardEnd &&
+    if (!m_transactionalClipboard && chunk != nullptr && chunk->clipboardId() < kClipboardEnd &&
         chunk->generation() == m_legacyClipboardGeneration[chunk->clipboardId()]) {
       ClipboardChunk::send(m_stream, chunk);
       extendKeepAliveForClipboardOutgoingTransfer();
     }
   });
-  m_events->addHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget(), [this](const auto &) {
-    handleClipboardOutputFlushed();
-  });
+  if (!m_separateClipboardChannel) {
+    m_events->addHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget(), [this](const auto &) {
+      handleClipboardOutputFlushed();
+    });
+  }
 
   // send heartbeat
   setKeepAliveRate(kKeepAliveRate);
@@ -80,12 +93,20 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
 
 ServerProxy::~ServerProxy()
 {
+  clearClipboardChannelRequestTimer();
   clearClipboardOutgoingTimer();
   clearClipboardIncomingTimer();
   setKeepAliveRate(-1.0);
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::StreamInputProgress, m_stream->getEventTarget());
-  m_events->removeHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget());
+  if (!m_separateClipboardChannel) {
+    m_events->removeHandler(EventTypes::StreamOutputFlushed, m_stream->getEventTarget());
+  }
+  if (m_separateClipboardChannel) {
+    removeClipboardChannelHandlers();
+    delete m_clipboardStream;
+    m_clipboardStream = nullptr;
+  }
   m_events->removeHandler(EventTypes::ClipboardSending, this);
 }
 
@@ -195,6 +216,10 @@ ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *
     // accept and discard no-op
   }
 
+  else if (m_separateClipboardChannel && memcmp(code, kMsgCClipboardChannelOffer, 4) == 0) {
+    receiveClipboardChannelOffer();
+  }
+
   else if (memcmp(code, kMsgCClose, 4) == 0) {
     // server wants us to hangup
     LOG_VERBOSE("recv close");
@@ -300,6 +325,10 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
     // accept and discard no-op
   }
 
+  else if (m_separateClipboardChannel && memcmp(code, kMsgCClipboardChannelOffer, 4) == 0) {
+    receiveClipboardChannelOffer();
+  }
+
   else if (memcmp(code, kMsgCEnter, 4) == 0) {
     enter();
   }
@@ -324,20 +353,24 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
     infoAcknowledgment();
   }
 
-  else if (memcmp(code, kMsgDClipboard, 4) == 0) {
+  else if (!m_separateClipboardChannel && memcmp(code, kMsgDClipboard, 4) == 0) {
     setClipboard();
   }
 
-  else if (m_transactionalClipboard && memcmp(code, kMsgDClipboardTransfer, 4) == 0) {
+  else if (!m_separateClipboardChannel && m_transactionalClipboard && memcmp(code, kMsgDClipboardTransfer, 4) == 0) {
     setClipboardTransfer();
   }
 
-  else if (m_transactionalClipboard && memcmp(code, kMsgCClipboardAck, 4) == 0) {
+  else if (!m_separateClipboardChannel && m_transactionalClipboard && memcmp(code, kMsgCClipboardAck, 4) == 0) {
     acknowledgeClipboardTransfer();
   }
 
-  else if (m_transactionalClipboard && memcmp(code, kMsgCClipboardCancel, 4) == 0) {
+  else if (!m_separateClipboardChannel && m_transactionalClipboard && memcmp(code, kMsgCClipboardCancel, 4) == 0) {
     cancelClipboardTransfer();
+  }
+
+  else if (!m_separateClipboardChannel && m_clipboardFlowControl && memcmp(code, kMsgCClipboardProgress, 4) == 0) {
+    progressClipboardTransfer();
   }
 
   else if (memcmp(code, kMsgCResetOptions, 4) == 0) {
@@ -459,9 +492,7 @@ bool ServerProxy::onClipboardChanged(ClipboardID id, std::string data, bool forc
     return m_clipboardOutgoing.active();
   } else {
     extendKeepAliveForClipboardOutgoingTransfer();
-    StreamChunker::sendClipboard(
-        data, data.size(), id, m_seqNum, m_events, this, m_legacyClipboardGeneration[id]
-    );
+    StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_events, this, m_legacyClipboardGeneration[id]);
     return true;
   }
 }
@@ -480,6 +511,9 @@ void ServerProxy::finishClipboardSend()
 
 void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
 {
+  if (m_separateClipboardChannel) {
+    return;
+  }
   if (m_keepAliveAlarm <= 0.0) {
     return;
   }
@@ -495,6 +529,10 @@ void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
 
 void ServerProxy::restoreKeepAliveAfterClipboardTransfer(bool &extended)
 {
+  if (m_separateClipboardChannel) {
+    extended = false;
+    return;
+  }
   if (!extended) {
     return;
   }
@@ -538,8 +576,7 @@ void ServerProxy::rememberClipboardQueued(ClipboardID id, uint32_t sequence, siz
 
   m_clipboardQueuedTiming[id] = ClipboardQueuedTiming{true, sequence, size, std::chrono::steady_clock::now()};
   LOG_DEBUG(
-      "queued clipboard %u transfer to server seqnum=%u size=%zu force=%s", id, sequence, size,
-      force ? "true" : "false"
+      "queued clipboard %u transfer to server seqnum=%u size=%zu force=%s", id, sequence, size, force ? "true" : "false"
   );
 }
 
@@ -552,17 +589,7 @@ void ServerProxy::markClipboardTransferStarted(const ClipboardTransferAction &ac
   const auto size = hasQueuedAt ? queued.size : parseSize(action.data);
 
   m_clipboardOutgoingTiming = ClipboardTransferTiming{
-      true,
-      action.clipboardId,
-      action.sequence,
-      action.transferId,
-      size,
-      queuedAt,
-      now,
-      {},
-      {},
-      hasQueuedAt,
-      false,
+      true, action.clipboardId, action.sequence, action.transferId, size, queuedAt, now, {}, {}, hasQueuedAt, false,
       false
   };
 
@@ -645,20 +672,8 @@ void ServerProxy::markClipboardIncomingStarted(
 )
 {
   const auto now = std::chrono::steady_clock::now();
-  m_clipboardIncomingTiming = ClipboardTransferTiming{
-      true,
-      id,
-      sequence,
-      transferId,
-      parseSize(size),
-      now,
-      now,
-      {},
-      {},
-      true,
-      false,
-      false
-  };
+  m_clipboardIncomingTiming =
+      ClipboardTransferTiming{true, id, sequence, transferId, parseSize(size), now, now, {}, {}, true, false, false};
   LOG_DEBUG("receiving clipboard transfer %u from server, size=%s", transferId, size.c_str());
 }
 
@@ -684,6 +699,188 @@ void ServerProxy::clearClipboardIncomingTiming(uint32_t transferId)
   }
 }
 
+deskflow::IStream *ServerProxy::clipboardStream() const
+{
+  return m_clipboardStream;
+}
+
+void ServerProxy::attachClipboardChannel(deskflow::IStream *adoptedStream)
+{
+  if (!m_separateClipboardChannel || adoptedStream == nullptr) {
+    delete adoptedStream;
+    return;
+  }
+
+  clearClipboardChannelRequestTimer();
+  m_clipboardChannelRequestOutstanding = false;
+  m_clipboardChannelRequestDelay = 0.25;
+
+  if (m_clipboardStream != nullptr) {
+    removeClipboardChannelHandlers();
+    auto *stream = std::exchange(m_clipboardStream, nullptr);
+    delete stream;
+    clearClipboardOutgoingTimer();
+    clearClipboardIncomingTimer();
+    m_clipboardOutgoing.transportReset();
+    m_clipboardIncoming.reset();
+    m_clipboardIncomingProgress = 0;
+    m_clipboardOutgoingTiming = ClipboardTransferTiming{};
+    m_clipboardIncomingTiming = ClipboardTransferTiming{};
+  }
+  m_clipboardStream = adoptedStream;
+
+  auto *target = m_clipboardStream->getEventTarget();
+  m_events->addHandler(EventTypes::StreamInputReady, target, [this](const auto &) { handleClipboardChannelData(); });
+  m_events->addHandler(EventTypes::StreamOutputFlushed, target, [this](const auto &) {
+    handleClipboardOutputFlushed();
+  });
+  m_events->addHandler(EventTypes::StreamOutputError, target, [this](const auto &) {
+    handleClipboardChannelFailure("stream output error");
+  });
+  m_events->addHandler(EventTypes::StreamInputShutdown, target, [this](const auto &) {
+    handleClipboardChannelFailure("stream input shutdown");
+  });
+  m_events->addHandler(EventTypes::StreamOutputShutdown, target, [this](const auto &) {
+    handleClipboardChannelFailure("stream output shutdown");
+  });
+  m_events->addHandler(EventTypes::StreamInputFormatError, target, [this](const auto &) {
+    handleClipboardChannelFailure("stream input format error");
+  });
+  m_events->addHandler(EventTypes::SocketDisconnected, target, [this](const auto &) {
+    handleClipboardChannelFailure("socket disconnected");
+  });
+
+  LOG_DEBUG("clipboard channel connected to server");
+  sendClipboardActions(m_clipboardOutgoing.transportReady());
+  if (m_clipboardStream != nullptr && m_clipboardStream->isReady()) {
+    m_events->addEvent(Event(EventTypes::StreamInputReady, m_clipboardStream->getEventTarget()));
+  }
+}
+
+void ServerProxy::requestClipboardChannel()
+{
+  if (!m_separateClipboardChannel || m_clipboardStream != nullptr || m_clipboardChannelRequestOutstanding ||
+      m_clipboardChannelRequestTimer != nullptr) {
+    return;
+  }
+
+  const auto delay = m_clipboardChannelRequestDelay;
+  m_clipboardChannelRequestDelay = (std::min)(m_clipboardChannelRequestDelay * 2.0, kClipboardChannelRequestMaxDelay);
+  m_clipboardChannelRequestTimer = m_events->newOneShotTimer(delay, nullptr);
+  m_events->addHandler(EventTypes::Timer, m_clipboardChannelRequestTimer, [this](const auto &) {
+    handleClipboardChannelRequestTimer();
+  });
+}
+
+void ServerProxy::handleClipboardChannelRequestTimer()
+{
+  clearClipboardChannelRequestTimer();
+  if (!m_separateClipboardChannel || m_clipboardStream != nullptr || m_clipboardChannelRequestOutstanding) {
+    return;
+  }
+
+  m_clipboardChannelRequestOutstanding = true;
+  ProtocolUtil::writef(m_stream, kMsgQClipboardChannel);
+}
+
+void ServerProxy::clearClipboardChannelRequestTimer()
+{
+  if (m_clipboardChannelRequestTimer == nullptr) {
+    return;
+  }
+
+  auto *timer = m_clipboardChannelRequestTimer;
+  m_clipboardChannelRequestTimer = nullptr;
+  m_events->removeHandler(EventTypes::Timer, timer);
+  m_events->deleteTimer(timer);
+}
+
+void ServerProxy::receiveClipboardChannelOffer()
+{
+  std::string token;
+  if (!ProtocolUtil::readf(m_stream, kMsgCClipboardChannelOffer + 4, &token) ||
+      token.size() != kClipboardChannelTokenSize) {
+    LOG_WARN("ignored invalid clipboard channel offer");
+    return;
+  }
+
+  clearClipboardChannelRequestTimer();
+  m_clipboardChannelRequestOutstanding = false;
+  m_client->connectClipboardChannel(std::move(token));
+}
+
+void ServerProxy::removeClipboardChannelHandlers()
+{
+  if (!m_separateClipboardChannel || m_clipboardStream == nullptr) {
+    return;
+  }
+
+  using enum EventTypes;
+  auto *target = m_clipboardStream->getEventTarget();
+  m_events->removeHandler(StreamInputReady, target);
+  m_events->removeHandler(StreamOutputFlushed, target);
+  m_events->removeHandler(StreamOutputError, target);
+  m_events->removeHandler(StreamInputShutdown, target);
+  m_events->removeHandler(StreamOutputShutdown, target);
+  m_events->removeHandler(StreamInputFormatError, target);
+  m_events->removeHandler(SocketDisconnected, target);
+}
+
+void ServerProxy::handleClipboardChannelData()
+{
+  size_t packets = 0;
+  while (m_clipboardStream != nullptr && m_clipboardStream->isReady() &&
+         packets < kClipboardChannelPacketsPerDispatch) {
+    uint8_t code[4]{};
+    if (m_clipboardStream->read(code, sizeof(code)) != sizeof(code)) {
+      handleClipboardChannelFailure("incomplete clipboard message code");
+      return;
+    }
+
+    LOG_VERBOSE("clipboard msg from server: %c%c%c%c", code[0], code[1], code[2], code[3]);
+    if (memcmp(code, kMsgDClipboardTransfer, 4) == 0) {
+      setClipboardTransfer();
+    } else if (memcmp(code, kMsgCClipboardAck, 4) == 0) {
+      acknowledgeClipboardTransfer();
+    } else if (memcmp(code, kMsgCClipboardCancel, 4) == 0) {
+      cancelClipboardTransfer();
+    } else if (memcmp(code, kMsgCClipboardProgress, 4) == 0) {
+      progressClipboardTransfer();
+    } else {
+      handleClipboardChannelFailure("invalid clipboard channel message");
+      return;
+    }
+    ++packets;
+  }
+
+  if (m_clipboardStream != nullptr && m_clipboardStream->isReady()) {
+    m_events->addEvent(Event(EventTypes::StreamInputReady, m_clipboardStream->getEventTarget()));
+  }
+}
+
+void ServerProxy::handleClipboardChannelFailure(const char *reason)
+{
+  if (!m_separateClipboardChannel || m_clipboardStream == nullptr) {
+    return;
+  }
+
+  LOG_WARN("clipboard channel disconnected from server: %s", reason != nullptr ? reason : "unknown");
+  removeClipboardChannelHandlers();
+  auto *stream = std::exchange(m_clipboardStream, nullptr);
+  delete stream;
+
+  clearClipboardOutgoingTimer();
+  clearClipboardIncomingTimer();
+  m_clipboardOutgoing.transportReset();
+  m_clipboardIncoming.reset();
+  m_clipboardIncomingProgress = 0;
+  m_clipboardOutgoingTiming = ClipboardTransferTiming{};
+  m_clipboardIncomingTiming = ClipboardTransferTiming{};
+  restoreKeepAliveAfterClipboardIncomingTransfer();
+  restoreKeepAliveAfterClipboardOutgoingTransfer();
+  requestClipboardChannel();
+}
+
 void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions, bool restoreKeepAliveWhenIdle)
 {
   struct FailedClipboardTransfer
@@ -692,6 +889,21 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
     ClipboardTransferCancelReason reason;
   };
   std::vector<FailedClipboardTransfer> failedClipboardTransfers;
+
+  auto *stream = clipboardStream();
+  if (stream == nullptr) {
+    for (const auto &action : actions) {
+      if (action.type == ClipboardTransferActionType::Cancel &&
+          action.cancelReason == ClipboardTransferCancelReason::Superseded) {
+        m_client->onClipboardTransferSuperseded(action.clipboardId);
+      }
+    }
+    clearClipboardOutgoingTimer();
+    m_clipboardOutgoing.transportReset();
+    m_clipboardOutgoingTiming = ClipboardTransferTiming{};
+    restoreKeepAliveAfterClipboardOutgoingTransfer();
+    return;
+  }
 
   for (auto &action : actions) {
     switch (action.type) {
@@ -702,7 +914,7 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
                            : action.type == ClipboardTransferActionType::Data ? ChunkType::DataChunk
                                                                               : ChunkType::DataEnd;
       ProtocolUtil::writef(
-          m_stream, kMsgDClipboardTransfer, action.clipboardId, action.sequence, action.transferId, mark, &action.data
+          stream, kMsgDClipboardTransfer, action.clipboardId, action.sequence, action.transferId, mark, &action.data
       );
       extendKeepAliveForClipboardOutgoingTransfer();
       if (action.type == ClipboardTransferActionType::Start) {
@@ -765,6 +977,11 @@ void ServerProxy::handleClipboardOutputFlushed()
 
 void ServerProxy::handleClipboardOutgoingTimeout()
 {
+  if (m_separateClipboardChannel) {
+    handleClipboardChannelFailure("outgoing transfer timed out");
+    return;
+  }
+
   clearClipboardOutgoingTimer();
   LOG_WARN("clipboard transfer %u to server timed out", m_clipboardOutgoing.activeTransferId());
   sendClipboardActions(m_clipboardOutgoing.timedOut(), false);
@@ -772,6 +989,11 @@ void ServerProxy::handleClipboardOutgoingTimeout()
 
 void ServerProxy::handleClipboardIncomingTimeout()
 {
+  if (m_separateClipboardChannel) {
+    handleClipboardChannelFailure("incoming transfer timed out");
+    return;
+  }
+
   clearClipboardIncomingTimer();
   if (!m_clipboardIncoming.active()) {
     return;
@@ -780,7 +1002,9 @@ void ServerProxy::handleClipboardIncomingTimeout()
   const auto transferId = m_clipboardIncoming.transferId();
   LOG_WARN("clipboard transfer %u from server timed out", transferId);
   m_clipboardIncoming.reset();
+  m_clipboardIncomingProgress = 0;
   clearClipboardIncomingTiming(transferId);
+  restoreKeepAliveAfterClipboardIncomingTransfer();
   sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
 }
 
@@ -913,18 +1137,24 @@ void ServerProxy::setClipboard()
 
 void ServerProxy::setClipboardTransfer()
 {
+  auto *stream = clipboardStream();
+  if (stream == nullptr) {
+    return;
+  }
+
   ClipboardID id;
   uint32_t sequence;
   uint32_t transferId;
   uint8_t mark;
   std::string data;
-  if (!ProtocolUtil::readf(m_stream, kMsgDClipboardTransfer + 4, &id, &sequence, &transferId, &mark, &data)) {
+  if (!ProtocolUtil::readf(stream, kMsgDClipboardTransfer + 4, &id, &sequence, &transferId, &mark, &data)) {
     return;
   }
 
   const bool wasCurrent = m_clipboardIncoming.active() && m_clipboardIncoming.transferId() == transferId;
-  auto result =
-      m_clipboardIncoming.process(id, sequence, transferId, mark, data, m_client->getMaximumClipboardReceiveSizeBytes());
+  auto result = m_clipboardIncoming.process(
+      id, sequence, transferId, mark, data, m_client->getMaximumClipboardReceiveSizeBytes()
+  );
   if (result.replacedTransferId != 0) {
     sendClipboardCancel(result.replacedTransferId, ClipboardTransferCancelReason::Superseded);
   }
@@ -932,6 +1162,7 @@ void ServerProxy::setClipboardTransfer()
   switch (result.status) {
   case ClipboardTransferReceiveStatus::Started:
     markClipboardIncomingStarted(id, sequence, transferId, data);
+    m_clipboardIncomingProgress = 0;
     extendKeepAliveForClipboardIncomingTransfer();
     armClipboardIncomingTimer();
     return;
@@ -939,6 +1170,11 @@ void ServerProxy::setClipboardTransfer()
   case ClipboardTransferReceiveStatus::InProgress:
     extendKeepAliveForClipboardIncomingTransfer();
     armClipboardIncomingTimer();
+    if (m_clipboardFlowControl &&
+        m_clipboardIncoming.data().size() - m_clipboardIncomingProgress >= kClipboardTransferWindowSize) {
+      m_clipboardIncomingProgress = m_clipboardIncoming.data().size();
+      sendClipboardProgress(transferId, static_cast<uint32_t>(m_clipboardIncomingProgress));
+    }
     return;
 
   case ClipboardTransferReceiveStatus::Finished: {
@@ -961,6 +1197,7 @@ void ServerProxy::setClipboardTransfer()
     }
     markClipboardIncomingCompleted(id, sequence, transferId, m_clipboardIncoming.data().size());
     m_clipboardIncoming.reset();
+    m_clipboardIncomingProgress = 0;
     sendClipboardAck(transferId);
     return;
   }
@@ -970,6 +1207,7 @@ void ServerProxy::setClipboardTransfer()
       clearClipboardIncomingTimer();
       restoreKeepAliveAfterClipboardIncomingTransfer();
       m_clipboardIncoming.reset();
+      m_clipboardIncomingProgress = 0;
       clearClipboardIncomingTiming(transferId);
     }
     sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
@@ -982,8 +1220,13 @@ void ServerProxy::setClipboardTransfer()
 
 void ServerProxy::acknowledgeClipboardTransfer()
 {
+  auto *stream = clipboardStream();
+  if (stream == nullptr) {
+    return;
+  }
+
   uint32_t transferId;
-  if (!ProtocolUtil::readf(m_stream, kMsgCClipboardAck + 4, &transferId)) {
+  if (!ProtocolUtil::readf(stream, kMsgCClipboardAck + 4, &transferId)) {
     return;
   }
   if (m_clipboardOutgoing.canAcknowledge(transferId)) {
@@ -997,15 +1240,21 @@ void ServerProxy::acknowledgeClipboardTransfer()
 
 void ServerProxy::cancelClipboardTransfer()
 {
+  auto *stream = clipboardStream();
+  if (stream == nullptr) {
+    return;
+  }
+
   uint32_t transferId;
   uint8_t reason;
-  if (!ProtocolUtil::readf(m_stream, kMsgCClipboardCancel + 4, &transferId, &reason)) {
+  if (!ProtocolUtil::readf(stream, kMsgCClipboardCancel + 4, &transferId, &reason)) {
     return;
   }
 
   if (m_clipboardIncoming.active() && m_clipboardIncoming.transferId() == transferId) {
     LOG_DEBUG("clipboard transfer %u from server was cancelled, reason=%u", transferId, reason);
     m_clipboardIncoming.cancel(transferId);
+    m_clipboardIncomingProgress = 0;
     clearClipboardIncomingTiming(transferId);
     clearClipboardIncomingTimer();
     restoreKeepAliveAfterClipboardIncomingTransfer();
@@ -1021,14 +1270,45 @@ void ServerProxy::cancelClipboardTransfer()
   }
 }
 
+void ServerProxy::progressClipboardTransfer()
+{
+  auto *stream = clipboardStream();
+  if (stream == nullptr) {
+    return;
+  }
+
+  uint32_t transferId;
+  uint32_t receivedSize;
+  if (!ProtocolUtil::readf(stream, kMsgCClipboardProgress + 4, &transferId, &receivedSize)) {
+    return;
+  }
+
+  auto actions = m_clipboardOutgoing.progressAcknowledged(transferId, receivedSize);
+  if (!actions.empty()) {
+    clearClipboardOutgoingTimer();
+    sendClipboardActions(std::move(actions));
+  }
+}
+
 void ServerProxy::sendClipboardAck(uint32_t transferId)
 {
-  ProtocolUtil::writef(m_stream, kMsgCClipboardAck, transferId);
+  if (auto *stream = clipboardStream(); stream != nullptr) {
+    ProtocolUtil::writef(stream, kMsgCClipboardAck, transferId);
+  }
 }
 
 void ServerProxy::sendClipboardCancel(uint32_t transferId, ClipboardTransferCancelReason reason)
 {
-  ProtocolUtil::writef(m_stream, kMsgCClipboardCancel, transferId, static_cast<uint8_t>(reason));
+  if (auto *stream = clipboardStream(); stream != nullptr) {
+    ProtocolUtil::writef(stream, kMsgCClipboardCancel, transferId, static_cast<uint8_t>(reason));
+  }
+}
+
+void ServerProxy::sendClipboardProgress(uint32_t transferId, uint32_t receivedSize)
+{
+  if (auto *stream = clipboardStream(); stream != nullptr) {
+    ProtocolUtil::writef(stream, kMsgCClipboardProgress, transferId, receivedSize);
+  }
 }
 
 void ServerProxy::grabClipboard()

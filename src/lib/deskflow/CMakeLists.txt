@@ -37,6 +37,7 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   Clipboard.h
   ClipboardChunk.cpp
   ClipboardChunk.h
+  ClipboardChannelProtocol.h
   ClipboardTransfer.cpp
   ClipboardTransfer.h
   DeskflowException.cpp

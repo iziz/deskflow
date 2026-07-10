@@ -45,6 +45,7 @@ add_library(net STATIC
   TCPSocket.h
   TCPSocketFactory.cpp
   TCPSocketFactory.h
+  TlsIoRetry.h
   TSocketMultiplexerMethodJob.h
 )
 

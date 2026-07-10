@@ -45,7 +45,7 @@ static const int16_t kProtocolMajorVersion = 1;
  * @note When incrementing the minor version, the Deskflow application version should also increment
  * @since Protocol version 1.0
  */
-static const int16_t kProtocolMinorVersion = 9;
+static const int16_t kProtocolMinorVersion = 11;
 
 /**
  * @brief Default TCP port for Deskflow connections
@@ -66,6 +66,9 @@ static const uint16_t kDefaultPort = 24800;
  * @since Protocol version 1.0
  */
 static const uint32_t kMaxHelloLength = 1024;
+
+/** Size in bytes of a protocol 1.11 clipboard channel token. */
+static constexpr uint32_t kClipboardChannelTokenSize = 32;
 
 /**
  * @brief Keep-alive message interval in seconds
@@ -297,6 +300,20 @@ extern const char *const kMsgHelloBack;
  */
 extern const char *const kMsgHelloBackArgs;
 
+/**
+ * @brief Clipboard channel role extension (v1.11+)
+ *
+ * **Direction**: Secondary → Primary
+ * **Format**: `"DCHN%s"`
+ *
+ * This extension is appended to the standard hello-back payload on a
+ * dedicated clipboard connection. The string contains the one-time channel
+ * token offered over the authenticated control connection.
+ *
+ * @since Protocol version 1.11
+ */
+extern const char *const kMsgDClipboardChannelHello;
+
 /** @} */ // end of protocol_handshake group
 
 /**
@@ -434,6 +451,55 @@ extern const char *const kMsgCClipboardAck;
  * @since Protocol version 1.9
  */
 extern const char *const kMsgCClipboardCancel;
+
+/**
+ * @brief Clipboard transfer receive progress (v1.10+)
+ *
+ * **Message Code**: `"CPRG"`
+ * **Direction**: Primary ↔ Secondary
+ * **Format**: `"CPRG%4i%4i"`
+ * - `$1`: Transfer identifier
+ * - `$2`: Number of clipboard payload bytes accepted by the receiver
+ *
+ * The sender does not queue the next transfer window until this progress
+ * acknowledgment matches the end of its current window.
+ * @since Protocol version 1.10
+ */
+extern const char *const kMsgCClipboardProgress;
+
+/**
+ * @brief Offer a dedicated clipboard channel (v1.11+)
+ *
+ * **Message Code**: `"CCHO"`
+ * **Direction**: Primary → Secondary (control connection only)
+ * **Format**: `"CCHO%s"`
+ * - `$1`: 32-byte, one-time channel token
+ *
+ * @since Protocol version 1.11
+ */
+extern const char *const kMsgCClipboardChannelOffer;
+
+/**
+ * @brief Confirm a dedicated clipboard channel (v1.11+)
+ *
+ * **Message Code**: `"CCHY"`
+ * **Direction**: Primary → Secondary (clipboard connection only)
+ * **Format**: `"CCHY"`
+ *
+ * @since Protocol version 1.11
+ */
+extern const char *const kMsgCClipboardChannelReady;
+
+/**
+ * @brief Request a replacement clipboard channel offer (v1.11+)
+ *
+ * **Message Code**: `"QCHN"`
+ * **Direction**: Secondary → Primary (control connection only)
+ * **Format**: `"QCHN"`
+ *
+ * @since Protocol version 1.11
+ */
+extern const char *const kMsgQClipboardChannel;
 
 /**
  * @brief Screensaver state change

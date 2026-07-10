@@ -19,6 +19,7 @@
 
 constexpr size_t kClipboardTransferChunkSize = 16 * 1024;
 constexpr size_t kClipboardTransferChunksPerFlush = 4;
+constexpr size_t kClipboardTransferWindowSize = kClipboardTransferChunkSize * kClipboardTransferChunksPerFlush;
 constexpr double kClipboardTransferInactivityTimeout = 10.0;
 constexpr int kClipboardTransferMaxRetries = 2;
 
@@ -48,14 +49,17 @@ struct ClipboardTransferAction
 class ClipboardTransferQueue
 {
 public:
-  explicit ClipboardTransferQueue(uint32_t transferIdMask = 0);
+  explicit ClipboardTransferQueue(uint32_t transferIdMask = 0, bool receiverFlowControl = false);
 
   std::vector<ClipboardTransferAction> queue(ClipboardID id, uint32_t sequence, std::string data, bool force = false);
   std::vector<ClipboardTransferAction> outputFlushed();
+  std::vector<ClipboardTransferAction> progressAcknowledged(uint32_t transferId, uint32_t receivedSize);
   std::vector<ClipboardTransferAction> acknowledged(uint32_t transferId);
   std::vector<ClipboardTransferAction> cancelled(uint32_t transferId, ClipboardTransferCancelReason reason);
   std::vector<ClipboardTransferAction> supersede(ClipboardID id);
   std::vector<ClipboardTransferAction> timedOut();
+  void transportReset();
+  std::vector<ClipboardTransferAction> transportReady();
 
   bool active() const;
   uint32_t activeTransferId() const;
@@ -67,6 +71,7 @@ private:
   {
     StartPendingFlush,
     DataPendingFlush,
+    AwaitingProgress,
     EndPendingFlush,
     AwaitingAck
   };
@@ -99,6 +104,7 @@ private:
   std::optional<ActiveTransfer> m_active;
   uint32_t m_transferIdMask = 0;
   uint32_t m_nextTransferId = 1;
+  bool m_receiverFlowControl = false;
 };
 
 enum class ClipboardTransferReceiveStatus

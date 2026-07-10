@@ -9,6 +9,8 @@
 #include "deskflow/ClipboardTransfer.h"
 #include "server/ClientProxy1_8.h"
 
+#include <memory>
+
 class EventQueueTimer;
 
 class ClientProxy1_9 : public ClientProxy1_8
@@ -24,9 +26,28 @@ public:
   void finishClipboardSend() override;
   bool parseMessage(const uint8_t *code) override;
 
+protected:
+  ClientProxy1_9(
+      const std::string &name, deskflow::IStream *adoptedStream, Server *server, IEventQueue *events,
+      bool clipboardFlowControl, bool separateClipboardChannel = false
+  );
+
+  bool adoptClipboardStream(deskflow::IStream *stream);
+  void closeClipboardStream();
+  bool hasClipboardStream() const;
+  deskflow::IStream *clipboardStream() const;
+  void resumeClipboardTransport();
+
+  virtual void onClipboardStreamDisconnected();
+
 private:
+  bool parseClipboardMessage(const uint8_t *code);
   void sendActions(std::vector<ClipboardTransferAction> actions, bool restoreHeartbeatWhenIdle = true);
   void handleOutputFlushed();
+  void handleClipboardData();
+  void handleClipboardStreamFailure(const char *reason);
+  void addClipboardStreamHandlers();
+  void removeClipboardStreamHandlers();
   void handleOutgoingTimeout();
   void handleIncomingTimeout();
   void handleInputProgress() override;
@@ -44,12 +65,18 @@ private:
   bool recvClipboardTransfer();
   bool recvClipboardAck();
   bool recvClipboardCancel();
+  bool recvClipboardProgress();
   void sendClipboardAck(uint32_t transferId);
   void sendClipboardCancel(uint32_t transferId, ClipboardTransferCancelReason reason);
+  void sendClipboardProgress(uint32_t transferId, uint32_t receivedSize);
 
   IEventQueue *m_events;
+  bool m_clipboardFlowControl = false;
+  bool m_separateClipboardChannel = false;
+  std::unique_ptr<deskflow::IStream> m_clipboardStream;
   ClipboardTransferQueue m_outgoing;
   ClipboardTransferAssembler m_incoming;
+  size_t m_incomingProgress = 0;
   EventQueueTimer *m_outgoingTimer = nullptr;
   EventQueueTimer *m_incomingTimer = nullptr;
   bool m_incomingHeartbeatExtended = false;

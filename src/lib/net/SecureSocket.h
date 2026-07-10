@@ -9,7 +9,9 @@
 
 #include "net/SecurityLevel.h"
 #include "net/TCPSocket.h"
+#include "net/TlsIoRetry.h"
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -69,7 +71,17 @@ public:
   void initSsl(bool server);
   bool loadCertificate(const QString &filename);
 
+protected:
+  bool hasReadInterest() const override;
+  bool hasWriteInterest() const override;
+  bool shouldServiceRead(bool readable, bool writable) const override;
+  bool shouldServiceWrite(bool readable, bool writable) const override;
+  bool mustCloseForHalfClose() const override;
+
 private:
+  using TlsOperation = deskflow::TlsIoRetry::Operation;
+  using TlsWaitFor = deskflow::TlsIoRetry::WaitFor;
+
   // SSL
   void initContext(bool server);
   void createSSL();
@@ -77,7 +89,7 @@ private:
   int secureAccept(int s);
   int secureConnect(int s);
   bool showCertificate() const;
-  void checkResult(int n, int &retry);
+  TlsWaitFor checkResult(int n, int &retry);
   void disconnect();
   bool verifyCertFingerprint(const QString &FingerprintDatabasePath) const;
 
@@ -94,12 +106,16 @@ private:
   std::mutex ssl_mutex_;
 
   std::unique_ptr<Ssl> m_ssl;
+  std::array<uint8_t, 4096> m_readRetryBuffer{};
   std::vector<uint8_t> m_writeRetryBuffer;
+  deskflow::TlsIoRetry m_ioRetry;
   bool m_writeRetry = false;
   int m_readSslRetry = 0;
   int m_writeSslRetry = 0;
   int m_acceptSslRetry = 0;
   int m_connectSslRetry = 0;
+  TlsWaitFor m_acceptSslWait = TlsWaitFor::None;
+  TlsWaitFor m_connectSslWait = TlsWaitFor::None;
   bool m_secureReady = false;
   bool m_fatal = false;
   SecurityLevel m_securityLevel = SecurityLevel::Encrypted;

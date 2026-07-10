@@ -101,6 +101,49 @@ ISocketMultiplexerJob *SecureSocket::newJob()
   return TCPSocket::newJob();
 }
 
+bool SecureSocket::hasReadInterest() const
+{
+  if (m_ioRetry.pending()) {
+    return m_ioRetry.wantsRead();
+  }
+
+  return TCPSocket::hasReadInterest();
+}
+
+bool SecureSocket::hasWriteInterest() const
+{
+  if (m_ioRetry.pending()) {
+    return m_ioRetry.wantsWrite();
+  }
+
+  return TCPSocket::hasWriteInterest();
+}
+
+bool SecureSocket::shouldServiceRead(bool readable, bool writable) const
+{
+  if (m_ioRetry.pending()) {
+    return m_ioRetry.canRetry(TlsOperation::Read, readable, writable);
+  }
+
+  return TCPSocket::shouldServiceRead(readable, writable);
+}
+
+bool SecureSocket::shouldServiceWrite(bool readable, bool writable) const
+{
+  if (m_ioRetry.pending()) {
+    return m_ioRetry.canRetry(TlsOperation::Write, readable, writable);
+  }
+
+  return TCPSocket::shouldServiceWrite(readable, writable);
+}
+
+bool SecureSocket::mustCloseForHalfClose() const
+{
+  // A TLS read or write can require either socket direction. Keeping one TCP
+  // half open can therefore strand a future OpenSSL retry on the closed half.
+  return true;
+}
+
 void SecureSocket::secureConnect()
 {
   setJob(new TSocketMultiplexerMethodJob<SecureSocket>(
@@ -118,13 +161,16 @@ void SecureSocket::secureAccept()
 TCPSocket::JobResult SecureSocket::doRead()
 {
   using enum JobResult;
-  std::array<uint8_t, 4096> buffer{};
-  const auto bufferSize = static_cast<int>(buffer.size());
+  const auto bufferSize = static_cast<int>(m_readRetryBuffer.size());
   int bytesRead = 0;
   int status = 0;
 
+  if (m_ioRetry.pending() && m_ioRetry.operation() != TlsOperation::Read) {
+    return Retry;
+  }
+
   if (isSecureReady()) {
-    status = secureRead(buffer.data(), bufferSize, bytesRead);
+    status = secureRead(m_readRetryBuffer.data(), bufferSize, bytesRead);
     if (status < 0) {
       return Break;
     } else if (status == 0) {
@@ -139,13 +185,13 @@ TCPSocket::JobResult SecureSocket::doRead()
 
     // slurp up as much as possible
     do {
-      m_inputBuffer.write(buffer.data(), bytesRead);
+      m_inputBuffer.write(m_readRetryBuffer.data(), bytesRead);
 
       if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
         break;
       }
 
-      status = secureRead(buffer.data(), bufferSize, bytesRead);
+      status = secureRead(m_readRetryBuffer.data(), bufferSize, bytesRead);
       if (status < 0) {
         return Break;
       }
@@ -168,7 +214,7 @@ TCPSocket::JobResult SecureSocket::doRead()
     return New;
   }
 
-  return Retry;
+  return m_ioRetry.pending() ? New : Retry;
 }
 
 TCPSocket::JobResult SecureSocket::doWrite()
@@ -179,6 +225,10 @@ TCPSocket::JobResult SecureSocket::doWrite()
   int bufferSize = 0;
   int bytesWrote = 0;
   int status = 0;
+
+  if (m_ioRetry.pending() && m_ioRetry.operation() != TlsOperation::Write) {
+    return Retry;
+  }
 
   if (m_writeRetry) {
     bufferSize = static_cast<int>(m_writeRetryBuffer.size());
@@ -219,17 +269,26 @@ TCPSocket::JobResult SecureSocket::doWrite()
 
 int SecureSocket::secureRead(void *buffer, int size, int &read)
 {
+  if (m_ioRetry.pending() && m_ioRetry.operation() != TlsOperation::Read) {
+    read = 0;
+    return 0;
+  }
+
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
     read = SSL_read(m_ssl->m_ssl, buffer, size);
 
     // Check result will cleanup the connection in the case of a fatal
-    checkResult(read, m_readSslRetry);
+    const auto waitFor = checkResult(read, m_readSslRetry);
 
     if (m_readSslRetry) {
+      m_ioRetry.set(TlsOperation::Read, waitFor);
+      read = 0;
       return 0;
     }
+
+    m_ioRetry.complete(TlsOperation::Read);
 
     if (isFatal()) {
       return -1;
@@ -243,17 +302,26 @@ int SecureSocket::secureRead(void *buffer, int size, int &read)
 
 int SecureSocket::secureWrite(const void *buffer, int size, int &wrote)
 {
+  if (m_ioRetry.pending() && m_ioRetry.operation() != TlsOperation::Write) {
+    wrote = 0;
+    return 0;
+  }
+
   std::scoped_lock ssl_lock{ssl_mutex_};
 
   if (m_ssl->m_ssl != nullptr) {
     wrote = SSL_write(m_ssl->m_ssl, buffer, size);
 
     // Check result will cleanup the connection in the case of a fatal
-    checkResult(wrote, m_writeSslRetry);
+    const auto waitFor = checkResult(wrote, m_writeSslRetry);
 
     if (m_writeSslRetry) {
+      m_ioRetry.set(TlsOperation::Write, waitFor);
+      wrote = 0;
       return 0;
     }
+
+    m_ioRetry.complete(TlsOperation::Write);
 
     if (isFatal()) {
       return -1;
@@ -370,17 +438,21 @@ void SecureSocket::createSSL()
 void SecureSocket::freeSSL()
 {
   isFatal(true);
+
+  // take socket from multiplexer ASAP otherwise the race condition
+  // could cause events to get called on a dead object. TCPSocket
+  // will do this, too, but the double-call is harmless
+  setJob(nullptr);
+
+  m_ioRetry.reset();
   m_writeRetry = false;
   m_writeRetryBuffer.clear();
   m_readSslRetry = 0;
   m_writeSslRetry = 0;
   m_acceptSslRetry = 0;
   m_connectSslRetry = 0;
-
-  // take socket from multiplexer ASAP otherwise the race condition
-  // could cause events to get called on a dead object. TCPSocket
-  // will do this, too, but the double-call is harmless
-  setJob(nullptr);
+  m_acceptSslWait = TlsWaitFor::None;
+  m_connectSslWait = TlsWaitFor::None;
 
   std::scoped_lock ssl_lock{ssl_mutex_};
   if (m_ssl) {
@@ -411,7 +483,7 @@ int SecureSocket::secureAccept(int socket)
   LOG_VERBOSE("accepting secure socket");
   int r = SSL_accept(m_ssl->m_ssl);
 
-  checkResult(r, m_acceptSslRetry);
+  m_acceptSslWait = checkResult(r, m_acceptSslRetry);
 
   if (isFatal()) {
     // Never block here; this thread services every connected socket.
@@ -419,6 +491,7 @@ int SecureSocket::secureAccept(int socket)
     LOG_ERR("failed to accept secure socket");
     m_secureReady = false;
     m_acceptSslRetry = 0;
+    m_acceptSslWait = TlsWaitFor::None;
     return -1; // Fail
   }
 
@@ -426,9 +499,11 @@ int SecureSocket::secureAccept(int socket)
   if (m_acceptSslRetry == 0) {
     if (m_securityLevel == SecurityLevel::PeerAuth && !verifyCertFingerprint(Settings::tlsTrustedClientsDb())) {
       m_acceptSslRetry = 0;
+      m_acceptSslWait = TlsWaitFor::None;
       disconnect();
       return -1; // Fail
     }
+    m_acceptSslWait = TlsWaitFor::None;
     m_secureReady = true;
     LOG_INFO("accepted secure socket");
     SslLogger::logSecureCipherInfo(m_ssl->m_ssl);
@@ -467,11 +542,12 @@ int SecureSocket::secureConnect(int socket)
 
   int r = SSL_connect(m_ssl->m_ssl);
 
-  checkResult(r, m_connectSslRetry);
+  m_connectSslWait = checkResult(r, m_connectSslRetry);
 
   if (isFatal()) {
     LOG_ERR("failed to connect secure socket");
     m_connectSslRetry = 0;
+    m_connectSslWait = TlsWaitFor::None;
     return -1;
   }
 
@@ -483,6 +559,7 @@ int SecureSocket::secureConnect(int socket)
   }
 
   m_connectSslRetry = 0;
+  m_connectSslWait = TlsWaitFor::None;
   // No error, set ready, process and return ok
   m_secureReady = true;
   if (verifyCertFingerprint(Settings::tlsTrustedServersDb())) {
@@ -522,8 +599,10 @@ bool SecureSocket::showCertificate() const
   return true;
 }
 
-void SecureSocket::checkResult(int status, int &retry)
+SecureSocket::TlsWaitFor SecureSocket::checkResult(int status, int &retry)
 {
+  TlsWaitFor waitFor = TlsWaitFor::None;
+
   // ssl errors are a little quirky. the "want" errors are normal and
   // should result in a retry.
   switch (auto errorCode = SSL_get_error(m_ssl->m_ssl, status); errorCode) {
@@ -539,22 +618,22 @@ void SecureSocket::checkResult(int status, int &retry)
     break;
 
   case SSL_ERROR_WANT_READ:
-    setReadable(true);
+    waitFor = TlsWaitFor::Readable;
     retry++;
     break;
 
   case SSL_ERROR_WANT_WRITE:
-    // Need to make sure the socket is known to be writable so the impending
-    // poll action actually triggers on a write.
-    setWritable(true);
+    waitFor = TlsWaitFor::Writable;
     retry++;
     break;
 
   case SSL_ERROR_WANT_CONNECT:
+    waitFor = TlsWaitFor::Writable;
     retry++;
     break;
 
   case SSL_ERROR_WANT_ACCEPT:
+    waitFor = TlsWaitFor::Readable;
     retry++;
     break;
 
@@ -589,9 +668,13 @@ void SecureSocket::checkResult(int status, int &retry)
 
   if (isFatal()) {
     retry = 0;
+    waitFor = TlsWaitFor::None;
+    m_ioRetry.reset();
     SslLogger::logError();
     disconnect();
   }
+
+  return waitFor;
 }
 
 void SecureSocket::disconnect()
@@ -645,7 +728,7 @@ ISocketMultiplexerJob *SecureSocket::serviceConnect(ISocketMultiplexerJob *const
 {
   Lock lock(&getMutex());
 
-  // reset flags so checkResult can set them based on what SSL needs
+  // Clear the previous handshake poll direction before retrying.
   setReadable(false);
   setWritable(false);
 
@@ -670,8 +753,9 @@ ISocketMultiplexerJob *SecureSocket::serviceConnect(ISocketMultiplexerJob *const
   }
 
   // Retry case. Ensure we poll for what we need.
-  // If checkResult didn't set anything, default to what we were doing.
-  if (!isReadable() && !isWritable()) {
+  setReadable(m_connectSslWait == TlsWaitFor::Readable);
+  setWritable(m_connectSslWait == TlsWaitFor::Writable);
+  if (m_connectSslWait == TlsWaitFor::None) {
     setWritable(true);
   }
 
@@ -684,7 +768,7 @@ ISocketMultiplexerJob *SecureSocket::serviceAccept(ISocketMultiplexerJob *const,
 {
   Lock lock(&getMutex());
 
-  // reset flags so checkResult can set them based on what SSL needs
+  // Clear the previous handshake poll direction before retrying.
   setReadable(false);
   setWritable(false);
 
@@ -709,7 +793,9 @@ ISocketMultiplexerJob *SecureSocket::serviceAccept(ISocketMultiplexerJob *const,
   }
 
   // Retry case. Ensure we poll for what we need.
-  if (!isReadable() && !isWritable()) {
+  setReadable(m_acceptSslWait == TlsWaitFor::Readable);
+  setWritable(m_acceptSslWait == TlsWaitFor::Writable);
+  if (m_acceptSslWait == TlsWaitFor::None) {
     setReadable(true);
   }
 

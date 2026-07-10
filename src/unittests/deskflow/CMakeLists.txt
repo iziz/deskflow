@@ -22,6 +22,14 @@ create_test(
 )
 
 create_test(
+  NAME ClipboardChannelProtocolTests
+  DEPENDS app
+  LIBS arch base io ${extra_libs}
+  SOURCE ClipboardChannelProtocolTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/deskflow"
+)
+
+create_test(
   NAME ClipboardTransferTests
   DEPENDS app
   LIBS arch base io ${extra_libs}

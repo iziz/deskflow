@@ -9,6 +9,8 @@
 #include "io/StreamFilter.h"
 #include "base/IEventQueue.h"
 
+#include <cassert>
+
 //
 // StreamFilter
 //
@@ -84,6 +86,12 @@ deskflow::IStream *StreamFilter::getStream() const
 bool StreamFilter::adoptedStream() const
 {
   return m_adopted;
+}
+
+void StreamFilter::adoptStream()
+{
+  assert(!m_adopted);
+  m_adopted = true;
 }
 
 void StreamFilter::filterEvent(const Event &event)
