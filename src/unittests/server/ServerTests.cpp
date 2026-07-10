@@ -107,17 +107,51 @@ void ServerTests::switchBackGuard_isPollingRateIndependent()
   QVERIFY(lowRateResult.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
 }
 
-void ServerTests::switchBackGuard_expiresAtBlockedEdge()
+void ServerTests::switchBackGuard_doesNotExpireAtBlockedEdge()
 {
   SwitchBackGuard guard;
   const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
   const auto start = SwitchBackGuard::TimePoint{};
   guard.arm(Direction::Right, 2991, 700, start);
 
-  const auto result = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
+  const auto result = guard.update(bounds, 3007, 700, start + 10s);
 
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
+  QVERIFY(!result.shouldRelease());
+}
+
+void ServerTests::switchBackGuard_resetsEvidenceAfterSampleGap()
+{
+  SwitchBackGuard guard;
+  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
+  const auto start = SwitchBackGuard::TimePoint{};
+  guard.arm(Direction::Right, 2991, 700, start);
+
+  QVERIFY(!guard.update(bounds, 2600, 700, start + 10ms).shouldRelease());
+  QVERIFY(!guard.update(bounds, 2500, 700, start + 50ms).shouldRelease());
+
+  const auto firstAfterGap = guard.update(bounds, 2600, 700, start + 500ms);
+  QVERIFY(!firstAfterGap.shouldRelease());
+  QCOMPARE(firstAfterGap.awayDuration, 0ms);
+
+  QVERIFY(!guard.update(bounds, 2650, 700, start + 550ms).shouldRelease());
+  const auto settled = guard.update(bounds, 2650, 700, start + 620ms);
+  QVERIFY(settled.shouldRelease());
+  QCOMPARE(settled.reason, SwitchBackGuard::ReleaseReason::MotionSettled);
+}
+
+void ServerTests::switchBackGuard_resetsEvidenceAfterCursorResync()
+{
+  SwitchBackGuard guard;
+  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
+  const auto start = SwitchBackGuard::TimePoint{};
+  guard.arm(Direction::Right, 2991, 700, start);
+
+  QVERIFY(!guard.update(bounds, 2500, 700, start + 10ms).shouldRelease());
+  guard.resynchronize(1500, 700, start + 70ms);
+
+  const auto firstAfterResync = guard.update(bounds, 1501, 700, start + 80ms);
+  QVERIFY(!firstAfterResync.shouldRelease());
+  QCOMPARE(firstAfterResync.awayDuration, 0ms);
 }
 
 QTEST_MAIN(ServerTests)

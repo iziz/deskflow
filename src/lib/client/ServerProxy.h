@@ -8,12 +8,13 @@
 
 #pragma once
 
+#include "client/ClientInfoUpdateState.h"
+#include "client/ServerKeyTranslator.h"
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/ClipboardTransfer.h"
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
-#include "client/ServerKeyTranslator.h"
 
 #include <array>
 #include <chrono>
@@ -52,7 +53,8 @@ public:
   //! @name manipulators
   //@{
 
-  void onInfoChanged();
+  void onShapeChanged();
+  void onCursorChanged();
   bool onGrabClipboard(ClipboardID);
   bool onClipboardChanged(ClipboardID, const IClipboard *, bool force = false);
   bool onClipboardChanged(ClipboardID, std::string data, bool force = false);
@@ -131,7 +133,7 @@ private:
   void screensaver();
   void resetOptions();
   void setOptions();
-  void queryInfo();
+  void queryInfo(ClientInfoUpdateState::Kind kind = ClientInfoUpdateState::Kind::Query);
   void infoAcknowledgment();
   void secureInputNotification();
   void setServerLanguages();
@@ -152,7 +154,7 @@ private:
   int32_t m_dxMouse = 0;
   int32_t m_dyMouse = 0;
 
-  bool m_ignoreMouse = false;
+  ClientInfoUpdateState m_infoUpdateState;
 
   ServerKeyTranslator m_keyTranslator;
 

@@ -254,7 +254,10 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t 
     return;
   }
 
-  m_screen->setClipboard(id, clipboard);
+  if (!m_screen->setClipboard(id, clipboard)) {
+    LOG_DEBUG("ignored unsupported remote clipboard %u", id);
+    return;
+  }
   m_clipboards.markRemoteClipboardApplied(id, revision, IClipboard::marshall(clipboard));
 
   Clipboard appliedClipboard;
@@ -447,9 +450,14 @@ bool Client::sendClipboardData(ClipboardID id, IClipboard::Time time, std::strin
 
 bool Client::sendClipboard(ClipboardID id)
 {
-  // note -- m_mutex must be locked on entry
   assert(m_screen != nullptr);
   assert(m_server != nullptr);
+
+  const auto sequence = static_cast<IClipboard::Time>(m_screen->clipboardSequence(id));
+  if (sequence != 0 && sequence == m_clipboards.clipboardTime(id)) {
+    LOG_DEBUG("skipping unchanged clipboard %u generation=%u", id, sequence);
+    return false;
+  }
 
   m_server->beginClipboardSend();
   bool transferStarted = false;
@@ -467,14 +475,63 @@ bool Client::sendClipboard(ClipboardID id)
   if (clipboard.open(m_clipboards.clipboardTime(id))) {
     clipboard.close();
   }
-  m_screen->getClipboard(id, &clipboard);
+  if (!m_screen->getClipboard(id, &clipboard)) {
+    LOG_WARN("failed to read clipboard %u", id);
+    return false;
+  }
 
-  // check time
-  if (m_clipboards.clipboardTime(id) == 0 || clipboard.getTime() != m_clipboards.clipboardTime(id)) {
+  const auto capturedSequence = sequence != 0 ? sequence : clipboard.getTime();
+  if (m_clipboards.clipboardTime(id) == 0 || capturedSequence != m_clipboards.clipboardTime(id)) {
     // marshall the data
     std::string data = clipboard.marshall();
-    transferStarted = sendClipboardData(id, clipboard.getTime(), std::move(data));
+    transferStarted = publishClipboardData(id, capturedSequence, std::move(data));
   }
+  return transferStarted;
+}
+
+bool Client::publishClipboardData(ClipboardID id, IClipboard::Time sequence, std::string data)
+{
+  if (id >= kClipboardEnd || m_server == nullptr) {
+    return false;
+  }
+
+  if (m_clipboards.shouldIgnoreGrabbedClipboard(id, data)) {
+    m_clipboards.markGrabbedClipboardIgnored(id, sequence);
+    LOG_DEBUG("ignored clipboard %u grab caused by applying remote revision", id);
+    return false;
+  }
+
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_DEBUG("skipping clipboard %u because it has no supported formats", id);
+    m_clipboards.markLocalClipboardReadSkipped(id, sequence);
+    return false;
+  }
+
+  const auto maximumBytes = m_maximumClipboardSize * 1024;
+  if (data.size() >= maximumBytes) {
+    LOG_WARN(
+        "not publishing clipboard %u ownership because data exceeds limit: size=%zu limit=%zu", id, data.size(),
+        maximumBytes
+    );
+    m_clipboards.markLocalClipboardReadSkipped(id, sequence);
+    return false;
+  }
+
+  m_server->beginClipboardSend();
+  bool transferStarted = false;
+  auto restoreKeepAlive = deskflow::finally([this, &transferStarted]() {
+    if (!transferStarted && m_server != nullptr) {
+      m_server->finishClipboardSend();
+    }
+  });
+
+  if (!m_server->onGrabClipboard(id)) {
+    m_clipboards.markLocalClipboardReadSkipped(id, sequence);
+    return false;
+  }
+
+  m_clipboards.markLocalClipboardOwned(id);
+  transferStarted = sendClipboardData(id, sequence, std::move(data));
   return transferStarted;
 }
 
@@ -663,12 +720,12 @@ void Client::handleDisconnected(const char *reason)
 void Client::handleShapeChanged()
 {
   LOG_DEBUG("resolution changed");
-  handleInfoChanged();
+  m_server->onShapeChanged();
 }
 
 void Client::handleInfoChanged()
 {
-  m_server->onInfoChanged();
+  m_server->onCursorChanged();
 }
 
 void Client::handleClipboardGrabbed(const Event &event)
@@ -688,6 +745,7 @@ void Client::handleClipboardGrabbed(const Event &event)
     return;
   }
 
+  const auto sequence = static_cast<IClipboard::Time>(m_screen->clipboardSequence(info->m_id));
   m_server->beginClipboardSend();
   bool transferStarted = false;
   auto restoreKeepAlive = deskflow::finally([this, &transferStarted]() {
@@ -700,23 +758,13 @@ void Client::handleClipboardGrabbed(const Event &event)
   if (clipboard.open(m_clipboards.clipboardTime(info->m_id))) {
     clipboard.close();
   }
-  m_screen->getClipboard(info->m_id, &clipboard);
-  auto data = clipboard.marshall();
-  if (m_clipboards.shouldIgnoreGrabbedClipboard(info->m_id, data)) {
-    m_clipboards.markGrabbedClipboardIgnored(info->m_id, clipboard.getTime());
-    LOG_DEBUG("ignored clipboard %u grab caused by applying remote revision", info->m_id);
+  if (!m_screen->getClipboard(info->m_id, &clipboard)) {
+    LOG_WARN("failed to read clipboard %u", info->m_id);
     return;
   }
-
-  // grab ownership
-  m_server->onGrabClipboard(info->m_id);
-
-  // we now own the clipboard and it has not been sent to the server
-  m_clipboards.markLocalClipboardOwned(info->m_id);
-
-  // Publish the active screen's clipboard immediately. A newer ownership
-  // notification supersedes any unfinished transfer for this clipboard.
-  transferStarted = sendClipboardData(info->m_id, clipboard.getTime(), std::move(data));
+  auto data = clipboard.marshall();
+  const auto capturedSequence = sequence != 0 ? sequence : clipboard.getTime();
+  transferStarted = publishClipboardData(info->m_id, capturedSequence, std::move(data));
 }
 
 void Client::handleHello()

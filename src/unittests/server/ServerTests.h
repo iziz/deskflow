@@ -16,5 +16,7 @@ private Q_SLOTS:
   void switchBackGuard_blocksFastDirectionReversal();
   void switchBackGuard_releasesSlowDirectionReversal();
   void switchBackGuard_isPollingRateIndependent();
-  void switchBackGuard_expiresAtBlockedEdge();
+  void switchBackGuard_doesNotExpireAtBlockedEdge();
+  void switchBackGuard_resetsEvidenceAfterSampleGap();
+  void switchBackGuard_resetsEvidenceAfterCursorResync();
 };

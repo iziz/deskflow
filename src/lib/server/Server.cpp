@@ -1607,6 +1607,11 @@ void Server::syncClientCursorPosition(BaseClientProxy *client, const char *reaso
       m_xDelta2 = 0;
       m_yDelta2 = 0;
     }
+    // A client cursor report starts a new motion epoch. Pending edge intent
+    // belongs to the old coordinate stream and must not survive the resync.
+    stopSwitch();
+    m_switchBackGuard.resynchronize(x, y);
+    clearNoNeighborEdgeGuard();
     m_x = x;
     m_y = y;
   }

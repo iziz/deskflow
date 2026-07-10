@@ -18,6 +18,7 @@
 #include <mach/mach_interface.h>
 #include <mach/mach_port.h>
 
+#include <atomic>
 #include <bitset>
 #include <cstdint>
 #include <map>
@@ -57,6 +58,7 @@ public:
   // IScreen overrides
   void *getEventTarget() const override;
   bool getClipboard(ClipboardID id, IClipboard *) const override;
+  uint32_t clipboardSequence(ClipboardID id) const override;
   void getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const override;
   void getCursorPos(int32_t &x, int32_t &y) const override;
 
@@ -242,6 +244,7 @@ private:
   // mouse state
   mutable int32_t m_xCursor, m_yCursor;
   mutable bool m_cursorPosValid;
+  mutable std::atomic_bool m_cursorInfoEventPending;
 
   /* FIXME: this data structure is explicitly marked mutable due
      to a need to track the state of buttons since the remote
@@ -263,6 +266,7 @@ private:
   uint32_t m_sequenceNumber;
   int64_t m_pasteboardChangeCount;
   int64_t m_lastDeskflowPasteboardChangeCount;
+  std::atomic<size_t> m_maximumClipboardSizeBytes;
 
   // screen saver stuff
   OSXScreenSaver *m_screensaver;

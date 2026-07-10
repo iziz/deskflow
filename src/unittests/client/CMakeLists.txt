@@ -16,3 +16,11 @@ create_test(
   SOURCE ClientClipboardStateTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/client"
 )
+
+create_test(
+  NAME ClientInfoUpdateStateTests
+  DEPENDS client
+  LIBS base
+  SOURCE ClientInfoUpdateStateTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/client"
+)

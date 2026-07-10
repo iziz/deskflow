@@ -395,14 +395,16 @@ void ServerProxy::handleInputProgress()
   }
 }
 
-void ServerProxy::onInfoChanged()
+void ServerProxy::onShapeChanged()
 {
-  // ignore mouse motion until we receive acknowledgment of our info
-  // change message.
-  m_ignoreMouse = true;
+  queryInfo(ClientInfoUpdateState::Kind::Shape);
+}
 
-  // send info update
-  queryInfo();
+void ServerProxy::onCursorChanged()
+{
+  if (m_infoUpdateState.beginCursorUpdate()) {
+    queryInfo(ClientInfoUpdateState::Kind::Cursor);
+  }
 }
 
 bool ServerProxy::onGrabClipboard(ClipboardID id)
@@ -1160,7 +1162,7 @@ void ServerProxy::mouseMove()
   ProtocolUtil::readf(m_stream, kMsgDMouseMove + 4, &x, &y);
 
   // note if we should ignore the move
-  ignore = m_ignoreMouse;
+  ignore = m_infoUpdateState.shouldIgnoreMouse();
 
   // compress mouse motion events if more input follows
   if (!ignore && !m_compressMouse && m_stream->isReady()) {
@@ -1191,7 +1193,7 @@ void ServerProxy::mouseRelativeMove()
   ProtocolUtil::readf(m_stream, kMsgDMouseRelMove + 4, &dx, &dy);
 
   // note if we should ignore the move
-  ignore = m_ignoreMouse;
+  ignore = m_infoUpdateState.shouldIgnoreMouse();
 
   // compress mouse motion events if more input follows
   if (!ignore && !m_compressMouseRelative && m_stream->isReady()) {
@@ -1292,8 +1294,12 @@ void ServerProxy::setOptions()
   }
 }
 
-void ServerProxy::queryInfo()
+void ServerProxy::queryInfo(ClientInfoUpdateState::Kind kind)
 {
+  if (kind != ClientInfoUpdateState::Kind::Cursor) {
+    m_infoUpdateState.beginUpdate(kind);
+  }
+
   ClientInfo info;
   m_client->getShape(info.m_x, info.m_y, info.m_w, info.m_h);
   m_client->getCursorPos(info.m_mx, info.m_my);
@@ -1303,7 +1309,15 @@ void ServerProxy::queryInfo()
 void ServerProxy::infoAcknowledgment()
 {
   LOG_VERBOSE("recv info acknowledgment");
-  m_ignoreMouse = false;
+  const auto acknowledgment = m_infoUpdateState.acknowledge();
+  if (!acknowledgment.matched) {
+    LOG_WARN("received an unexpected info acknowledgment");
+    return;
+  }
+
+  if (acknowledgment.sendLatestCursor && m_infoUpdateState.beginCursorUpdate()) {
+    queryInfo(ClientInfoUpdateState::Kind::Cursor);
+  }
 }
 
 void ServerProxy::secureInputNotification()

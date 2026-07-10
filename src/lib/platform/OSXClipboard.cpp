@@ -15,10 +15,67 @@
 #include "platform/OSXClipboardUTF16Converter.h"
 #include "platform/OSXClipboardUTF8Converter.h"
 
+#include <ImageIO/ImageIO.h>
+
+#include <array>
+#include <optional>
+#include <utility>
+
 namespace {
 CFStringRef deskflowOwnershipFlavor()
 {
   return CFSTR("org.deskflow.clipboard-owner");
+}
+
+std::optional<std::pair<size_t, size_t>> imageDimensions(PasteboardRef pasteboard, PasteboardItemID item)
+{
+  const std::array<CFStringRef, 3> sourceTypes = {CFSTR("public.png"), CFSTR("public.jpeg"), CFSTR("public.tiff")};
+
+  CFArrayRef declaredTypes = nullptr;
+  if (PasteboardCopyItemFlavors(pasteboard, item, &declaredTypes) != noErr || declaredTypes == nullptr) {
+    return std::nullopt;
+  }
+
+  std::optional<std::pair<size_t, size_t>> result;
+  for (const auto type : sourceTypes) {
+    if (!CFArrayContainsValue(declaredTypes, CFRangeMake(0, CFArrayGetCount(declaredTypes)), type)) {
+      continue;
+    }
+
+    CFDataRef data = nullptr;
+    if (PasteboardCopyItemFlavorData(pasteboard, item, type, &data) != noErr || data == nullptr) {
+      continue;
+    }
+
+    CGImageSourceRef source = CGImageSourceCreateWithData(data, nullptr);
+    CFRelease(data);
+    if (source == nullptr) {
+      continue;
+    }
+
+    CFDictionaryRef properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nullptr);
+    CFRelease(source);
+    if (properties == nullptr) {
+      continue;
+    }
+
+    int64_t width = 0;
+    int64_t height = 0;
+    const auto widthValue = static_cast<CFNumberRef>(CFDictionaryGetValue(properties, kCGImagePropertyPixelWidth));
+    const auto heightValue = static_cast<CFNumberRef>(CFDictionaryGetValue(properties, kCGImagePropertyPixelHeight));
+    const bool valid = widthValue != nullptr && heightValue != nullptr &&
+                       CFNumberGetValue(widthValue, kCFNumberSInt64Type, &width) &&
+                       CFNumberGetValue(heightValue, kCFNumberSInt64Type, &height) && width > 0 && height > 0;
+    CFRelease(properties);
+
+    if (valid) {
+      result = std::pair<size_t, size_t>{static_cast<size_t>(width), static_cast<size_t>(height)};
+      break;
+    }
+  }
+
+  CFRelease(declaredTypes);
+  return result;
 }
 } // namespace
 
@@ -51,6 +108,10 @@ OSXClipboard::OSXClipboard() : m_time(0), m_pboard(nullptr)
 OSXClipboard::~OSXClipboard()
 {
   clearConverters();
+  if (m_pboard != nullptr) {
+    CFRelease(m_pboard);
+    m_pboard = nullptr;
+  }
 }
 
 bool OSXClipboard::empty()
@@ -98,7 +159,8 @@ void OSXClipboard::markOwnedByDeskflow() const
   }
 
   PasteboardItemID itemID = 0;
-  OSStatus err = PasteboardPutItemFlavor(m_pboard, itemID, deskflowOwnershipFlavor(), dataRef, kPasteboardFlavorNoFlags);
+  OSStatus err =
+      PasteboardPutItemFlavor(m_pboard, itemID, deskflowOwnershipFlavor(), dataRef, kPasteboardFlavorNoFlags);
   CFRelease(dataRef);
 
   if (err != noErr) {
@@ -193,6 +255,23 @@ bool OSXClipboard::has(Format format) const
       OSStatus res;
 
       if ((res = PasteboardGetItemFlavorFlags(m_pboard, item, type, &flags)) == noErr) {
+        if (format == Format::Bitmap && m_maximumDataSize != std::numeric_limits<size_t>::max()) {
+          const auto dimensions = imageDimensions(m_pboard, item);
+          if (!dimensions.has_value()) {
+            LOG_WARN("skipping macOS clipboard image because its BMP size cannot be bounded safely");
+            return false;
+          }
+
+          const auto estimatedSize = estimatedBitmapDataSize(dimensions->first, dimensions->second);
+          if (estimatedSize >= m_maximumDataSize) {
+            LOG_WARN(
+                "skipping macOS clipboard image before BMP materialization: dimensions=%zux%zu estimated=%zu "
+                "limit=%zu",
+                dimensions->first, dimensions->second, estimatedSize, m_maximumDataSize
+            );
+            return false;
+          }
+        }
         return true;
       }
     }
@@ -257,11 +336,24 @@ std::string OSXClipboard::get(Format format) const
 
 void OSXClipboard::clearConverters()
 {
-  if (m_pboard == nullptr)
-    return;
-
   for (ConverterList::iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
     delete *index;
   }
   m_converters.clear();
+}
+
+void OSXClipboard::setMaximumDataSize(size_t maximumDataSize)
+{
+  m_maximumDataSize = maximumDataSize;
+}
+
+size_t OSXClipboard::estimatedBitmapDataSize(size_t width, size_t height)
+{
+  constexpr size_t headerAndProtocolOverhead = 256;
+  constexpr size_t bytesPerPixel = 4;
+  if (height != 0 &&
+      width > (std::numeric_limits<size_t>::max() - headerAndProtocolOverhead) / bytesPerPixel / height) {
+    return std::numeric_limits<size_t>::max();
+  }
+  return width * height * bytesPerPixel + headerAndProtocolOverhead;
 }

@@ -206,9 +206,9 @@ void Screen::warpCursor(int32_t x, int32_t y)
   m_screen->warpCursor(x, y);
 }
 
-void Screen::setClipboard(ClipboardID id, const IClipboard *clipboard)
+bool Screen::setClipboard(ClipboardID id, const IClipboard *clipboard)
 {
-  m_screen->setClipboard(id, clipboard);
+  return m_screen->setClipboard(id, clipboard);
 }
 
 void Screen::grabClipboard(ClipboardID id)
@@ -399,6 +399,11 @@ void *Screen::getEventTarget() const
 bool Screen::getClipboard(ClipboardID id, IClipboard *clipboard) const
 {
   return m_screen->getClipboard(id, clipboard);
+}
+
+uint32_t Screen::clipboardSequence(ClipboardID id) const
+{
+  return m_screen->clipboardSequence(id);
 }
 
 void Screen::getShape(int32_t &x, int32_t &y, int32_t &w, int32_t &h) const

@@ -20,14 +20,23 @@ void SwitchBackGuard::arm(Direction blockedDirection, int32_t x, int32_t y, Time
   }
 
   m_direction = blockedDirection;
-  m_armedAt = now;
+  m_samples.push_back({now, axisPosition(x, y)});
+}
+
+void SwitchBackGuard::resynchronize(int32_t x, int32_t y, TimePoint now)
+{
+  if (!isArmed()) {
+    return;
+  }
+
+  m_awaySince.reset();
+  m_samples.clear();
   m_samples.push_back({now, axisPosition(x, y)});
 }
 
 void SwitchBackGuard::clear()
 {
   m_direction = Direction::NoDirection;
-  m_armedAt = {};
   m_awaySince.reset();
   m_samples.clear();
 }
@@ -50,17 +59,20 @@ SwitchBackGuard::UpdateResult SwitchBackGuard::update(const Bounds &bounds, int3
   }
 
   const int32_t position = axisPosition(x, y);
+  if (resetAfterSampleGap(position, now)) {
+    result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
+    if (result.awayFromBlockedEdge) {
+      m_awaySince = now;
+    }
+    return result;
+  }
+
   const MotionSample previous = m_samples.empty() ? MotionSample{now, position} : m_samples.back();
   recordSample(position, now);
 
   const double instantaneousTowardVelocity = towardVelocity(previous, m_samples.back());
   const double windowTowardVelocity = towardVelocity(m_samples.front(), m_samples.back());
   result.towardVelocity = std::max(instantaneousTowardVelocity, windowTowardVelocity);
-
-  if (now - m_armedAt >= MaximumDuration) {
-    result.reason = ReleaseReason::Expired;
-    return result;
-  }
 
   result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
   if (!result.awayFromBlockedEdge) {
@@ -92,8 +104,6 @@ const char *SwitchBackGuard::releaseReasonName(ReleaseReason reason)
     return "none";
   case ReleaseReason::MotionSettled:
     return "motion-settled";
-  case ReleaseReason::Expired:
-    return "expired";
   }
 
   return "unknown";
@@ -138,6 +148,18 @@ double SwitchBackGuard::towardVelocity(const MotionSample &first, const MotionSa
   const double velocity = static_cast<double>(delta) / elapsed;
   const bool negativeIsToward = m_direction == Direction::Left || m_direction == Direction::Top;
   return negativeIsToward ? -velocity : velocity;
+}
+
+bool SwitchBackGuard::resetAfterSampleGap(int32_t position, TimePoint now)
+{
+  if (m_samples.empty() || now - m_samples.back().time <= MaximumSampleGap) {
+    return false;
+  }
+
+  m_samples.clear();
+  m_awaySince.reset();
+  recordSample(position, now);
+  return true;
 }
 
 void SwitchBackGuard::recordSample(int32_t position, TimePoint now)

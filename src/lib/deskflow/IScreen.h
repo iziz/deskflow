@@ -43,6 +43,14 @@ public:
   */
   virtual bool getClipboard(ClipboardID id, IClipboard *) const = 0;
 
+  /**
+   * Return a cheap platform clipboard generation, or zero when unavailable.
+   */
+  virtual uint32_t clipboardSequence(ClipboardID) const
+  {
+    return 0;
+  }
+
   //! Get screen shape
   /*!
   Return the position of the upper-left corner of the screen in \c x and

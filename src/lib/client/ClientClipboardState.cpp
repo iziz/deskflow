@@ -94,6 +94,19 @@ void ClientClipboardState::markGrabbedClipboardIgnored(ClipboardID id, IClipboar
   m_clipboards[id].time = time;
 }
 
+void ClientClipboardState::markLocalClipboardReadSkipped(ClipboardID id, IClipboard::Time time)
+{
+  if (!isValidId(id)) {
+    return;
+  }
+
+  auto &clipboard = m_clipboards[id];
+  clipboard.owns = false;
+  clipboard.cacheState = CacheState::Empty;
+  clipboard.time = time;
+  clipboard.data.clear();
+}
+
 void ClientClipboardState::markLocalClipboardOwned(ClipboardID id)
 {
   if (!isValidId(id)) {

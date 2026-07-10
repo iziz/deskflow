@@ -18,6 +18,7 @@ private Q_SLOTS:
   void localSendTracksPendingAndAcknowledgedStates();
   void failedTransferForgetsSentCache();
   void remoteApplySuppressesMatchingGrab();
+  void skippedLocalReadDoesNotRemainOwned();
 
 private:
   Log m_log;
@@ -86,6 +87,18 @@ void ClientClipboardStateTests::remoteApplySuppressesMatchingGrab()
 
   state.markGrabbedClipboardIgnored(kClipboardClipboard, 43);
   QCOMPARE(state.clipboardTime(kClipboardClipboard), 43);
+}
+
+void ClientClipboardStateTests::skippedLocalReadDoesNotRemainOwned()
+{
+  ClientClipboardState state;
+
+  state.markLocalClipboardOwned(kClipboardClipboard);
+  state.markLocalClipboardReadSkipped(kClipboardClipboard, 91);
+
+  QVERIFY(!state.ownsClipboard(kClipboardClipboard));
+  QCOMPARE(state.clipboardTime(kClipboardClipboard), 91);
+  QCOMPARE(state.cacheState(kClipboardClipboard), ClientClipboardState::CacheState::Empty);
 }
 
 QTEST_MAIN(ClientClipboardStateTests)

@@ -133,11 +133,12 @@ macro(configure_unix_libs)
     find_library(lib_ScreenSaver ScreenSaver)
     find_library(lib_IOKit IOKit)
     find_library(lib_ApplicationServices ApplicationServices)
+    find_library(lib_ImageIO ImageIO)
     find_library(lib_Foundation Foundation)
     find_library(lib_Carbon Carbon)
     find_library(lib_UserNotifications UserNotifications)
     list(APPEND libs
-      ${lib_ScreenSaver} ${lib_IOKit} ${lib_ApplicationServices}
+      ${lib_ScreenSaver} ${lib_IOKit} ${lib_ApplicationServices} ${lib_ImageIO}
       ${lib_Foundation} ${lib_Carbon} ${lib_UserNotifications}
     )
   else()

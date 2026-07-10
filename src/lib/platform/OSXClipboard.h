@@ -11,6 +11,8 @@
 #include "deskflow/IClipboard.h"
 
 #include <Carbon/Carbon.h>
+#include <cstddef>
+#include <limits>
 #include <vector>
 
 class IOSXClipboardConverter;
@@ -35,6 +37,9 @@ public:
   std::string get(Format) const override;
 
   bool synchronize();
+  void setMaximumDataSize(size_t maximumDataSize);
+
+  static size_t estimatedBitmapDataSize(size_t width, size_t height);
 
 private:
   void markOwnedByDeskflow() const;
@@ -46,6 +51,7 @@ private:
   mutable Time m_time;
   ConverterList m_converters;
   PasteboardRef m_pboard;
+  size_t m_maximumDataSize = std::numeric_limits<size_t>::max();
 };
 
 //! Clipboard format converter interface

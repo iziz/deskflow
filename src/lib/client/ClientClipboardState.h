@@ -44,6 +44,7 @@ public:
   void markRemoteClipboardApplied(ClipboardID id, uint32_t revision, std::string data);
   void updateCachedClipboard(ClipboardID id, IClipboard::Time time, std::string data);
   void markGrabbedClipboardIgnored(ClipboardID id, IClipboard::Time time);
+  void markLocalClipboardReadSkipped(ClipboardID id, IClipboard::Time time);
   void markLocalClipboardOwned(ClipboardID id);
   void forgetSentClipboard(ClipboardID id);
   void markLocalClipboardAcknowledged(ClipboardID id);

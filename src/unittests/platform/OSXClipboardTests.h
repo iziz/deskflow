@@ -15,6 +15,9 @@ private Q_SLOTS:
   void open();
   void singleFormat();
   void formatConvert_UTF8();
+  void estimatedBitmapDataSize();
+  void bitmapPreflightUsesDeclaredImageDimensions();
+  void bitmapPreflightRejectsUnboundedNativeFormat();
 
 private:
   Log m_log;

@@ -43,6 +43,7 @@
 #include <math.h>
 
 #include <chrono>
+#include <limits>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -110,12 +111,14 @@ OSXScreen::OSXScreen(IEventQueue *events, bool isPrimary, bool enableLangSync)
       m_isPrimary(isPrimary),
       m_isOnScreen(m_isPrimary),
       m_cursorPosValid(false),
+      m_cursorInfoEventPending(false),
       MouseButtonEventMap(NumButtonIDs),
       m_cursorHidden(false),
       m_keyState(nullptr),
       m_sequenceNumber(0),
       m_pasteboardChangeCount(currentPasteboardChangeCount()),
       m_lastDeskflowPasteboardChangeCount(-1),
+      m_maximumClipboardSizeBytes(std::numeric_limits<size_t>::max()),
       m_screensaver(nullptr),
       m_screensaverNotify(false),
       m_ownClipboard(false),
@@ -253,10 +256,32 @@ void *OSXScreen::getEventTarget() const
   return const_cast<OSXScreen *>(this);
 }
 
-bool OSXScreen::getClipboard(ClipboardID, IClipboard *dst) const
+bool OSXScreen::getClipboard(ClipboardID id, IClipboard *dst) const
 {
-  Clipboard::copy(dst, &m_pasteboard);
-  return true;
+  if (id != kClipboardClipboard || dst == nullptr) {
+    return false;
+  }
+
+  // Use an independent pasteboard reference so snapshot synchronization does
+  // not alter the change-tracking state used by the polling path.
+  OSXClipboard snapshot;
+  snapshot.setMaximumDataSize(m_maximumClipboardSizeBytes.load());
+  const bool copied = Clipboard::copy(dst, &snapshot);
+  if (snapshot.synchronize()) {
+    LOG_DEBUG("discarding clipboard snapshot because pasteboard changed during capture");
+    return false;
+  }
+  return copied;
+}
+
+uint32_t OSXScreen::clipboardSequence(ClipboardID id) const
+{
+  if (id != kClipboardClipboard) {
+    return 0;
+  }
+
+  const auto count = currentPasteboardChangeCount();
+  return count > 0 ? static_cast<uint32_t>(count) : 0;
 }
 
 void OSXScreen::getShape(int32_t &x, int32_t &y, int32_t &w, int32_t &h) const
@@ -269,6 +294,9 @@ void OSXScreen::getShape(int32_t &x, int32_t &y, int32_t &w, int32_t &h) const
 
 void OSXScreen::getCursorPos(int32_t &x, int32_t &y) const
 {
+  // Allow a concurrent local mouse event to queue another update while this
+  // snapshot is being read, avoiding a lost wakeup between read and clear.
+  m_cursorInfoEventPending.store(false);
   CGEventRef event = CGEventCreate(nullptr);
   CGPoint mouse = CGEventGetLocation(event);
   x = mouse.x;
@@ -842,11 +870,16 @@ void OSXScreen::leave()
   m_isOnScreen = false;
 }
 
-bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
+bool OSXScreen::setClipboard(ClipboardID id, const IClipboard *src)
 {
+  if (id != kClipboardClipboard) {
+    LOG_DEBUG("ignored unsupported macOS selection clipboard update");
+    return false;
+  }
+
   if (src != nullptr) {
     LOG_DEBUG("setting clipboard");
-    Clipboard::copy(&m_pasteboard, src);
+    const bool copied = Clipboard::copy(&m_pasteboard, src);
     m_pasteboard.synchronize();
     m_pasteboardChangeCount = currentPasteboardChangeCount();
     m_lastDeskflowPasteboardChangeCount = m_pasteboardChangeCount;
@@ -854,6 +887,7 @@ bool OSXScreen::setClipboard(ClipboardID, const IClipboard *src)
         "recorded Deskflow-owned pasteboard change count: %lld",
         static_cast<long long>(m_lastDeskflowPasteboardChangeCount)
     );
+    return copied;
   }
   return true;
 }
@@ -881,7 +915,7 @@ void OSXScreen::checkClipboards()
     return;
   }
 
-  if (!countChanged && OSXClipboard::isOwnedByDeskflow()) {
+  if (OSXClipboard::isOwnedByDeskflow()) {
     LOG_DEBUG("ignored Deskflow-owned clipboard change");
     m_lastDeskflowPasteboardChangeCount = changeCount;
     return;
@@ -958,9 +992,25 @@ void OSXScreen::resetOptions()
   // no options
 }
 
-void OSXScreen::setOptions(const OptionsList &)
+void OSXScreen::setOptions(const OptionsList &options)
 {
-  // no options
+  if (options.size() % 2 != 0) {
+    return;
+  }
+
+  for (size_t i = 0; i < options.size(); i += 2) {
+    if (options[i] != kOptionClipboardSharingSize) {
+      continue;
+    }
+
+    constexpr size_t bytesPerKilobyte = 1024;
+    const auto maximumKilobytes = static_cast<size_t>(options[i + 1]);
+    const auto maximumBytes = maximumKilobytes > std::numeric_limits<size_t>::max() / bytesPerKilobyte
+                                  ? std::numeric_limits<size_t>::max()
+                                  : maximumKilobytes * bytesPerKilobyte;
+    m_maximumClipboardSizeBytes.store(maximumBytes);
+    m_pasteboard.setMaximumDataSize(maximumBytes);
+  }
 }
 
 void OSXScreen::setSequenceNumber(uint32_t seqNum)
@@ -1788,13 +1838,15 @@ OSXScreen::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, 
     }
 
     CGPoint pos = CGEventGetLocation(event);
-    screen->m_xCursor = static_cast<int32_t>(pos.x);
-    screen->m_yCursor = static_cast<int32_t>(pos.y);
-    screen->m_cursorPosValid = true;
     if (shouldLogMouseMotion()) {
-      LOG_VERBOSE("secondary local cursor moved to %d,%d; sending info update", screen->m_xCursor, screen->m_yCursor);
+      LOG_VERBOSE(
+          "secondary local cursor moved to %d,%d; scheduling info update", static_cast<int32_t>(pos.x),
+          static_cast<int32_t>(pos.y)
+      );
     }
-    screen->sendEvent(EventTypes::ScreenInfoChanged);
+    if (!screen->m_cursorInfoEventPending.exchange(true)) {
+      screen->sendEvent(EventTypes::ScreenInfoChanged);
+    }
     break;
   }
 
