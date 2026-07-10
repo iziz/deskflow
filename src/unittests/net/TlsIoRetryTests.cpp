@@ -17,6 +17,9 @@ private Q_SLOTS:
   void readWantWriteRetriesReadOnWritable();
   void sameOperationCanChangePollDirection();
   void completionRestoresIdleState();
+  void completedReadWithoutPendingPlaintextDoesNotSpeculativelyRead();
+  void bufferedPlaintextCanBeDrainedWithinInputLimit();
+  void inputLimitStopsBufferedPlaintextDrain();
 };
 
 void TlsIoRetryTests::writeWantReadRetriesWriteOnReadable()
@@ -80,6 +83,22 @@ void TlsIoRetryTests::completionRestoresIdleState()
   QCOMPARE(retry.waitFor(), WaitFor::None);
   QVERIFY(!retry.wantsRead());
   QVERIFY(!retry.wantsWrite());
+}
+
+void TlsIoRetryTests::completedReadWithoutPendingPlaintextDoesNotSpeculativelyRead()
+{
+  QVERIFY(!deskflow::shouldDrainTlsPlaintext(128, 1024, 0));
+}
+
+void TlsIoRetryTests::bufferedPlaintextCanBeDrainedWithinInputLimit()
+{
+  QVERIFY(deskflow::shouldDrainTlsPlaintext(128, 1024, 64));
+  QVERIFY(deskflow::shouldDrainTlsPlaintext(1024, 1024, 1));
+}
+
+void TlsIoRetryTests::inputLimitStopsBufferedPlaintextDrain()
+{
+  QVERIFY(!deskflow::shouldDrainTlsPlaintext(1025, 1024, 64));
 }
 
 QTEST_MAIN(TlsIoRetryTests)

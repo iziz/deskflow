@@ -8,8 +8,20 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstddef>
 
 namespace deskflow {
+
+// Drain only plaintext that OpenSSL has already buffered. Issuing a
+// speculative SSL_read after delivering application data can return
+// SSL_ERROR_WANT_READ, which would make an exact read retry block a protocol
+// response waiting in the write queue.
+[[nodiscard]] constexpr bool shouldDrainTlsPlaintext(
+    std::size_t bufferedBytes, std::size_t maxBufferedBytes, int pendingPlaintextBytes
+)
+{
+  return bufferedBytes <= maxBufferedBytes && pendingPlaintextBytes > 0;
+}
 
 // Tracks the OpenSSL operation that must be retried and the socket readiness
 // required before retrying it. OpenSSL does not allow a different I/O operation

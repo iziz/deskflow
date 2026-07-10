@@ -86,6 +86,7 @@ private:
   void initContext(bool server);
   void createSSL();
   void freeSSL();
+  int pendingReadBytes();
   int secureAccept(int s);
   int secureConnect(int s);
   bool showCertificate() const;

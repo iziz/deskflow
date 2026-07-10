@@ -183,11 +183,15 @@ TCPSocket::JobResult SecureSocket::doRead()
   if (bytesRead > 0) {
     bool wasEmpty = (m_inputBuffer.getSize() == 0);
 
-    // slurp up as much as possible
+    // Drain only plaintext OpenSSL has already buffered. A speculative
+    // SSL_read that returns WANT_READ would become an exact pending read and
+    // prevent a request/response protocol from writing its response.
     do {
       m_inputBuffer.write(m_readRetryBuffer.data(), bytesRead);
 
-      if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
+      if (!deskflow::shouldDrainTlsPlaintext(
+              m_inputBuffer.getSize(), s_maxInputBufferSize, pendingReadBytes()
+          )) {
         break;
       }
 
@@ -265,6 +269,15 @@ TCPSocket::JobResult SecureSocket::doWrite()
   }
 
   return Retry;
+}
+
+int SecureSocket::pendingReadBytes()
+{
+  std::scoped_lock ssl_lock{ssl_mutex_};
+  if (!m_ssl || m_ssl->m_ssl == nullptr) {
+    return 0;
+  }
+  return SSL_pending(m_ssl->m_ssl);
 }
 
 int SecureSocket::secureRead(void *buffer, int size, int &read)
