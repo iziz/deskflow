@@ -25,6 +25,7 @@
 #include "server/ClientListener.h"
 #include "server/ClientProxy.h"
 #include "server/ClientProxyUnknown.h"
+#include "server/EdgeSwitchGeometry.h"
 #include "server/PrimaryClient.h"
 
 #include <algorithm>
@@ -626,7 +627,10 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
   }
 }
 
-void Server::startSwitchBackGuard(BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection)
+void Server::startSwitchBackGuard(
+    BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection,
+    SwitchBackGuard::TimePoint transitionStartedAt
+)
 {
   if (screen == nullptr || blockedTarget == nullptr || blockedDirection == Direction::NoDirection) {
     clearSwitchBackGuard();
@@ -635,7 +639,7 @@ void Server::startSwitchBackGuard(BaseClientProxy *screen, BaseClientProxy *bloc
 
   m_switchBackGuardScreen = screen;
   m_switchBackGuardTarget = blockedTarget;
-  m_switchBackGuard.arm(blockedDirection, m_x, m_y);
+  m_switchBackGuard.arm(blockedDirection, m_x, m_y, transitionStartedAt, SwitchBackGuard::Clock::now());
   clearNoNeighborEdgeGuard();
 }
 
@@ -819,6 +823,51 @@ bool Server::hasAnyNeighbor(const BaseClientProxy *client, Direction dir) const
   assert(client != nullptr);
 
   return hasPhysicalNeighbor(client, dir) || m_config->hasNeighbor(getName(client), dir);
+}
+
+bool Server::hasConfiguredNeighbor(const BaseClientProxy *client, Direction dir) const
+{
+  assert(client != nullptr);
+
+  return hasConfiguredPhysicalNeighbor(client, dir) || m_config->hasNeighbor(getName(client), dir);
+}
+
+bool Server::hasConfiguredPhysicalNeighbor(const BaseClientProxy *src, Direction direction) const
+{
+  const auto srcName = getName(src);
+  const auto *srcPhysical = m_config->getPhysicalScreen(srcName);
+  if (srcPhysical == nullptr) {
+    return false;
+  }
+
+  for (const auto &dstName : *m_config) {
+    if (dstName == srcName) {
+      continue;
+    }
+
+    const auto *dstPhysical = m_config->getPhysicalScreen(dstName);
+    float distance = 0.0f;
+    if (dstPhysical != nullptr && isCandidateInDirection(*srcPhysical, *dstPhysical, direction, distance) &&
+        overlapsPerpendicularAxis(*srcPhysical, *dstPhysical, direction)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void Server::recordNoNeighborMiss(Direction dir)
+{
+  // Only cache a structural topology miss. A partial edge, physical-layout
+  // gap, or temporarily disconnected target must be reevaluated as the
+  // perpendicular position or connection state changes.
+  const bool hasConfiguredTarget = hasConfiguredNeighbor(m_active, dir);
+  if (!shouldCacheNoNeighborMiss(hasConfiguredTarget)) {
+    LOG_VERBOSE("no available neighbor at this edge position %s", Config::dirName(dir));
+  } else {
+    LOG_VERBOSE("no neighbor configured %s", Config::dirName(dir));
+    startNoNeighborEdgeGuard(m_active, dir);
+  }
 }
 
 bool Server::hasPhysicalNeighbor(const BaseClientProxy *src, Direction direction) const
@@ -1216,10 +1265,7 @@ bool Server::isSwitchOkay(
 
   // is there a neighbor?
   if (newScreen == nullptr) {
-    // there's no neighbor.  we don't want to switch and we don't
-    // want to try to switch later.
-    LOG_VERBOSE("no neighbor %s", Config::dirName(dir));
-    startNoNeighborEdgeGuard(m_active, dir);
+    recordNoNeighborMiss(dir);
     stopSwitch();
     return false;
   }
@@ -1782,9 +1828,10 @@ void Server::handleSwitchWaitTimeout()
   BaseClientProxy *newScreen = m_switchScreen;
   BaseClientProxy *previousScreen = m_active;
   const Direction switchDirection = m_switchDir;
+  const auto transitionStartedAt = SwitchBackGuard::Clock::now();
   switchScreen(newScreen, m_switchWaitX, m_switchWaitY, false, "switch-wait-timeout");
   if (m_active == newScreen && previousScreen != newScreen) {
-    startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDirection));
+    startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDirection), transitionStartedAt);
   }
 }
 
@@ -2304,9 +2351,10 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 
       // switch screen
       BaseClientProxy *previousScreen = m_active;
+      const auto transitionStartedAt = SwitchBackGuard::Clock::now();
       switchScreen(newScreen, x, y, false, "primary-edge-motion");
       if (m_active == newScreen && previousScreen != newScreen) {
-        startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(dir));
+        startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(dir), transitionStartedAt);
       }
       return true;
     }
@@ -2378,98 +2426,88 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   updateSwitchBackGuard(ax, ay, aw, ah, m_x, m_y);
   updateNoNeighborEdgeGuard(ax, ay, aw, ah, m_x, m_y);
 
-  // find direction of neighbor and get the neighbor
-  bool jump = true;
-  BaseClientProxy *newScreen;
+  // Find horizontal and vertical candidates independently so a corner miss on
+  // one axis cannot hide a valid neighbor on the other.
+  bool jump = false;
+  BaseClientProxy *newScreen = m_active;
   Direction switchDir = Direction::NoDirection;
-  do {
-    // clamp position to screen
-    int32_t xc = m_x;
-    int32_t yc = m_y;
-    if (xc < ax) {
-      xc = ax;
-    } else if (xc >= ax + aw) {
-      xc = ax + aw - 1;
+  EdgeSwitchPosition switchPosition{m_x, m_y};
+  const EdgeSwitchBounds switchBounds{ax, ay, aw, ah};
+  const EdgeSwitchPosition requestedPosition{m_x, m_y};
+  const auto switchDirections = makeEdgeSwitchDirections(switchBounds, requestedPosition);
+  bool foundPolicyTarget = false;
+
+  // Clamp the active-screen coordinate used by wait and double-tap options.
+  const int32_t xc = std::clamp(m_x, ax, ax + aw - 1);
+  const int32_t yc = std::clamp(m_y, ay, ay + ah - 1);
+
+  if (switchDirections[0] == Direction::NoDirection && switchDirections[1] == Direction::NoDirection) {
+    // If waiting and the mouse has left the pending border, cancel the wait
+    // and arm the double tap.
+    if (m_switchScreen != nullptr) {
+      bool clearWait;
+      const int32_t zoneSize = m_primaryClient->getJumpZoneSize();
+      switch (m_switchDir) {
+        using enum Direction;
+      case Left:
+        clearWait = (m_x >= ax + zoneSize);
+        break;
+      case Right:
+        clearWait = (m_x <= ax + aw - 1 - zoneSize);
+        break;
+      case Top:
+        clearWait = (m_y >= ay + zoneSize);
+        break;
+      case Bottom:
+        clearWait = (m_y <= ay + ah - 1 - zoneSize);
+        break;
+      case NoDirection:
+        clearWait = false;
+        break;
+      }
+      if (clearWait) {
+        noSwitch(m_x, m_y);
+      }
     }
-    if (yc < ay) {
-      yc = ay;
-    } else if (yc >= ay + ah) {
-      yc = ay + ah - 1;
-    }
-
-    Direction dir;
-    using enum Direction;
-    if (m_x < ax) {
-      dir = Left;
-    } else if (m_x > ax + aw - 1) {
-      dir = Right;
-    } else if (m_y < ay) {
-      dir = Top;
-    } else if (m_y > ay + ah - 1) {
-      dir = Bottom;
-    } else {
-      // we haven't left the screen
-      newScreen = m_active;
-      jump = false;
-
-      // if waiting and mouse is not on the border we're waiting
-      // on then stop waiting.  also if it's not on the border
-      // then arm the double tap.
-      if (m_switchScreen != nullptr) {
-        bool clearWait;
-        int32_t zoneSize = m_primaryClient->getJumpZoneSize();
-        switch (m_switchDir) {
-        case Left:
-          clearWait = (m_x >= ax + zoneSize);
-          break;
-
-        case Right:
-          clearWait = (m_x <= ax + aw - 1 - zoneSize);
-          break;
-
-        case Top:
-          clearWait = (m_y >= ay + zoneSize);
-          break;
-
-        case Bottom:
-          clearWait = (m_y <= ay + ah - 1 - zoneSize);
-          break;
-
-        default:
-          clearWait = false;
-          break;
-        }
-        if (clearWait) {
-          // still on local screen
-          noSwitch(m_x, m_y);
-        }
+  } else {
+    for (const Direction dir : switchDirections) {
+      if (dir == Direction::NoDirection) {
+        continue;
       }
 
-      // skip rest of block
+      if (isNoNeighborEdgeGuardBlocked(m_active, dir)) {
+        continue;
+      }
+
+      EdgeSwitchPosition candidatePosition = makeEdgeSwitchProbe(switchBounds, dir, requestedPosition);
+      BaseClientProxy *candidateScreen = mapToNeighbor(m_active, dir, candidatePosition.x, candidatePosition.y);
+      if (candidateScreen == nullptr) {
+        recordNoNeighborMiss(dir);
+        continue;
+      }
+
+      // A valid target owns switch-wait, double-tap, and switch-back policy.
+      // Do not let a second-axis lookup overwrite that state.
+      foundPolicyTarget = true;
+      if (!isSwitchOkay(candidateScreen, dir, candidatePosition.x, candidatePosition.y, xc, yc)) {
+        break;
+      }
+
+      jump = true;
+      newScreen = candidateScreen;
+      switchDir = dir;
+      switchPosition = candidatePosition;
       break;
     }
-    switchDir = dir;
 
-    if (isNoNeighborEdgeGuardBlocked(m_active, dir)) {
-      newScreen = m_active;
-      jump = false;
+    if (!jump && !foundPolicyTarget) {
       stopSwitch();
-      break;
     }
-
-    // try to switch screen.  get the neighbor.
-    newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
-
-    // see if we should switch
-    if (!isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
-      newScreen = m_active;
-      jump = false;
-    }
-  } while (false);
+  }
 
   if (jump) {
-    int32_t newX = m_x;
-    int32_t newY = m_y;
+    const int32_t newX = switchPosition.x;
+    const int32_t newY = switchPosition.y;
     LOG_INFO(
         "secondary edge switch from \"%s\" to \"%s\" on %s: old=%d,%d delta=%+d,%+d target=%d,%d bounds=%d,%d %dx%d",
         getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(switchDir), xOld, yOld, dx, dy, newX,
@@ -2478,9 +2516,10 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
 
     // switch screens
     BaseClientProxy *previousScreen = m_active;
+    const auto transitionStartedAt = SwitchBackGuard::Clock::now();
     switchScreen(newScreen, newX, newY, false, "secondary-edge-motion");
     if (m_active == newScreen && previousScreen != newScreen) {
-      startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDir));
+      startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDir), transitionStartedAt);
     }
   } else {
     // same screen.  clamp mouse to edge.

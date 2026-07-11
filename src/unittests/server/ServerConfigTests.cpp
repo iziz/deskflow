@@ -229,4 +229,16 @@ void ServerConfigTests::renameScreen_updatesReferences()
   QCOMPARE(physicalScreen->height, 200.0f);
 }
 
+void ServerConfigTests::partialEdge_reportsConfiguredTopologyAcrossPositionMiss()
+{
+  Config config(nullptr);
+  QVERIFY(config.addScreen("screenA"));
+  QVERIFY(config.addScreen("screenB"));
+  QVERIFY(config.connect("screenA", Direction::Right, 0.0f, 0.5f, "screenB", 0.0f, 1.0f));
+
+  QVERIFY(config.hasNeighbor("screenA", Direction::Right));
+  QCOMPARE(config.getNeighbor("screenA", Direction::Right, 0.25f, nullptr), "screenB");
+  QVERIFY(config.getNeighbor("screenA", Direction::Right, 0.75f, nullptr).empty());
+}
+
 QTEST_MAIN(ServerConfigTests)

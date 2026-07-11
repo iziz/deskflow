@@ -38,6 +38,8 @@ add_library(server STATIC
   ClientProxyUnknown.h
   Config.cpp
   Config.h
+  EdgeSwitchGeometry.cpp
+  EdgeSwitchGeometry.h
   InputFilter.cpp
   InputFilter.h
   PrimaryClient.cpp

@@ -229,7 +229,10 @@ private:
   // change the active screen
   void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver, const char *reason);
 
-  void startSwitchBackGuard(BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection);
+  void startSwitchBackGuard(
+      BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection,
+      deskflow::server::SwitchBackGuard::TimePoint transitionStartedAt
+  );
   void updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y);
   void clearSwitchBackGuard();
   bool isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const;
@@ -253,6 +256,12 @@ private:
   // returns true if the client has a neighbor anywhere along the edge
   // indicated by the direction.
   bool hasAnyNeighbor(const BaseClientProxy *, Direction) const;
+
+  // returns true if topology contains a target in the given direction,
+  // including targets that are not currently connected.
+  bool hasConfiguredNeighbor(const BaseClientProxy *, Direction) const;
+  bool hasConfiguredPhysicalNeighbor(const BaseClientProxy *, Direction) const;
+  void recordNoNeighborMiss(Direction);
 
   // returns true if the physical layout has a connected neighbor
   // anywhere along the edge indicated by the direction.

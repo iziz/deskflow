@@ -32,7 +32,8 @@ public:
   enum class ReleaseReason
   {
     None,
-    MotionSettled
+    MotionSettled,
+    Expired
   };
 
   struct UpdateResult
@@ -52,9 +53,11 @@ public:
   inline static constexpr auto ReleaseDwell = std::chrono::milliseconds(75);
   inline static constexpr auto VelocityWindow = std::chrono::milliseconds(50);
   inline static constexpr auto MaximumSampleGap = std::chrono::milliseconds(100);
+  inline static constexpr auto MaximumDuration = std::chrono::milliseconds(350);
   inline static constexpr double MaximumTowardVelocity = 180.0;
 
   void arm(Direction blockedDirection, int32_t x, int32_t y, TimePoint now = Clock::now());
+  void arm(Direction blockedDirection, int32_t x, int32_t y, TimePoint transitionStartedAt, TimePoint firstSampleAt);
   void resynchronize(int32_t x, int32_t y, TimePoint now = Clock::now());
   void clear();
 
@@ -79,6 +82,7 @@ private:
   void recordSample(int32_t position, TimePoint now);
 
   Direction m_direction = Direction::NoDirection;
+  TimePoint m_armedAt{};
   std::optional<TimePoint> m_awaySince;
   std::deque<MotionSample> m_samples;
 };

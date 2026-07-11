@@ -14,13 +14,21 @@ namespace deskflow::server {
 
 void SwitchBackGuard::arm(Direction blockedDirection, int32_t x, int32_t y, TimePoint now)
 {
+  arm(blockedDirection, x, y, now, now);
+}
+
+void SwitchBackGuard::arm(
+    Direction blockedDirection, int32_t x, int32_t y, TimePoint transitionStartedAt, TimePoint firstSampleAt
+)
+{
   clear();
   if (blockedDirection == Direction::NoDirection) {
     return;
   }
 
   m_direction = blockedDirection;
-  m_samples.push_back({now, axisPosition(x, y)});
+  m_armedAt = transitionStartedAt;
+  m_samples.push_back({firstSampleAt, axisPosition(x, y)});
 }
 
 void SwitchBackGuard::resynchronize(int32_t x, int32_t y, TimePoint now)
@@ -37,6 +45,7 @@ void SwitchBackGuard::resynchronize(int32_t x, int32_t y, TimePoint now)
 void SwitchBackGuard::clear()
 {
   m_direction = Direction::NoDirection;
+  m_armedAt = {};
   m_awaySince.reset();
   m_samples.clear();
 }
@@ -55,6 +64,13 @@ SwitchBackGuard::UpdateResult SwitchBackGuard::update(const Bounds &bounds, int3
 {
   UpdateResult result;
   if (!isArmed()) {
+    return result;
+  }
+
+  // This guard only protects the transition's residual-motion window. Input
+  // stalls and cursor resynchronization must never extend that window.
+  if (now - m_armedAt >= MaximumDuration) {
+    result.reason = ReleaseReason::Expired;
     return result;
   }
 
@@ -104,6 +120,8 @@ const char *SwitchBackGuard::releaseReasonName(ReleaseReason reason)
     return "none";
   case ReleaseReason::MotionSettled:
     return "motion-settled";
+  case ReleaseReason::Expired:
+    return "expired";
   }
 
   return "unknown";
