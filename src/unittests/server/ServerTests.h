@@ -25,5 +25,9 @@ private Q_SLOTS:
   void edgeSwitchProbe_preservesHorizontalOvershoot();
   void edgeSwitchProbe_preservesVerticalOvershoot();
   void edgeSwitchDirections_retainsCornerFallback();
-  void noNeighborMiss_cacheOnlyUnconfiguredTopology();
+  void neighborLookup_classifiesFacts();
+  void physicalLookupFacts_accumulateCandidateStates();
+  void neighborMiss_mergePreservesActiveLookup();
+  void neighborMapStatus_cacheAndKeywords();
+  void switchPolicy_classifiesConditionsAndKeywords();
 };

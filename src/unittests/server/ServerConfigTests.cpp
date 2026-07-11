@@ -8,6 +8,7 @@
 #include "ServerConfigTests.h"
 
 #include "server/Config.h"
+#include "server/EdgeSwitchTypes.h"
 
 #include <sstream>
 
@@ -238,7 +239,30 @@ void ServerConfigTests::partialEdge_reportsConfiguredTopologyAcrossPositionMiss(
 
   QVERIFY(config.hasNeighbor("screenA", Direction::Right));
   QCOMPARE(config.getNeighbor("screenA", Direction::Right, 0.25f, nullptr), "screenB");
-  QVERIFY(config.getNeighbor("screenA", Direction::Right, 0.75f, nullptr).empty());
+  const auto positionalTarget = config.getNeighbor("screenA", Direction::Right, 0.75f, nullptr);
+  QVERIFY(positionalTarget.empty());
+  QCOMPARE(
+      classifyNeighborLookup(
+          {EdgeLookupKind::LegacyLink, config.hasNeighbor("screenA", Direction::Right), !positionalTarget.empty(),
+           false}
+      ),
+      NeighborMapStatus::OutsideLinkedInterval
+  );
+}
+
+void ServerConfigTests::emptyEdge_reportsNoConfiguredTopology()
+{
+  Config config(nullptr);
+  QVERIFY(config.addScreen("screenA"));
+
+  const auto positionalTarget = config.getNeighbor("screenA", Direction::Left, 0.5f, nullptr);
+  QVERIFY(positionalTarget.empty());
+  QCOMPARE(
+      classifyNeighborLookup(
+          {EdgeLookupKind::LegacyLink, config.hasNeighbor("screenA", Direction::Left), !positionalTarget.empty(), false}
+      ),
+      NeighborMapStatus::NoConfiguredTopology
+  );
 }
 
 QTEST_MAIN(ServerConfigTests)

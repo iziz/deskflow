@@ -40,6 +40,8 @@ add_library(server STATIC
   Config.h
   EdgeSwitchGeometry.cpp
   EdgeSwitchGeometry.h
+  EdgeSwitchTypes.cpp
+  EdgeSwitchTypes.h
   InputFilter.cpp
   InputFilter.h
   PrimaryClient.cpp

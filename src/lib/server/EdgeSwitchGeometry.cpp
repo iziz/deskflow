@@ -59,9 +59,4 @@ std::array<Direction, 2> makeEdgeSwitchDirections(const EdgeSwitchBounds &bounds
   return directions;
 }
 
-bool shouldCacheNoNeighborMiss(bool hasConfiguredTarget)
-{
-  return !hasConfiguredTarget;
-}
-
 } // namespace deskflow::server

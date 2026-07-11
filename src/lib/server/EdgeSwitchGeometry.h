@@ -36,8 +36,4 @@ makeEdgeSwitchProbe(const EdgeSwitchBounds &bounds, Direction direction, const E
 // primary screen while retaining a vertical fallback at corners.
 std::array<Direction, 2> makeEdgeSwitchDirections(const EdgeSwitchBounds &bounds, const EdgeSwitchPosition &requested);
 
-// Positional and availability misses must remain live so later motion or a
-// reconnect can resolve them without first leaving the edge.
-bool shouldCacheNoNeighborMiss(bool hasConfiguredTarget);
-
 } // namespace deskflow::server

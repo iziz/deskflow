@@ -16,6 +16,7 @@
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "server/Config.h"
+#include "server/EdgeSwitchTypes.h"
 #include "server/SwitchBackGuard.h"
 
 #include <climits>
@@ -257,29 +258,28 @@ private:
   // indicated by the direction.
   bool hasAnyNeighbor(const BaseClientProxy *, Direction) const;
 
-  // returns true if topology contains a target in the given direction,
-  // including targets that are not currently connected.
-  bool hasConfiguredNeighbor(const BaseClientProxy *, Direction) const;
-  bool hasConfiguredPhysicalNeighbor(const BaseClientProxy *, Direction) const;
-  void recordNoNeighborMiss(Direction);
+  void recordNeighborMiss(Direction, const deskflow::server::NeighborMapResult &);
 
   // returns true if the physical layout has a connected neighbor
   // anywhere along the edge indicated by the direction.
   bool hasPhysicalNeighbor(const BaseClientProxy *, Direction) const;
 
   // lookup neighboring screen using physical layout rectangles.
-  BaseClientProxy *mapToPhysicalNeighbor(const BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
+  deskflow::server::NeighborMapResult
+  mapToPhysicalNeighbor(const BaseClientProxy *, Direction, deskflow::server::EdgeSwitchPosition) const;
 
   // lookup neighboring screen, mapping the coordinate independent of
   // the direction to the neighbor's coordinate space.
-  BaseClientProxy *getNeighbor(const BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
+  deskflow::server::NeighborMapResult
+  getNeighbor(const BaseClientProxy *, Direction, deskflow::server::EdgeSwitchPosition) const;
 
   // lookup neighboring screen.  given a position relative to the
   // source screen, find the screen we should move onto and where.
   // if the position is sufficiently far from the source then we
   // cross multiple screens.  if there is no suitable screen then
-  // return nullptr and x,y are not modified.
-  BaseClientProxy *mapToNeighbor(BaseClientProxy *, Direction, int32_t &x, int32_t &y) const;
+  // return a typed miss and leave the requested position unchanged.
+  deskflow::server::NeighborMapResult
+  mapToNeighbor(BaseClientProxy *, Direction, deskflow::server::EdgeSwitchPosition) const;
 
   // adjusts x and y or neither to avoid ending up in a jump zone
   // after entering the client in the given direction.
@@ -290,8 +290,9 @@ private:
 
   // test if a switch is permitted.  this includes testing user
   // options like switch delay and tracking any state required to
-  // implement them.  returns true iff a switch is permitted.
-  bool isSwitchOkay(BaseClientProxy *dst, Direction, int32_t x, int32_t y, int32_t xActive, int32_t yActive);
+  // implement them.
+  deskflow::server::SwitchPolicyResult
+  applySwitchPolicy(BaseClientProxy *dst, Direction, int32_t x, int32_t y, int32_t xActive, int32_t yActive);
 
   // update switch state due to a mouse move at \p x, \p y that
   // doesn't switch screens.

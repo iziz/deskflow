@@ -825,47 +825,16 @@ bool Server::hasAnyNeighbor(const BaseClientProxy *client, Direction dir) const
   return hasPhysicalNeighbor(client, dir) || m_config->hasNeighbor(getName(client), dir);
 }
 
-bool Server::hasConfiguredNeighbor(const BaseClientProxy *client, Direction dir) const
+void Server::recordNeighborMiss(Direction dir, const NeighborMapResult &result)
 {
-  assert(client != nullptr);
-
-  return hasConfiguredPhysicalNeighbor(client, dir) || m_config->hasNeighbor(getName(client), dir);
-}
-
-bool Server::hasConfiguredPhysicalNeighbor(const BaseClientProxy *src, Direction direction) const
-{
-  const auto srcName = getName(src);
-  const auto *srcPhysical = m_config->getPhysicalScreen(srcName);
-  if (srcPhysical == nullptr) {
-    return false;
+  assert(!result.isMapped());
+  if (CLOG->getFilter() >= LogLevel::Level::Verbose) {
+    LOG_VERBOSE(
+        "edge neighbor lookup missed: source=\"%s\" direction=%s reason=%s position=%d,%d", getName(m_active).c_str(),
+        Config::dirName(dir), neighborMapStatusKeyword(result.status()).data(), result.position().x, result.position().y
+    );
   }
-
-  for (const auto &dstName : *m_config) {
-    if (dstName == srcName) {
-      continue;
-    }
-
-    const auto *dstPhysical = m_config->getPhysicalScreen(dstName);
-    float distance = 0.0f;
-    if (dstPhysical != nullptr && isCandidateInDirection(*srcPhysical, *dstPhysical, direction, distance) &&
-        overlapsPerpendicularAxis(*srcPhysical, *dstPhysical, direction)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-void Server::recordNoNeighborMiss(Direction dir)
-{
-  // Only cache a structural topology miss. A partial edge, physical-layout
-  // gap, or temporarily disconnected target must be reevaluated as the
-  // perpendicular position or connection state changes.
-  const bool hasConfiguredTarget = hasConfiguredNeighbor(m_active, dir);
-  if (!shouldCacheNoNeighborMiss(hasConfiguredTarget)) {
-    LOG_VERBOSE("no available neighbor at this edge position %s", Config::dirName(dir));
-  } else {
-    LOG_VERBOSE("no neighbor configured %s", Config::dirName(dir));
+  if (shouldCacheNeighborMiss(result.status())) {
     startNoNeighborEdgeGuard(m_active, dir);
   }
 }
@@ -893,12 +862,13 @@ bool Server::hasPhysicalNeighbor(const BaseClientProxy *src, Direction direction
   return false;
 }
 
-BaseClientProxy *
-Server::mapToPhysicalNeighbor(const BaseClientProxy *src, Direction direction, int32_t &x, int32_t &y) const
+NeighborMapResult
+Server::mapToPhysicalNeighbor(const BaseClientProxy *src, Direction direction, EdgeSwitchPosition requested) const
 {
+  EdgeLookupFacts facts{EdgeLookupKind::PhysicalLayout, false, false, false};
   const auto *srcPhysical = m_config->getPhysicalScreen(getName(src));
   if (srcPhysical == nullptr) {
-    return nullptr;
+    return NeighborMapResult::miss(classifyNeighborLookup(facts), requested);
   }
 
   int32_t sx;
@@ -908,10 +878,31 @@ Server::mapToPhysicalNeighbor(const BaseClientProxy *src, Direction direction, i
   src->getShape(sx, sy, sw, sh);
 
   const bool horizontalSwitch = direction == Direction::Left || direction == Direction::Right;
-  const float positionFraction =
-      horizontalSwitch ? (y - sy + 0.5f) / static_cast<float>(sh) : (x - sx + 0.5f) / static_cast<float>(sw);
+  const float positionFraction = horizontalSwitch ? (requested.y - sy + 0.5f) / static_cast<float>(sh)
+                                                  : (requested.x - sx + 0.5f) / static_cast<float>(sw);
   const float physicalPosition = horizontalSwitch ? srcPhysical->y + positionFraction * srcPhysical->height
                                                   : srcPhysical->x + positionFraction * srcPhysical->width;
+
+  const auto containsPosition = [&](const Config::PhysicalScreen &screen) {
+    return horizontalSwitch ? containsPhysicalPosition(screen.y, screen.height, physicalPosition)
+                            : containsPhysicalPosition(screen.x, screen.width, physicalPosition);
+  };
+
+  const auto srcName = getName(src);
+  for (const auto &dstName : *m_config) {
+    if (dstName == srcName) {
+      continue;
+    }
+
+    const auto *dstPhysical = m_config->getPhysicalScreen(dstName);
+    float distance = 0.0f;
+    if (dstPhysical == nullptr || !isCandidateInDirection(*srcPhysical, *dstPhysical, direction, distance) ||
+        !overlapsPerpendicularAxis(*srcPhysical, *dstPhysical, direction)) {
+      continue;
+    }
+
+    observeConfiguredPhysicalCandidate(facts, containsPosition(*dstPhysical));
+  }
 
   BaseClientProxy *bestClient = nullptr;
   const Config::PhysicalScreen *bestPhysical = nullptr;
@@ -929,25 +920,29 @@ Server::mapToPhysicalNeighbor(const BaseClientProxy *src, Direction direction, i
     }
 
     float distance = 0.0f;
-    if (!isCandidateInDirection(*srcPhysical, *dstPhysical, direction, distance)) {
+    if (!isCandidateInDirection(*srcPhysical, *dstPhysical, direction, distance) ||
+        !overlapsPerpendicularAxis(*srcPhysical, *dstPhysical, direction)) {
       continue;
     }
 
-    const bool containsPosition = horizontalSwitch
-                                      ? containsPhysicalPosition(dstPhysical->y, dstPhysical->height, physicalPosition)
-                                      : containsPhysicalPosition(dstPhysical->x, dstPhysical->width, physicalPosition);
-    if (!containsPosition || (found && distance >= bestDistance)) {
+    if (!containsPosition(*dstPhysical) || (found && distance >= bestDistance)) {
       continue;
     }
 
+    observeConnectedPhysicalCandidateAtPosition(facts);
     bestClient = dstClient;
     bestPhysical = dstPhysical;
     bestDistance = distance;
     found = true;
   }
 
+  const auto status = classifyNeighborLookup(facts);
+  if (status != NeighborMapStatus::Mapped) {
+    return NeighborMapResult::miss(status, requested);
+  }
+  assert(bestClient != nullptr && bestPhysical != nullptr);
   if (bestClient == nullptr || bestPhysical == nullptr) {
-    return nullptr;
+    return NeighborMapResult::miss(NeighborMapStatus::TargetDisconnected, requested);
   }
 
   int32_t dx;
@@ -955,42 +950,43 @@ Server::mapToPhysicalNeighbor(const BaseClientProxy *src, Direction direction, i
   int32_t dw;
   int32_t dh;
   bestClient->getShape(dx, dy, dw, dh);
+  EdgeSwitchPosition mapped = requested;
 
   switch (direction) {
     using enum Direction;
   case Left:
-    x = dx + dw - 1;
-    y = dy + static_cast<int32_t>(((physicalPosition - bestPhysical->y) / bestPhysical->height) * dh);
+    mapped.x = dx + dw - 1;
+    mapped.y = dy + static_cast<int32_t>(((physicalPosition - bestPhysical->y) / bestPhysical->height) * dh);
     break;
 
   case Right:
-    x = dx;
-    y = dy + static_cast<int32_t>(((physicalPosition - bestPhysical->y) / bestPhysical->height) * dh);
+    mapped.x = dx;
+    mapped.y = dy + static_cast<int32_t>(((physicalPosition - bestPhysical->y) / bestPhysical->height) * dh);
     break;
 
   case Top:
-    x = dx + static_cast<int32_t>(((physicalPosition - bestPhysical->x) / bestPhysical->width) * dw);
-    y = dy + dh - 1;
+    mapped.x = dx + static_cast<int32_t>(((physicalPosition - bestPhysical->x) / bestPhysical->width) * dw);
+    mapped.y = dy + dh - 1;
     break;
 
   case Bottom:
-    x = dx + static_cast<int32_t>(((physicalPosition - bestPhysical->x) / bestPhysical->width) * dw);
-    y = dy;
+    mapped.x = dx + static_cast<int32_t>(((physicalPosition - bestPhysical->x) / bestPhysical->width) * dw);
+    mapped.y = dy;
     break;
 
   case NoDirection:
-    return nullptr;
+    return NeighborMapResult::miss(NeighborMapStatus::NoConfiguredTopology, requested);
   }
 
-  avoidJumpZone(bestClient, direction, x, y);
+  avoidJumpZone(bestClient, direction, mapped.x, mapped.y);
   LOG_VERBOSE(
       "physical layout maps \"%s\" to \"%s\" on %s at %d,%d", getName(src).c_str(), getName(bestClient).c_str(),
-      Config::dirName(direction), x, y
+      Config::dirName(direction), mapped.x, mapped.y
   );
-  return bestClient;
+  return NeighborMapResult::mapped(*bestClient, mapped);
 }
 
-BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, int32_t &x, int32_t &y) const
+NeighborMapResult Server::getNeighbor(const BaseClientProxy *src, Direction dir, EdgeSwitchPosition requested) const
 {
   // note -- must be locked on entry
 
@@ -1000,9 +996,15 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, 
   std::string srcName = getName(src);
   assert(!srcName.empty());
   LOG_VERBOSE("find neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str());
+  EdgeLookupFacts facts{
+      EdgeLookupKind::LegacyLink,
+      m_config->hasNeighbor(srcName, dir),
+      false,
+      false,
+  };
 
   // convert position to fraction
-  float t = mapToFraction(src, dir, x, y);
+  float t = mapToFraction(src, dir, requested.x, requested.y);
 
   // search for the closest neighbor that exists in direction dir
   float tTmp;
@@ -1015,15 +1017,19 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, 
     // connected neighbor we return nullptr.
     if (dstName.empty()) {
       LOG_VERBOSE("no neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str());
-      return nullptr;
+      return NeighborMapResult::miss(classifyNeighborLookup(facts), requested);
     }
+    facts.hasConfiguredTopology = true;
+    facts.hasConfiguredTargetAtPosition = true;
 
     // look up neighbor cell.  if the screen is connected and
     // ready then we can stop.
     if (ClientList::const_iterator index = m_clients.find(dstName); index != m_clients.end()) {
       LOG_VERBOSE("\"%s\" is on %s of \"%s\" at %f", dstName.c_str(), Config::dirName(dir), srcName.c_str(), t);
-      mapToPixel(index->second, dir, tTmp, x, y);
-      return index->second;
+      EdgeSwitchPosition mapped = requested;
+      mapToPixel(index->second, dir, tTmp, mapped.x, mapped.y);
+      facts.hasConnectedTargetAtPosition = true;
+      return NeighborMapResult::mapped(*index->second, mapped);
     }
 
     // skip over unconnected screen
@@ -1035,21 +1041,29 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, 
   }
 }
 
-BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, int32_t &x, int32_t &y) const
+NeighborMapResult Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, EdgeSwitchPosition requested) const
 {
   // note -- must be locked on entry
 
   assert(src != nullptr);
 
-  if (m_config->getPhysicalScreen(getName(src)) != nullptr && hasPhysicalNeighbor(src, srcSide)) {
-    return mapToPhysicalNeighbor(src, srcSide, x, y);
+  const bool hasPhysicalSource = m_config->getPhysicalScreen(getName(src)) != nullptr;
+  NeighborMapResult physicalResult = NeighborMapResult::miss(NeighborMapStatus::NoConfiguredTopology, requested);
+  if (hasPhysicalSource) {
+    physicalResult = mapToPhysicalNeighbor(src, srcSide, requested);
+    if (hasPhysicalNeighbor(src, srcSide) || physicalResult.isMapped()) {
+      return physicalResult;
+    }
   }
 
   // get the first neighbor
-  BaseClientProxy *dst = getNeighbor(src, srcSide, x, y);
-  if (dst == nullptr) {
-    return nullptr;
+  NeighborMapResult neighbor = getNeighbor(src, srcSide, requested);
+  if (!neighbor.isMapped()) {
+    return NeighborMapResult::miss(mergeNeighborMiss(neighbor.status(), physicalResult.status()), requested);
   }
+  BaseClientProxy *dst = neighbor.target();
+  int32_t x = neighbor.position().x;
+  int32_t y = neighbor.position().y;
 
   // get the source screen's size
   int32_t dx;
@@ -1076,7 +1090,12 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
         break;
       }
       LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
-      dst = getNeighbor(lastGoodScreen, srcSide, x, y);
+      const auto next = getNeighbor(lastGoodScreen, srcSide, {x, y});
+      dst = next.target();
+      if (next.isMapped()) {
+        x = next.position().x;
+        y = next.position().y;
+      }
     }
     assert(lastGoodScreen != nullptr);
     x += dx;
@@ -1092,7 +1111,12 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
         break;
       }
       LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
-      dst = getNeighbor(lastGoodScreen, srcSide, x, y);
+      const auto next = getNeighbor(lastGoodScreen, srcSide, {x, y});
+      dst = next.target();
+      if (next.isMapped()) {
+        x = next.position().x;
+        y = next.position().y;
+      }
     }
     assert(lastGoodScreen != nullptr);
     x += dx;
@@ -1108,7 +1132,12 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
         break;
       }
       LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
-      dst = getNeighbor(lastGoodScreen, srcSide, x, y);
+      const auto next = getNeighbor(lastGoodScreen, srcSide, {x, y});
+      dst = next.target();
+      if (next.isMapped()) {
+        x = next.position().x;
+        y = next.position().y;
+      }
     }
     assert(lastGoodScreen != nullptr);
     y += dy;
@@ -1124,7 +1153,12 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
         break;
       }
       LOG_VERBOSE("skipping over screen %s", getName(dst).c_str());
-      dst = getNeighbor(lastGoodScreen, srcSide, x, y);
+      const auto next = getNeighbor(lastGoodScreen, srcSide, {x, y});
+      dst = next.target();
+      if (next.isMapped()) {
+        x = next.position().x;
+        y = next.position().y;
+      }
     }
     assert(lastGoodScreen != nullptr);
     y += dy;
@@ -1132,7 +1166,7 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
 
   case NoDirection:
     assert(0 && "bad direction");
-    return nullptr;
+    return NeighborMapResult::miss(NeighborMapStatus::NoConfiguredTopology, requested);
   }
 
   // save destination screen
@@ -1145,7 +1179,7 @@ BaseClientProxy *Server::mapToNeighbor(BaseClientProxy *src, Direction srcSide, 
   // move inwards because that side can't provoke a jump.
   avoidJumpZone(dst, srcSide, x, y);
 
-  return dst;
+  return NeighborMapResult::mapped(*dst, {x, y});
 }
 
 void Server::avoidJumpZone(const BaseClientProxy *dst, Direction dir, int32_t &x, int32_t &y) const
@@ -1257,18 +1291,24 @@ void Server::avoidJumpRestoreZone(const BaseClientProxy *dst, int32_t &x, int32_
   }
 }
 
-bool Server::isSwitchOkay(
+SwitchPolicyResult Server::applySwitchPolicy(
     BaseClientProxy *newScreen, Direction dir, int32_t x, int32_t y, int32_t xActive, int32_t yActive
 )
 {
+  assert(newScreen != nullptr);
   LOG_VERBOSE("try to leave \"%s\" on %s", getName(m_active).c_str(), Config::dirName(dir));
-
-  // is there a neighbor?
-  if (newScreen == nullptr) {
-    recordNoNeighborMiss(dir);
-    stopSwitch();
-    return false;
-  }
+  const auto finish = [&](SwitchPolicyCondition conditions) {
+    const SwitchPolicyResult result{conditions};
+    if (CLOG->getFilter() >= LogLevel::Level::Verbose) {
+      const auto conditionKeywords = switchPolicyConditionKeywords(conditions);
+      LOG_VERBOSE(
+          "edge switch policy evaluated: source=\"%s\" target=\"%s\" direction=%s decision=%s conditions=%s",
+          getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir),
+          switchPolicyDecisionKeyword(result.decision()).data(), conditionKeywords.c_str()
+      );
+    }
+    return result;
+  };
 
   if (isSwitchBackGuardBlocked(newScreen, dir)) {
     LOG_DEBUG(
@@ -1277,12 +1317,13 @@ bool Server::isSwitchOkay(
         m_yDelta2
     );
     stopSwitch();
-    return false;
+    return finish(SwitchPolicyCondition::TransitionGuard);
   }
 
   // should we switch or not?
   bool preventSwitch = false;
   bool allowSwitch = false;
+  SwitchPolicyCondition pendingConditions = SwitchPolicyCondition::None;
 
   // note if the switch direction has changed.  save the new
   // direction and screen if so.
@@ -1299,6 +1340,7 @@ bool Server::isSwitchOkay(
       // tapping a different or new edge or second tap not
       // fast enough.  prepare for second tap.
       preventSwitch = true;
+      pendingConditions |= SwitchPolicyCondition::DoubleTapPending;
       startSwitchTwoTap();
     } else {
       // got second tap
@@ -1312,6 +1354,7 @@ bool Server::isSwitchOkay(
       startSwitchWait(x, y);
     }
     preventSwitch = true;
+    pendingConditions |= SwitchPolicyCondition::WaitDelayPending;
   }
 
   // are we in a locked corner?  first check if screen has the option set
@@ -1333,19 +1376,19 @@ bool Server::isSwitchOkay(
     if ((getCorner(m_active, xActive, yActive, size) & corners) != 0) {
       // yep, no switching
       LOG_VERBOSE("locked in corner");
-      preventSwitch = true;
       stopSwitch();
+      return finish(SwitchPolicyCondition::LockedCorner);
     }
   }
 
   // ignore if mouse is locked to screen and don't try to switch later
   if (!preventSwitch && isLockedToScreen()) {
     LOG_VERBOSE("locked to screen");
-    preventSwitch = true;
     stopSwitch();
+    return finish(SwitchPolicyCondition::LockedToScreen);
   }
 
-  return !preventSwitch;
+  return finish(preventSwitch ? pendingConditions : SwitchPolicyCondition::None);
 }
 
 void Server::noSwitch(int32_t x, int32_t y)
@@ -1876,13 +1919,14 @@ void Server::handleSwitchInDirectionEvent(const Event &event)
   const auto *info = static_cast<SwitchInDirectionInfo *>(event.getData());
 
   // jump to screen in chosen direction from center of this screen
-  int32_t x = m_x;
-  int32_t y = m_y;
-  BaseClientProxy *newScreen = getNeighbor(m_active, info->m_direction, x, y);
-  if (newScreen == nullptr) {
-    LOG_VERBOSE("no neighbor %s", Config::dirName(info->m_direction));
+  const auto result = getNeighbor(m_active, info->m_direction, {m_x, m_y});
+  if (!result.isMapped()) {
+    LOG_VERBOSE(
+        "direction action neighbor lookup missed: source=\"%s\" direction=%s reason=%s", getName(m_active).c_str(),
+        Config::dirName(info->m_direction), neighborMapStatusKeyword(result.status()).data()
+    );
   } else {
-    jumpToScreen(newScreen, "switch-in-direction-action");
+    jumpToScreen(result.target(), "switch-in-direction-action");
   }
 }
 
@@ -2331,30 +2375,34 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     if (dir == NoDirection) {
       continue;
     }
-    x = xs.at(i);
-    y = ys.at(i);
     if (isNoNeighborEdgeGuardBlocked(m_active, dir)) {
       continue;
     }
 
     // get jump destination
-    BaseClientProxy *newScreen = mapToNeighbor(m_active, dir, x, y);
+    const auto mapping = mapToNeighbor(m_active, dir, {xs.at(i), ys.at(i)});
+    if (!mapping.isMapped()) {
+      recordNeighborMiss(dir, mapping);
+      stopSwitch();
+      continue;
+    }
 
     // should we switch or not?
-    if (isSwitchOkay(newScreen, dir, x, y, xc, yc)) {
+    const auto policy = applySwitchPolicy(mapping.target(), dir, mapping.position().x, mapping.position().y, xc, yc);
+    if (policy.shouldSwitch()) {
       LOG_INFO(
           "primary edge switch from \"%s\" to \"%s\" on %s: cursor=%d,%d clamped=%d,%d target=%d,%d bounds=%d,%d "
           "%dx%d zone=%d delta=%+d,%+d",
-          getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_x, m_y, xc, yc, x, y, ax, ay,
-          aw, ah, zoneSize, m_xDelta, m_yDelta
+          getName(m_active).c_str(), getName(mapping.target()).c_str(), Config::dirName(dir), m_x, m_y, xc, yc,
+          mapping.position().x, mapping.position().y, ax, ay, aw, ah, zoneSize, m_xDelta, m_yDelta
       );
 
       // switch screen
       BaseClientProxy *previousScreen = m_active;
       const auto transitionStartedAt = SwitchBackGuard::Clock::now();
-      switchScreen(newScreen, x, y, false, "primary-edge-motion");
-      if (m_active == newScreen && previousScreen != newScreen) {
-        startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(dir), transitionStartedAt);
+      switchScreen(mapping.target(), mapping.position().x, mapping.position().y, false, "primary-edge-motion");
+      if (m_active == mapping.target() && previousScreen != mapping.target()) {
+        startSwitchBackGuard(mapping.target(), previousScreen, oppositeDirection(dir), transitionStartedAt);
       }
       return true;
     }
@@ -2480,23 +2528,24 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
       }
 
       EdgeSwitchPosition candidatePosition = makeEdgeSwitchProbe(switchBounds, dir, requestedPosition);
-      BaseClientProxy *candidateScreen = mapToNeighbor(m_active, dir, candidatePosition.x, candidatePosition.y);
-      if (candidateScreen == nullptr) {
-        recordNoNeighborMiss(dir);
+      const auto mapping = mapToNeighbor(m_active, dir, candidatePosition);
+      if (!mapping.isMapped()) {
+        recordNeighborMiss(dir, mapping);
         continue;
       }
 
       // A valid target owns switch-wait, double-tap, and switch-back policy.
       // Do not let a second-axis lookup overwrite that state.
       foundPolicyTarget = true;
-      if (!isSwitchOkay(candidateScreen, dir, candidatePosition.x, candidatePosition.y, xc, yc)) {
+      const auto policy = applySwitchPolicy(mapping.target(), dir, mapping.position().x, mapping.position().y, xc, yc);
+      if (!policy.shouldSwitch()) {
         break;
       }
 
       jump = true;
-      newScreen = candidateScreen;
+      newScreen = mapping.target();
       switchDir = dir;
-      switchPosition = candidatePosition;
+      switchPosition = mapping.position();
       break;
     }
 

@@ -22,4 +22,5 @@ private Q_SLOTS:
   void physicalLayout_readWrite();
   void renameScreen_updatesReferences();
   void partialEdge_reportsConfiguredTopologyAcrossPositionMiss();
+  void emptyEdge_reportsNoConfiguredTopology();
 };
