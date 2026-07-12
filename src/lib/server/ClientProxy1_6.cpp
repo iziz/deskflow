@@ -64,7 +64,7 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard, u
   }
 }
 
-void ClientProxy1_6::supersedeClipboardTransfers(ClipboardID id)
+void ClientProxy1_6::supersedeClipboardTransfers(ClipboardID id, std::optional<uint32_t>)
 {
   if (id >= kClipboardEnd) {
     return;

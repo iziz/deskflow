@@ -22,6 +22,7 @@ private Q_SLOTS:
   void keepsTransferActiveUntilAcknowledged();
   void retriesThenDropsTimedOutTransfer();
   void replacesAndValidatesIncomingTransfer();
+  void identifiesMatchingIncomingTransfer();
   void rejectsIncomingTransferBeyondReceiveLimit();
   void ignoresOlderQueuedRevision();
   void rejectsOlderIncomingRevision();
@@ -211,6 +212,20 @@ void ClipboardTransferTests::replacesAndValidatesIncomingTransfer()
   result = assembler.process(kClipboardClipboard, 3, 12, ChunkType::DataChunk, "too long");
   QCOMPARE(result.status, ClipboardTransferReceiveStatus::Error);
   QVERIFY(!assembler.active());
+}
+
+void ClipboardTransferTests::identifiesMatchingIncomingTransfer()
+{
+  ClipboardTransferAssembler assembler;
+  auto result = assembler.process(kClipboardClipboard, 42, 10, ChunkType::DataStart, "5");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+
+  QVERIFY(assembler.matches(kClipboardClipboard, 42));
+  QVERIFY(!assembler.matches(kClipboardClipboard, 41));
+  QVERIFY(!assembler.matches(kClipboardSelection, 42));
+
+  assembler.reset();
+  QVERIFY(!assembler.matches(kClipboardClipboard, 42));
 }
 
 void ClipboardTransferTests::rejectsIncomingTransferBeyondReceiveLimit()

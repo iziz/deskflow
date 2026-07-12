@@ -136,6 +136,7 @@ public:
   void reset();
 
   bool active() const;
+  bool matches(ClipboardID id, uint32_t sequence) const;
   uint32_t transferId() const;
   ClipboardID clipboardId() const;
   const std::string &data() const;

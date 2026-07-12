@@ -9,6 +9,8 @@
 
 #include "deskflow/IClient.h"
 
+#include <optional>
+
 namespace deskflow {
 class IStream;
 }
@@ -80,7 +82,9 @@ public:
   virtual void fileChunkSending(uint8_t mark, char *data, size_t dataSize) = 0;
   virtual std::string getSecureInputApp() const = 0;
   virtual void secureInputNotification(const std::string &app) const = 0;
-  virtual void supersedeClipboardTransfers(ClipboardID)
+  virtual void supersedeClipboardTransfers(
+      ClipboardID, std::optional<uint32_t> preserveIncomingSequence = std::nullopt
+  )
   {
   }
   virtual void beginClipboardSend()

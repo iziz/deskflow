@@ -395,6 +395,11 @@ bool ClipboardTransferAssembler::active() const
   return m_active;
 }
 
+bool ClipboardTransferAssembler::matches(ClipboardID id, uint32_t sequence) const
+{
+  return m_active && m_clipboardId == id && m_sequence == sequence;
+}
+
 uint32_t ClipboardTransferAssembler::transferId() const
 {
   return m_transferId;

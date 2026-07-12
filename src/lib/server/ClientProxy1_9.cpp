@@ -74,11 +74,21 @@ void ClientProxy1_9::grabClipboard(ClipboardID id)
   ClientProxy1_8::grabClipboard(id);
 }
 
-void ClientProxy1_9::supersedeClipboardTransfers(ClipboardID id)
+void ClientProxy1_9::supersedeClipboardTransfers(
+    ClipboardID id, std::optional<uint32_t> preserveIncomingSequence
+)
 {
   sendActions(m_outgoing.supersede(id));
 
   if (m_incoming.active() && m_incoming.clipboardId() == id) {
+    if (preserveIncomingSequence.has_value() && m_incoming.matches(id, *preserveIncomingSequence)) {
+      LOG_DEBUG(
+          "preserving clipboard transfer %u from \"%s\" for matching ownership sequence %u",
+          m_incoming.transferId(), getName().c_str(), *preserveIncomingSequence
+      );
+      return;
+    }
+
     const auto transferId = m_incoming.transferId();
     LOG_DEBUG(
         "cancelling clipboard transfer %u from \"%s\" because clipboard %u has a new owner", transferId,

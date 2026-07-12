@@ -22,7 +22,9 @@ public:
   ~ClientProxy1_6() override;
 
   void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
-  void supersedeClipboardTransfers(ClipboardID id) override;
+  void supersedeClipboardTransfers(
+      ClipboardID id, std::optional<uint32_t> preserveIncomingSequence = std::nullopt
+  ) override;
   void beginClipboardSend() override;
   void finishClipboardSend() override;
   bool recvClipboard() override;

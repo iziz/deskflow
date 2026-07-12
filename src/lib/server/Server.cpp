@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <optional>
 
 using namespace deskflow::server;
 
@@ -1774,7 +1775,9 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   // not clear other screens.
   for (const auto &entry : m_clients) {
     auto *client = entry.second;
-    client->supersedeClipboardTransfers(info->m_id);
+    const auto preserveIncomingSequence =
+        client == grabber ? std::optional<uint32_t>{info->m_sequenceNumber} : std::nullopt;
+    client->supersedeClipboardTransfers(info->m_id, preserveIncomingSequence);
     client->setClipboardDirty(info->m_id, client != grabber);
   }
 
