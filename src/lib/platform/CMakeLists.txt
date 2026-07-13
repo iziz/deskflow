@@ -44,6 +44,7 @@ if(WIN32)
     MSWindowsEventQueueBuffer.h
     MSWindowsHook.cpp
     MSWindowsHook.h
+    MSWindowsKeyEventPolicy.h
     MSWindowsKeyInput.h
     MSWindowsKeyState.cpp
     MSWindowsKeyState.h
