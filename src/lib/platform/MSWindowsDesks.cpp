@@ -592,7 +592,7 @@ void MSWindowsDesks::deskEnter(Desk *desk)
 
   SetWindowPos(desk->m_window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
 
-  if (desk->m_foregroundWindow != nullptr) {
+  if (desk->m_foregroundWindow != nullptr && IsWindow(desk->m_foregroundWindow)) {
     // restore the foreground window
     // XXX -- this raises the window to the top of the Z-order.  we
     // want it to stay wherever it was to properly support X-mouse
@@ -601,9 +601,17 @@ void MSWindowsDesks::deskEnter(Desk *desk)
     // after being raised doesn't work.
     DWORD thisThread = GetWindowThreadProcessId(desk->m_window, nullptr);
     DWORD thatThread = GetWindowThreadProcessId(desk->m_foregroundWindow, nullptr);
-    AttachThreadInput(thatThread, thisThread, TRUE);
-    SetForegroundWindow(desk->m_foregroundWindow);
-    AttachThreadInput(thatThread, thisThread, FALSE);
+    const bool attached = thatThread != thisThread && AttachThreadInput(thatThread, thisThread, TRUE);
+    if (SetForegroundWindow(desk->m_foregroundWindow)) {
+      LOG_VERBOSE("restored foreground window after returning to the primary screen");
+    } else {
+      LOG_WARN("failed to restore foreground window after returning to the primary screen");
+    }
+    if (attached) {
+      AttachThreadInput(thatThread, thisThread, FALSE);
+    }
+  } else if (desk->m_foregroundWindow != nullptr) {
+    LOG_VERBOSE("skipping restore of a foreground window that no longer exists");
   }
   EnableWindow(desk->m_window, desk->m_lowLevel ? FALSE : TRUE);
   desk->m_foregroundWindow = nullptr;
@@ -630,11 +638,31 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
       SetActiveWindow(desk->m_window);
     }
 
-    // With low-level hooks, avoid taking the foreground window. Changing
-    // foreground focus causes some active Windows apps to visibly flicker
-    // during screen transitions.
+    // With low-level hooks, take the foreground unless the user explicitly
+    // requested otherwise. Low-level hooks suppress normal mouse messages,
+    // but applications using raw input can still react while left in the
+    // foreground.
     else {
-      desk->m_foregroundWindow = nullptr;
+      desk->m_foregroundWindow = getForegroundWindow();
+      if (desk->m_foregroundWindow != nullptr && desk->m_foregroundWindow != desk->m_window) {
+        EnableWindow(desk->m_window, TRUE);
+        SetActiveWindow(desk->m_window);
+
+        DWORD thisThread = GetWindowThreadProcessId(desk->m_window, nullptr);
+        DWORD thatThread = GetWindowThreadProcessId(desk->m_foregroundWindow, nullptr);
+        const bool attached = thatThread != thisThread && AttachThreadInput(thatThread, thisThread, TRUE);
+        if (SetForegroundWindow(desk->m_window)) {
+          LOG_VERBOSE("captured foreground window while leaving the primary screen");
+        } else {
+          LOG_WARN("failed to capture foreground window while leaving the primary screen");
+        }
+        if (attached) {
+          AttachThreadInput(thatThread, thisThread, FALSE);
+        }
+      } else {
+        desk->m_foregroundWindow = nullptr;
+        LOG_VERBOSE("left foreground window unchanged while leaving the primary screen");
+      }
     }
   } else {
     setCursorVisibility(false);
