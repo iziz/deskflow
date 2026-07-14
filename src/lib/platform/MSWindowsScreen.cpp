@@ -25,6 +25,7 @@
 #include "platform/MSWindowsClipboard.h"
 #include "platform/MSWindowsDesks.h"
 #include "platform/MSWindowsEventQueueBuffer.h"
+#include "platform/MSWindowsKeyEventPolicy.h"
 #include "platform/MSWindowsKeyInput.h"
 #include "platform/MSWindowsKeyState.h"
 #include "platform/MSWindowsScreenSaver.h"
@@ -592,8 +593,14 @@ uint32_t MSWindowsScreen::registerHotKey(KeyID key, KeyModifierMask mask)
 
   // if this hot key has modifiers only then we'll handle it specially
   bool err;
+  const bool registerWithWindows =
+      key != kKeyNone && deskflow::platform::shouldRegisterHotKeyWithWindows(vk, modifiers);
   if (key == kKeyNone) {
     // check if already registered
+    err = (m_hotKeyToIDMap.count(HotKeyItem(vk, modifiers)) > 0);
+  } else if (!registerWithWindows) {
+    // The keyboard hook already reports these keys. Avoid RegisterHotKey so
+    // Windows can update the physical toggle state used during core startup.
     err = (m_hotKeyToIDMap.count(HotKeyItem(vk, modifiers)) > 0);
   } else {
     // register with OS
@@ -614,7 +621,9 @@ uint32_t MSWindowsScreen::registerHotKey(KeyID key, KeyModifierMask mask)
   }
 
   LOG_DEBUG(
-      "registered hotkey %s (id=%04x mask=%04x) as id=%d", deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask, id
+      "registered hotkey %s (id=%04x mask=%04x) as id=%d via %s",
+      deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask, id,
+      registerWithWindows ? "Windows" : "keyboard hook"
   );
   return id;
 }
@@ -629,7 +638,8 @@ void MSWindowsScreen::unregisterHotKey(uint32_t id)
 
   // unregister with OS
   bool err;
-  if (i->second.getVirtualKey() != 0) {
+  if (i->second.getVirtualKey() != 0 &&
+      deskflow::platform::shouldRegisterHotKeyWithWindows(i->second.getVirtualKey(), i->second.getModifiers())) {
     err = !UnregisterHotKey(nullptr, id);
   } else {
     err = false;
@@ -1736,6 +1746,11 @@ MSWindowsScreen::HotKeyItem::HotKeyItem(UINT keycode, UINT mask) : m_keycode(key
 UINT MSWindowsScreen::HotKeyItem::getVirtualKey() const
 {
   return m_keycode;
+}
+
+UINT MSWindowsScreen::HotKeyItem::getModifiers() const
+{
+  return m_mask;
 }
 
 bool MSWindowsScreen::HotKeyItem::operator<(const HotKeyItem &x) const

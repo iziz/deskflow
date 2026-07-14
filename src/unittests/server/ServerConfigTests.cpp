@@ -7,8 +7,12 @@
 
 #include "ServerConfigTests.h"
 
+#include "common/Settings.h"
 #include "server/Config.h"
 #include "server/EdgeSwitchTypes.h"
+
+#include <QFile>
+#include <QTemporaryDir>
 
 #include <sstream>
 
@@ -205,6 +209,41 @@ void ServerConfigTests::physicalLayout_readWrite()
   Config roundTrip(nullptr);
   output >> roundTrip;
   QVERIFY(actual == roundTrip);
+}
+
+void ServerConfigTests::settingsBooleans_readFromIni()
+{
+  QTemporaryDir settingsDir;
+  QVERIFY(settingsDir.isValid());
+
+  const auto settingsPath = settingsDir.filePath("Deskflow.conf");
+  QFile settingsFile(settingsPath);
+  QVERIFY(settingsFile.open(QIODevice::WriteOnly | QIODevice::Text));
+  QVERIFY(
+      settingsFile.write(
+          "[server]\n"
+          "defaultLockToComputerState=true\n"
+          "disableLockToComputer=true\n"
+          "relativeMouseMoves=true\n"
+          "win32KeepForeground=true\n"
+      ) > 0
+  );
+  settingsFile.close();
+  Settings::setSettingsFile(settingsPath);
+
+  std::stringstream input;
+  input << "section: options\n"
+        << "end\n";
+
+  Config config(nullptr);
+  input >> config;
+
+  const auto *options = config.getOptions("");
+  QVERIFY(options != nullptr);
+  QCOMPARE(options->at(kOptionDefaultLockToScreenState), 1);
+  QCOMPARE(options->at(kOptionDisableLockToScreen), 1);
+  QCOMPARE(options->at(kOptionRelativeMouseMoves), 1);
+  QCOMPARE(options->at(kOptionWin32KeepForeground), 1);
 }
 
 void ServerConfigTests::renameScreen_updatesReferences()

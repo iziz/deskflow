@@ -234,6 +234,7 @@ private:
     HotKeyItem(UINT vk, UINT modifiers);
 
     UINT getVirtualKey() const;
+    UINT getModifiers() const;
 
     bool operator<(const HotKeyItem &) const;
 

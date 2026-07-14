@@ -10,6 +10,25 @@
 
 namespace deskflow::platform {
 
+inline bool shouldRegisterHotKeyWithWindows(UINT virtualKey, UINT modifiers)
+{
+  if (modifiers != 0) {
+    return true;
+  }
+
+  switch (virtualKey) {
+  case VK_CAPITAL:
+  case VK_NUMLOCK:
+  case VK_SCROLL:
+    // Keep unmodified toggle keys in the regular keyboard path so Windows
+    // updates its toggle state and keyboard LEDs before Deskflow handles them.
+    return false;
+
+  default:
+    return true;
+  }
+}
+
 inline bool shouldSuppressLocalKey(EHookMode mode, WPARAM virtualKey, LPARAM keyInfo, bool lowLevelHookActive)
 {
   if (mode != kHOOK_RELAY_EVENTS) {

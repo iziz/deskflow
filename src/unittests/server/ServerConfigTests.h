@@ -23,4 +23,5 @@ private Q_SLOTS:
   void renameScreen_updatesReferences();
   void partialEdge_reportsConfiguredTopologyAcrossPositionMiss();
   void emptyEdge_reportsNoConfiguredTopology();
+  void settingsBooleans_readFromIni();
 };

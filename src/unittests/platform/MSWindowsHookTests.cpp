@@ -8,6 +8,33 @@
 
 #include "platform/MSWindowsKeyEventPolicy.h"
 
+void MSWindowsHookTests::windowsHotKeyRegistration_data()
+{
+  QTest::addColumn<quint64>("virtualKey");
+  QTest::addColumn<quint64>("modifiers");
+  QTest::addColumn<bool>("expected");
+
+  QTest::newRow("unmodified Caps Lock") << quint64(VK_CAPITAL) << quint64(0) << false;
+  QTest::newRow("unmodified Num Lock") << quint64(VK_NUMLOCK) << quint64(0) << false;
+  QTest::newRow("unmodified Scroll Lock") << quint64(VK_SCROLL) << quint64(0) << false;
+  QTest::newRow("modified Scroll Lock") << quint64(VK_SCROLL) << quint64(MOD_CONTROL) << true;
+  QTest::newRow("regular key") << quint64('A') << quint64(0) << true;
+}
+
+void MSWindowsHookTests::windowsHotKeyRegistration()
+{
+  QFETCH(quint64, virtualKey);
+  QFETCH(quint64, modifiers);
+  QFETCH(bool, expected);
+
+  QCOMPARE(
+      deskflow::platform::shouldRegisterHotKeyWithWindows(
+          static_cast<UINT>(virtualKey), static_cast<UINT>(modifiers)
+      ),
+      expected
+  );
+}
+
 void MSWindowsHookTests::relaySuppression_data()
 {
   QTest::addColumn<int>("mode");
