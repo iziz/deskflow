@@ -8,6 +8,7 @@
 
 #include "deskflow/ClipboardTransfer.h"
 #include "server/ClientProxy1_8.h"
+#include "server/ClipboardPublicationAuthority.h"
 
 #include <memory>
 
@@ -26,6 +27,10 @@ public:
   ) override;
   void beginClipboardSend() override;
   void finishClipboardSend() override;
+  bool hasPendingClipboardPublish(ClipboardID id, uint32_t sequence) const override;
+  void completeClipboardPublish(
+      ClipboardID id, uint32_t sequence, std::optional<ClipboardTransferCancelReason> rejection
+  ) override;
   bool parseMessage(const uint8_t *code) override;
 
 protected:
@@ -84,4 +89,6 @@ private:
   bool m_incomingHeartbeatExtended = false;
   bool m_outgoingHeartbeatExtended = false;
   double m_savedHeartbeatAlarm = 0.0;
+
+  deskflow::server::PendingClipboardPublication m_pendingClipboardPublish;
 };

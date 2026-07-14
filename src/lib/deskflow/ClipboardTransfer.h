@@ -132,6 +132,7 @@ public:
       ClipboardID id, uint32_t sequence, uint32_t transferId, uint8_t mark, const std::string &data,
       size_t maxDataSize = (std::numeric_limits<size_t>::max)()
   );
+  void commitSequence(ClipboardID id, uint32_t sequence);
   void cancel(uint32_t transferId);
   void reset();
 

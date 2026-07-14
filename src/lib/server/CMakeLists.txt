@@ -34,8 +34,12 @@ add_library(server STATIC
   ClientProxy1_10.h
   ClientProxy1_11.cpp
   ClientProxy1_11.h
+  ClientProxy1_12.cpp
+  ClientProxy1_12.h
   ClientProxyUnknown.cpp
   ClientProxyUnknown.h
+  ClipboardPublicationAuthority.cpp
+  ClipboardPublicationAuthority.h
   Config.cpp
   Config.h
   EdgeSwitchGeometry.cpp

@@ -12,6 +12,12 @@ class ServerTests : public QObject
 private Q_SLOTS:
   void SwitchToScreenInfo_alloc_screen();
   void KeyboardBroadcastInfo_alloc_stateAndSceens();
+  void clipboardPublicationAuthority_acceptsIssuedFocusAfterScreenSwitch();
+  void clipboardPublicationAuthority_rejectsForgedFocusAndRetainsIssuedHistory();
+  void clipboardPublicationAuthority_ordersConcurrentPublications();
+  void clipboardPublicationAuthority_detectsIdempotentRetry();
+  void pendingClipboardPublication_resolvesOnlyMatchingCommit();
+  void pendingClipboardPublication_cancellationPreventsLateCommit();
   void switchBackGuard_releasesNearPerpendicularEdge();
   void switchBackGuard_blocksFastDirectionReversal();
   void switchBackGuard_releasesSlowDirectionReversal();

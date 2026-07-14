@@ -312,6 +312,10 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
       result.status = ClipboardTransferReceiveStatus::Error;
       return result;
     }
+    if (sequence != 0 && m_active && m_clipboardId == id && isClipboardSequenceOlder(sequence, m_sequence)) {
+      result.status = ClipboardTransferReceiveStatus::Error;
+      return result;
+    }
 
     size_t expectedSize = 0;
     const auto *begin = data.data();
@@ -335,10 +339,6 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
     m_transferId = transferId;
     m_expectedSize = expectedSize;
     m_data.clear();
-    if (sequence != 0) {
-      m_lastSequence[id] = sequence;
-      m_hasSequence[id] = true;
-    }
     result.status = ClipboardTransferReceiveStatus::Started;
     return result;
   }
@@ -371,6 +371,17 @@ ClipboardTransferReceiveResult ClipboardTransferAssembler::process(
 
   result.status = ClipboardTransferReceiveStatus::Error;
   return result;
+}
+
+void ClipboardTransferAssembler::commitSequence(ClipboardID id, uint32_t sequence)
+{
+  if (id >= kClipboardEnd || sequence == 0) {
+    return;
+  }
+  if (!m_hasSequence[id] || !isClipboardSequenceOlder(sequence, m_lastSequence[id])) {
+    m_lastSequence[id] = sequence;
+    m_hasSequence[id] = true;
+  }
 }
 
 void ClipboardTransferAssembler::cancel(uint32_t transferId)

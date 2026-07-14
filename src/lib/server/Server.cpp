@@ -165,6 +165,7 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
   assert(m_screen != nullptr);
 
   std::string primaryName = getName(primaryClient);
+  m_clipboardPublicationAuthority.recordFocus(primaryName, m_seqNum);
 
   // clear clipboards
   for (auto &clipboard : m_clipboards) {
@@ -605,6 +606,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
     // increment enter sequence number
     ++m_seqNum;
+    m_clipboardPublicationAuthority.recordFocus(getName(m_active), m_seqNum);
 
     // enter new screen
     m_active->enter(x, y, m_seqNum, m_primaryClient->getToggleMask(), forScreensaver);
@@ -1747,9 +1749,18 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     );
     return;
   }
-  if (grabber != m_active) {
+  if (grabber->usesAtomicClipboardPublish()) {
     LOG_DEBUG(
-        "ignored clipboard grab from inactive screen \"%s\" for clipboard %d", getName(grabber).c_str(), info->m_id
+        "ignored advisory clipboard grab from atomic publisher \"%s\" for clipboard %d", getName(grabber).c_str(),
+        info->m_id
+    );
+    return;
+  }
+  const auto grabberName = getName(grabber);
+  if (!m_clipboardPublicationAuthority.isFocusValid(grabberName, info->m_sequenceNumber)) {
+    LOG_DEBUG(
+        "ignored clipboard grab from screen \"%s\" for clipboard %d with invalid focus sequence %u",
+        grabberName.c_str(), info->m_id, info->m_sequenceNumber
     );
     return;
   }
@@ -1763,7 +1774,7 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   // mark screen as owning clipboard
   const auto revision = nextClipboardRevision();
   LOG_INFO(
-      "screen \"%s\" grabbed clipboard %d from \"%s\", revision=%u", getName(grabber).c_str(), info->m_id,
+      "screen \"%s\" grabbed clipboard %d from \"%s\", revision=%u", grabberName.c_str(), info->m_id,
       clipboard.m_clipboardOwner.c_str(), revision
   );
   clipboard.m_clipboardOwner = getName(grabber);
@@ -1802,6 +1813,14 @@ void Server::handleClipboardChanged(const Event &event, BaseClientProxy *client)
         "ignored clipboard update from screen \"%s\" because clipboard id %d is invalid", getName(client).c_str(),
         info->m_id
     );
+    return;
+  }
+  if (client->usesAtomicClipboardPublish()) {
+    if (!client->hasPendingClipboardPublish(info->m_id, info->m_sequenceNumber)) {
+      LOG_DEBUG("ignored clipboard publication event from \"%s\" without a pending transfer", getName(client).c_str());
+      return;
+    }
+    onAtomicClipboardPublished(client, info->m_id, info->m_sequenceNumber);
     return;
   }
   onClipboardChanged(client, info->m_id, info->m_sequenceNumber);
@@ -2136,6 +2155,83 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   clipboard.m_committedRevision = clipboard.m_revision;
 
   broadcastClipboard(id, sender);
+}
+
+void Server::onAtomicClipboardPublished(BaseClientProxy *sender, ClipboardID id, uint32_t sequence)
+{
+  const auto senderName = getName(sender);
+  Clipboard candidate;
+  if (!sender->getClipboard(id, &candidate)) {
+    LOG_INFO(
+        "rejected atomic clipboard publication from \"%s\" for clipboard %d because data is unavailable",
+        senderName.c_str(), id
+    );
+    sender->completeClipboardPublish(id, sequence, ClipboardTransferCancelReason::Invalid);
+    return;
+  }
+
+  const auto data = candidate.marshall();
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_INFO(
+        "rejected atomic clipboard publication from \"%s\" for clipboard %d because it has no supported formats",
+        senderName.c_str(), id
+    );
+    sender->completeClipboardPublish(id, sequence, ClipboardTransferCancelReason::Invalid);
+    return;
+  }
+
+  const auto maximumBytes = m_maximumClipboardSize * 1024;
+  if (data.size() > maximumBytes) {
+    LOG_WARN(
+        "rejected atomic clipboard publication from \"%s\" for clipboard %d because size=%zu exceeds limit=%zu",
+        senderName.c_str(), id, data.size(), maximumBytes
+    );
+    sender->completeClipboardPublish(id, sequence, ClipboardTransferCancelReason::Invalid);
+    return;
+  }
+
+  auto &clipboard = m_clipboards[id];
+  const auto decision = m_clipboardPublicationAuthority.evaluate(
+      senderName, sequence, clipboard.m_clipboardOwner, clipboard.m_sourceSequence, clipboard.m_clipboardData, data
+  );
+  if (decision == deskflow::server::ClipboardPublicationAuthority::Decision::InvalidFocus) {
+    LOG_INFO(
+        "rejected atomic clipboard publication from \"%s\" for clipboard %d with invalid focus sequence %u",
+        senderName.c_str(), id, sequence
+    );
+    sender->completeClipboardPublish(id, sequence, ClipboardTransferCancelReason::Superseded);
+    return;
+  }
+  if (decision == deskflow::server::ClipboardPublicationAuthority::Decision::Superseded) {
+    LOG_INFO(
+        "rejected superseded atomic clipboard publication from \"%s\" for clipboard %d sequence=%u current=%u",
+        senderName.c_str(), id, sequence, clipboard.m_sourceSequence
+    );
+    sender->completeClipboardPublish(id, sequence, ClipboardTransferCancelReason::Superseded);
+    return;
+  }
+  if (decision == deskflow::server::ClipboardPublicationAuthority::Decision::Duplicate) {
+    LOG_DEBUG(
+        "accepted duplicate atomic clipboard publication from \"%s\" for clipboard %d sequence=%u", senderName.c_str(),
+        id, sequence
+    );
+    sender->completeClipboardPublish(id, sequence, std::nullopt);
+    return;
+  }
+
+  const auto revision = nextClipboardRevision();
+  clipboard.m_clipboardOwner = senderName;
+  clipboard.m_sourceSequence = sequence;
+  clipboard.m_revision = revision;
+  Clipboard::copy(&clipboard.m_clipboard, &candidate);
+  clipboard.m_clipboardData = data;
+  clipboard.m_committedRevision = revision;
+
+  LOG_INFO(
+      "atomically committed clipboard %d from \"%s\", focus=%u revision=%u", id, senderName.c_str(), sequence, revision
+  );
+  broadcastClipboard(id, sender);
+  sender->completeClipboardPublish(id, sequence, std::nullopt);
 }
 
 void Server::broadcastClipboard(ClipboardID id, const BaseClientProxy *sender)
@@ -2671,6 +2767,7 @@ bool Server::removeClient(BaseClientProxy *client)
   if (client == m_noNeighborEdgeGuardScreen) {
     clearNoNeighborEdgeGuard();
   }
+  m_clipboardPublicationAuthority.removeScreen(getName(client));
 
   // remove event handlers
   m_events->removeHandler(ScreenShapeChanged, client->getEventTarget());
@@ -2791,6 +2888,7 @@ void Server::forceLeaveClient(const BaseClientProxy *client, const char *reason)
 
     // cut over
     m_active = m_primaryClient;
+    m_clipboardPublicationAuthority.recordFocus(getName(m_primaryClient), m_seqNum);
 
     // enter new screen (unless we already have because of the
     // screen saver)

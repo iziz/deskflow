@@ -224,6 +224,30 @@ validates the assembled clipboard data and sends `CACK`.
   Their receive assembly state is isolated per connection, and queued chunks
   from a superseded local generation are discarded before they reach the wire.
 
+Protocol v1.12 makes a completed client-to-server `DCL2` transfer the atomic
+clipboard publication unit:
+
+- A v1.12 client does not send an advisory `CCLP` before publishing local
+  clipboard data. This removes ordering dependencies between the control and
+  clipboard channels.
+- The `DCL2` sequence is a focus epoch issued by the server in `CINN`. The
+  server retains issued epochs for the lifetime of each connected screen, so a
+  transfer remains valid after the cursor leaves or revisits that screen.
+- The server rejects an epoch that was not issued to the publishing screen and
+  rejects a publication older than the currently committed source sequence.
+- Receiving a `DCL2` start chunk does not advance the receiver's committed
+  sequence. Invalid, cancelled, or rejected transfers therefore cannot block a
+  later valid publication.
+- The server commits owner, payload, source sequence, and broadcast revision as
+  one state transition. It sends `CACK` only after this commit and after queuing
+  the committed value for other connected peers.
+- A retry with the same owner, focus epoch, and payload is idempotent. It is
+  acknowledged without allocating another revision or broadcasting again.
+- Protocol v1.11 and older peers retain the split `CCLP` and `DCL2` flow. The
+  server still validates their ownership notification against a focus epoch it
+  actually issued rather than whichever screen is active when the event loop
+  processes the message.
+
 ## Protocol Constraints
 
 To ensure security, stability, and compatibility, the protocol enforces strict constraints:
@@ -320,6 +344,10 @@ A modifier (modifier mask) represents the state of modifier keys (like Shift, Co
 | **1.6** | Jan 2014 | Synergy | Clipboard streaming | 1.6+ |
 | **1.7** | Nov 2021 | Synergy | Secure input notifications | 1.7+ |
 | **1.8** | Jun 2025 | Synergy | Language synchronization | 1.8+ |
+| **1.9** | Jul 2026 | Deskflow | Transactional clipboard transfer and acknowledgment | 1.9+ |
+| **1.10** | Jul 2026 | Deskflow | Clipboard transfer flow control | 1.10+ |
+| **1.11** | Jul 2026 | Deskflow | Dedicated clipboard channel | 1.11+ |
+| **1.12** | Jul 2026 | Deskflow | Atomic clipboard publication with focus-epoch validation | 1.12+ |
 
 ### Version Migration Guide
 

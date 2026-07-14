@@ -95,6 +95,19 @@ language ko has group id <korean-group>
   final outgoing transfer becomes idle, including final failure paths.
 - Server acknowledgment confirms that the server accepted the clipboard data. It
   does not prove that every target client has already applied it.
+- For protocol v1.12 client-to-server transfers, acceptance means the server
+  validated a focus epoch it previously issued to that screen and atomically
+  committed clipboard ownership, payload, source sequence, and revision before
+  sending the acknowledgment.
+- A focus epoch remains valid after the cursor leaves or later revisits its
+  source screen. Event-loop timing must not replace origin-time authorization
+  with a check against the currently active screen.
+- Protocol v1.12 local publication must use the completed `DCL2` payload as the
+  ownership and data transaction. It must not depend on a preceding `CCLP`
+  arriving in order on a different channel.
+- A received sequence becomes authoritative only after the payload is accepted.
+  A start chunk from an invalid, cancelled, or rejected transfer must not poison
+  sequence ordering for later valid transfers.
 - Transactional clipboard output must be paced by stream flush progress. Large
   payloads must not enqueue every data chunk in one event-loop turn, because
   that can delay input, later clipboard grabs, cancellation, and timeout
@@ -113,6 +126,9 @@ queued clipboard <id> transfer to server seqnum=<seq> size=<bytes> force=<true|f
 starting clipboard transfer <transfer-id> to server, size=<bytes>, queued_ms=<ms>
 finished sending clipboard transfer <transfer-id> to server; waiting for output flush, send_ms=<ms>
 clipboard transfer <transfer-id> to server output flushed; waiting for acknowledgment, transfer_ms=<ms>, queued_ms=<ms>
+clipboard transfer <transfer-id> from "<screen>" completed; waiting for server commit
+atomically committed clipboard <id> from "<screen>", focus=<seq> revision=<revision>
+clipboard publication <transfer-id> from "<screen>" was committed
 clipboard transfer <transfer-id> to server was acknowledged, transfer_ms=<ms>, queued_ms=<ms>, ack_wait_ms=<ms>
 ```
 

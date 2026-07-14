@@ -7,6 +7,7 @@
 
 #include "ServerTests.h"
 
+#include "server/ClipboardPublicationAuthority.h"
 #include "server/EdgeSwitchGeometry.h"
 #include "server/EdgeSwitchTypes.h"
 #include "server/Server.h"
@@ -19,6 +20,7 @@
 
 using deskflow::server::classifyNeighborLookup;
 using deskflow::server::classifySwitchPolicy;
+using deskflow::server::ClipboardPublicationAuthority;
 using deskflow::server::EdgeLookupFacts;
 using deskflow::server::EdgeLookupKind;
 using deskflow::server::EdgeSwitchBounds;
@@ -30,6 +32,7 @@ using deskflow::server::NeighborMapStatus;
 using deskflow::server::neighborMapStatusKeyword;
 using deskflow::server::observeConfiguredPhysicalCandidate;
 using deskflow::server::observeConnectedPhysicalCandidateAtPosition;
+using deskflow::server::PendingClipboardPublication;
 using deskflow::server::shouldCacheNeighborMiss;
 using deskflow::server::SwitchBackGuard;
 using deskflow::server::SwitchPolicyCondition;
@@ -52,6 +55,91 @@ void ServerTests::KeyboardBroadcastInfo_alloc_stateAndSceens()
   QCOMPARE(info->m_state, Server::KeyboardBroadcastInfo::State::kOn);
   QCOMPARE(info->m_screens, "test");
   delete info;
+}
+
+void ServerTests::clipboardPublicationAuthority_acceptsIssuedFocusAfterScreenSwitch()
+{
+  ClipboardPublicationAuthority authority;
+  authority.recordFocus("mac", 381);
+  authority.recordFocus("windows", 382);
+
+  QVERIFY(authority.isFocusValid("mac", 381));
+  QCOMPARE(
+      authority.evaluate("mac", 381, "windows", 377, "image", "Taxonomy"),
+      ClipboardPublicationAuthority::Decision::Commit
+  );
+}
+
+void ServerTests::clipboardPublicationAuthority_rejectsForgedFocusAndRetainsIssuedHistory()
+{
+  ClipboardPublicationAuthority authority;
+  authority.recordFocus("mac", 381);
+
+  QVERIFY(!authority.isFocusValid("mac", 382));
+  authority.recordFocus("windows", 382);
+  authority.recordFocus("mac", 383);
+  QVERIFY(authority.isFocusValid("mac", 381));
+  QVERIFY(!authority.isFocusValid("mac", 382));
+  QVERIFY(authority.isFocusValid("mac", 383));
+
+  authority.removeScreen("mac");
+  QVERIFY(!authority.isFocusValid("mac", 381));
+  QVERIFY(!authority.isFocusValid("mac", 383));
+}
+
+void ServerTests::clipboardPublicationAuthority_ordersConcurrentPublications()
+{
+  ClipboardPublicationAuthority authority;
+  authority.recordFocus("mac", 381);
+  authority.recordFocus("windows", 382);
+
+  QCOMPARE(
+      authority.evaluate("mac", 381, "windows", 382, "newer", "older"),
+      ClipboardPublicationAuthority::Decision::Superseded
+  );
+  QCOMPARE(
+      authority.evaluate("windows", 382, "mac", 381, "older", "newer"), ClipboardPublicationAuthority::Decision::Commit
+  );
+}
+
+void ServerTests::clipboardPublicationAuthority_detectsIdempotentRetry()
+{
+  ClipboardPublicationAuthority authority;
+  authority.recordFocus("mac", 381);
+
+  QCOMPARE(
+      authority.evaluate("mac", 381, "mac", 381, "Taxonomy", "Taxonomy"),
+      ClipboardPublicationAuthority::Decision::Duplicate
+  );
+  QCOMPARE(
+      authority.evaluate("mac", 381, "mac", 381, "Taxonomy", "Classification"),
+      ClipboardPublicationAuthority::Decision::Commit
+  );
+}
+
+void ServerTests::pendingClipboardPublication_resolvesOnlyMatchingCommit()
+{
+  PendingClipboardPublication publication;
+
+  QVERIFY(publication.begin(kClipboardClipboard, 381, 17));
+  QVERIFY(publication.active());
+  QVERIFY(publication.matches(kClipboardClipboard, 381));
+  QVERIFY(!publication.resolve(kClipboardClipboard, 382).has_value());
+  const auto transferId = publication.resolve(kClipboardClipboard, 381);
+  QVERIFY(transferId.has_value());
+  QCOMPARE(*transferId, 17u);
+  QVERIFY(!publication.active());
+}
+
+void ServerTests::pendingClipboardPublication_cancellationPreventsLateCommit()
+{
+  PendingClipboardPublication publication;
+
+  QVERIFY(publication.begin(kClipboardClipboard, 381, 17));
+  QVERIFY(!publication.begin(kClipboardClipboard, 382, 18));
+  publication.cancel(17);
+  QVERIFY(!publication.resolve(kClipboardClipboard, 381).has_value());
+  QVERIFY(publication.begin(kClipboardClipboard, 382, 18));
 }
 
 void ServerTests::switchBackGuard_releasesNearPerpendicularEdge()

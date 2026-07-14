@@ -45,7 +45,7 @@ static const int16_t kProtocolMajorVersion = 1;
  * @note When incrementing the minor version, the Deskflow application version should also increment
  * @since Protocol version 1.0
  */
-static const int16_t kProtocolMinorVersion = 11;
+static const int16_t kProtocolMinorVersion = 12;
 
 /**
  * @brief Default TCP port for Deskflow connections
@@ -417,8 +417,14 @@ extern const char *const kMsgCLeave;
  *
  * Sent when an application grabs a clipboard on either screen.
  * This notifies the other screen that clipboard ownership has changed.
- * Secondary screens must use the sequence number from the most recent
- * kMsgCEnter. The primary always sends sequence number 0.
+ * A screen uses the focus sequence assigned when it was most recently entered.
+ * The primary starts with sequence 0 and receives a new sequence when focus
+ * returns from another screen.
+ *
+ * Protocol v1.12 publishers do not send this advisory message before local
+ * clipboard data. The completed kMsgDClipboardTransfer atomically publishes
+ * both ownership and data to the server. Older peers retain the advisory
+ * ownership flow for compatibility.
  *
  * **Clipboard Identifiers**:
  * - `0`: Primary clipboard (Ctrl+C/Ctrl+V)
@@ -436,6 +442,11 @@ extern const char *const kMsgCClipboard;
  * **Direction**: Primary ↔ Secondary
  * **Format**: `"CACK%4i"`
  * - `$1`: Transfer identifier
+ *
+ * For a protocol v1.12 client-to-server publication, the server sends this
+ * acknowledgment only after it validates the server-issued focus sequence and
+ * atomically commits the clipboard owner, payload, source sequence, and
+ * revision.
  * @since Protocol version 1.9
  */
 extern const char *const kMsgCClipboardAck;
@@ -1017,6 +1028,12 @@ extern const char *const kMsgDClipboard;
  * - `$3`: Transfer identifier
  * - `$4`: ChunkType
  * - `$5`: Chunk payload
+ *
+ * In protocol v1.12, a completed client-to-server transfer is an atomic
+ * clipboard publication. The sequence identifies a focus epoch previously
+ * issued by the server with kMsgCEnter. The server rejects unknown or
+ * superseded epochs with kMsgCClipboardCancel and acknowledges only committed
+ * or idempotently repeated publications.
  * @since Protocol version 1.9
  */
 extern const char *const kMsgDClipboardTransfer;

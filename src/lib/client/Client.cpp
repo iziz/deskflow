@@ -619,7 +619,8 @@ void Client::setupScreen()
 
   m_ready = false;
   m_server = new ServerProxy(
-      this, m_stream, m_events, m_serverProtocolMinor >= 9, m_serverProtocolMinor >= 10, m_serverProtocolMinor >= 11
+      this, m_stream, m_events, m_serverProtocolMinor >= 9, m_serverProtocolMinor >= 10, m_serverProtocolMinor >= 11,
+      m_serverProtocolMinor >= 12
   );
   m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
     handleShapeChanged();

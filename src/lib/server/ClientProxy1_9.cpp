@@ -114,6 +114,33 @@ void ClientProxy1_9::finishClipboardSend()
   }
 }
 
+bool ClientProxy1_9::hasPendingClipboardPublish(ClipboardID id, uint32_t sequence) const
+{
+  return m_pendingClipboardPublish.matches(id, sequence);
+}
+
+void ClientProxy1_9::completeClipboardPublish(
+    ClipboardID id, uint32_t sequence, std::optional<ClipboardTransferCancelReason> rejection
+)
+{
+  const auto transferId = m_pendingClipboardPublish.resolve(id, sequence);
+  if (!transferId.has_value()) {
+    return;
+  }
+
+  if (rejection.has_value()) {
+    LOG_INFO(
+        "clipboard publication %u from \"%s\" was rejected, reason=%u", *transferId, getName().c_str(),
+        static_cast<uint8_t>(*rejection)
+    );
+    sendClipboardCancel(*transferId, *rejection);
+  } else {
+    m_incoming.commitSequence(id, sequence);
+    LOG_INFO("clipboard publication %u from \"%s\" was committed", *transferId, getName().c_str());
+    sendClipboardAck(*transferId);
+  }
+}
+
 bool ClientProxy1_9::parseMessage(const uint8_t *code)
 {
   if (!m_separateClipboardChannel && parseClipboardMessage(code)) {
@@ -168,6 +195,7 @@ void ClientProxy1_9::closeClipboardStream()
   m_outgoing.transportReset();
   m_incoming.reset();
   m_incomingProgress = 0;
+  m_pendingClipboardPublish.reset();
   restoreIncomingHeartbeat();
   restoreOutgoingHeartbeat();
 
@@ -537,6 +565,12 @@ bool ClientProxy1_9::recvClipboardTransfer()
         sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
         return true;
       }
+      if (usesAtomicClipboardPublish() && m_pendingClipboardPublish.active()) {
+        m_incoming.reset();
+        m_incomingProgress = 0;
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return true;
+      }
       Clipboard::copy(&m_clipboard[id].m_clipboard, &clipboard);
     } catch (...) {
       m_incoming.reset();
@@ -546,14 +580,28 @@ bool ClientProxy1_9::recvClipboardTransfer()
     }
     m_clipboard[id].m_sequenceNumber = sequence;
 
+    if (usesAtomicClipboardPublish()) {
+      if (!m_pendingClipboardPublish.begin(id, sequence, transferId)) {
+        m_incoming.reset();
+        m_incomingProgress = 0;
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return true;
+      }
+    } else {
+      m_incoming.commitSequence(id, sequence);
+    }
     auto *info = new ClipboardInfo;
     info->m_id = id;
     info->m_sequenceNumber = sequence;
     m_events->addEvent(Event(EventTypes::ClipboardChanged, getEventTarget(), info));
     m_incoming.reset();
     m_incomingProgress = 0;
-    sendClipboardAck(transferId);
-    LOG_INFO("clipboard transfer %u from \"%s\" completed", transferId, getName().c_str());
+    if (usesAtomicClipboardPublish()) {
+      LOG_INFO("clipboard transfer %u from \"%s\" completed; waiting for server commit", transferId, getName().c_str());
+    } else {
+      sendClipboardAck(transferId);
+      LOG_INFO("clipboard transfer %u from \"%s\" completed", transferId, getName().c_str());
+    }
     return true;
   }
 
@@ -610,6 +658,7 @@ bool ClientProxy1_9::recvClipboardCancel()
     clearIncomingTimer();
     restoreIncomingHeartbeat();
   }
+  m_pendingClipboardPublish.cancel(transferId);
 
   if (m_outgoing.activeTransferId() == transferId) {
     const auto cancelReason = reason >= static_cast<uint8_t>(ClipboardTransferCancelReason::Superseded) &&

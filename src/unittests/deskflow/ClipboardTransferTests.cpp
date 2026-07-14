@@ -25,7 +25,9 @@ private Q_SLOTS:
   void identifiesMatchingIncomingTransfer();
   void rejectsIncomingTransferBeyondReceiveLimit();
   void ignoresOlderQueuedRevision();
-  void rejectsOlderIncomingRevision();
+  void rejectsOlderThanCommittedIncomingRevision();
+  void uncommittedIncomingRevisionDoesNotPoisonSequence();
+  void rejectsOlderThanActiveIncomingRevision();
   void newerRevisionSupersedesMatchingPayload();
   void sameSequenceSupersedesDifferentPayload();
   void restartsInterruptedTransferOnReplacementTransport();
@@ -260,11 +262,12 @@ void ClipboardTransferTests::ignoresOlderQueuedRevision()
   QCOMPARE(queue.activeTransferId(), transferId);
 }
 
-void ClipboardTransferTests::rejectsOlderIncomingRevision()
+void ClipboardTransferTests::rejectsOlderThanCommittedIncomingRevision()
 {
   ClipboardTransferAssembler assembler;
   auto result = assembler.process(kClipboardClipboard, 12, 20, ChunkType::DataStart, "6");
   QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+  assembler.commitSequence(kClipboardClipboard, 12);
   assembler.reset();
 
   result = assembler.process(kClipboardClipboard, 11, 21, ChunkType::DataStart, "5");
@@ -273,6 +276,29 @@ void ClipboardTransferTests::rejectsOlderIncomingRevision()
 
   result = assembler.process(kClipboardClipboard, 12, 22, ChunkType::DataStart, "5");
   QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+}
+
+void ClipboardTransferTests::uncommittedIncomingRevisionDoesNotPoisonSequence()
+{
+  ClipboardTransferAssembler assembler;
+  auto result = assembler.process(kClipboardClipboard, 12, 20, ChunkType::DataStart, "6");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+  assembler.reset();
+
+  result = assembler.process(kClipboardClipboard, 11, 21, ChunkType::DataStart, "5");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+}
+
+void ClipboardTransferTests::rejectsOlderThanActiveIncomingRevision()
+{
+  ClipboardTransferAssembler assembler;
+  auto result = assembler.process(kClipboardClipboard, 12, 20, ChunkType::DataStart, "6");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Started);
+
+  result = assembler.process(kClipboardClipboard, 11, 21, ChunkType::DataStart, "5");
+  QCOMPARE(result.status, ClipboardTransferReceiveStatus::Error);
+  QVERIFY(assembler.active());
+  QCOMPARE(assembler.transferId(), 20u);
 }
 
 void ClipboardTransferTests::newerRevisionSupersedesMatchingPayload()

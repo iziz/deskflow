@@ -15,6 +15,7 @@
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
+#include "server/ClipboardPublicationAuthority.h"
 #include "server/Config.h"
 #include "server/EdgeSwitchTypes.h"
 #include "server/SwitchBackGuard.h"
@@ -345,6 +346,7 @@ private:
   void handleInfoChanged(BaseClientProxy *client);
   void handleClipboardGrabbed(const Event &event, BaseClientProxy *client);
   void handleClipboardChanged(const Event &event, BaseClientProxy *client);
+  void onAtomicClipboardPublished(BaseClientProxy *sender, ClipboardID id, uint32_t sequence);
   void handleKeyDownEvent(const Event &event);
   void handleKeyUpEvent(const Event &event);
   void handleKeyRepeatEvent(const Event &event);
@@ -464,6 +466,7 @@ private:
 
   // clipboard cache
   ClipboardInfo m_clipboards[kClipboardEnd];
+  deskflow::server::ClipboardPublicationAuthority m_clipboardPublicationAuthority;
 
   // used in hello message sent to the client
   NetworkProtocol m_protocol = NetworkProtocol::Barrier;

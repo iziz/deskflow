@@ -52,13 +52,14 @@ size_t parseSize(const std::string &size)
 
 ServerProxy::ServerProxy(
     Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard,
-    bool clipboardFlowControl, bool separateClipboardChannel
+    bool clipboardFlowControl, bool separateClipboardChannel, bool atomicClipboardPublish
 )
     : m_client(client),
       m_stream(stream),
       m_transactionalClipboard(transactionalClipboard),
       m_clipboardFlowControl(clipboardFlowControl),
       m_separateClipboardChannel(separateClipboardChannel),
+      m_atomicClipboardPublish(atomicClipboardPublish),
       m_clipboardStream(separateClipboardChannel ? nullptr : stream),
       m_clipboardOutgoing(0x80000000u, clipboardFlowControl),
       m_events(events)
@@ -459,8 +460,10 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
     ++m_legacyClipboardGeneration[id];
   }
 
-  LOG_VERBOSE("sending clipboard %d changed", id);
-  ProtocolUtil::writef(m_stream, kMsgCClipboard, id, m_seqNum);
+  if (!m_atomicClipboardPublish) {
+    LOG_VERBOSE("sending clipboard %d changed", id);
+    ProtocolUtil::writef(m_stream, kMsgCClipboard, id, m_seqNum);
+  }
   return true;
 }
 
@@ -1189,6 +1192,7 @@ void ServerProxy::setClipboardTransfer()
         return;
       }
       m_client->setClipboard(id, &clipboard, sequence);
+      m_clipboardIncoming.commitSequence(id, sequence);
     } catch (...) {
       m_clipboardIncoming.reset();
       clearClipboardIncomingTiming(transferId);

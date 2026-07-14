@@ -8,6 +8,7 @@
 #pragma once
 
 #include "deskflow/IClient.h"
+#include "deskflow/ProtocolTypes.h"
 
 #include <optional>
 
@@ -91,6 +92,17 @@ public:
   {
   }
   virtual void finishClipboardSend()
+  {
+  }
+  virtual bool usesAtomicClipboardPublish() const
+  {
+    return false;
+  }
+  virtual bool hasPendingClipboardPublish(ClipboardID, uint32_t) const
+  {
+    return false;
+  }
+  virtual void completeClipboardPublish(ClipboardID, uint32_t, std::optional<ClipboardTransferCancelReason>)
   {
   }
   virtual void offerClipboardChannel()
