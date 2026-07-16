@@ -117,11 +117,13 @@ void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard, ui
 {
   // ignore if this clipboard is already clean
   if (m_clipboardDirty[id]) {
-    // this clipboard is now clean
-    m_clipboardDirty[id] = false;
-
     // set clipboard
-    m_screen->setClipboard(id, clipboard);
+    if (m_screen->setClipboard(id, clipboard)) {
+      // this clipboard is now clean
+      m_clipboardDirty[id] = false;
+    } else {
+      LOG_WARN("failed to apply clipboard %d on primary screen; keeping it dirty for retry", id);
+    }
   }
 }
 

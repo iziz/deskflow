@@ -330,7 +330,12 @@ bool MSWindowsScreen::setClipboard(ClipboardID, const IClipboard *src)
   MSWindowsClipboard dst(m_window);
   if (src != nullptr) {
     // save clipboard data
-    return Clipboard::copy(&dst, src);
+    const bool copied = Clipboard::copy(&dst, src);
+    if (!copied || !dst.writesSucceeded()) {
+      LOG_WARN("failed to apply remote clipboard on Windows");
+      return false;
+    }
+    return true;
   } else {
     // assert clipboard ownership
     if (!dst.open(0)) {

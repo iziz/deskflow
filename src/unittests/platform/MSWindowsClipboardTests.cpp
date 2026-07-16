@@ -8,6 +8,7 @@
 
 #include "MSWindowsClipboardTests.h"
 
+#include "platform/IMSWindowsClipboardFacade.h"
 #include "platform/MSWindowsClipboard.h"
 #include "platform/MSWindowsClipboardBitmapConverter.h"
 
@@ -71,6 +72,16 @@ HGLOBAL makeGlobalDib(const std::string &dib)
   GlobalUnlock(handle);
   return handle;
 }
+
+class FailingClipboardFacade : public IMSWindowsClipboardFacade
+{
+public:
+  bool write(HANDLE win32Data, UINT) override
+  {
+    GlobalFree(win32Data);
+    return false;
+  }
+};
 } // namespace
 
 void MSWindowsClipboardTests::initTestCase()
@@ -190,6 +201,20 @@ void MSWindowsClipboardTests::getNonEmptyText()
 
   clipboard.add(IClipboard::Format::Text, m_testString);
   QCOMPARE(clipboard.get(IClipboard::Format::Text), m_testString);
+}
+
+void MSWindowsClipboardTests::writeFailureIsReported()
+{
+  MSWindowsClipboard clipboard(NULL);
+  QVERIFY(clipboard.open(0));
+  QVERIFY(clipboard.empty());
+
+  FailingClipboardFacade facade;
+  clipboard.setFacade(facade);
+  clipboard.add(IClipboard::Format::Text, m_testString);
+
+  QVERIFY(!clipboard.writesSucceeded());
+  clipboard.close();
 }
 
 void MSWindowsClipboardTests::isOwnedByDeskflow()

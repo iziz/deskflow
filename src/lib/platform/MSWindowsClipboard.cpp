@@ -62,6 +62,7 @@ bool MSWindowsClipboard::emptyUnowned()
     return false;
   }
 
+  m_writeFailed = false;
   return true;
 }
 
@@ -98,19 +99,29 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
     if (converter->getFormat() == format) {
       HANDLE win32Data = converter->fromIClipboard(data);
       if (win32Data != nullptr) {
-        LOG_DEBUG("add %d bytes to clipboard format: %d", data.size(), format);
-        m_facade->write(win32Data, converter->getWin32Format());
-        isSucceeded = true;
+        if (m_facade->write(win32Data, converter->getWin32Format())) {
+          LOG_DEBUG("added %d bytes to clipboard format: %d", data.size(), format);
+          isSucceeded = true;
+        } else {
+          m_writeFailed = true;
+        }
         break;
       } else {
         LOG_DEBUG("failed to convert clipboard data to platform format");
+        m_writeFailed = true;
       }
     }
   }
 
   if (!isSucceeded) {
-    LOG_DEBUG("missed clipboard data convert for format: %d", format);
+    m_writeFailed = true;
+    LOG_DEBUG("failed to add clipboard data for format: %d", format);
   }
+}
+
+bool MSWindowsClipboard::writesSucceeded() const
+{
+  return !m_writeFailed;
 }
 
 bool MSWindowsClipboard::open(Time time) const

@@ -12,5 +12,5 @@
 class MSWindowsClipboardFacade : public IMSWindowsClipboardFacade
 {
 public:
-  void write(HANDLE win32Data, UINT win32Format) override;
+  bool write(HANDLE win32Data, UINT win32Format) override;
 };

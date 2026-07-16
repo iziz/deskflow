@@ -7,12 +7,18 @@
 
 #include "platform/MSWindowsClipboardFacade.h"
 
-void MSWindowsClipboardFacade::write(HANDLE win32Data, UINT win32Format)
+#include "base/Log.h"
+
+bool MSWindowsClipboardFacade::write(HANDLE win32Data, UINT win32Format)
 {
   if (SetClipboardData(win32Format, win32Data) == nullptr) {
+    const auto error = GetLastError();
     // free converted data if we couldn't put it on
     // the clipboard.
-    // nb: couldn't cause this in integ tests.
     GlobalFree(win32Data);
+    LOG_WARN("failed to set Windows clipboard data: format=%u error=%lu", win32Format, error);
+    return false;
   }
+
+  return true;
 }
