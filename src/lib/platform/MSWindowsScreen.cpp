@@ -889,7 +889,11 @@ bool MSWindowsScreen::onPreDispatch(HWND hwnd, UINT message, WPARAM wParam, LPAR
     return onScreensaver(wParam != 0);
 
   case DESKFLOW_MSG_DEBUG:
-    LOG_VERBOSE("hook: 0x%08x 0x%08x", wParam, lParam);
+    if (wParam == DESKFLOW_HOOK_DEBUG_PRE_RELAY_MOUSE_MOVE) {
+      LOG_DEBUG("dropped pre-relay mouse motion: event lag=%ldms", static_cast<LONG>(lParam));
+    } else {
+      LOG_VERBOSE("hook: 0x%08x 0x%08x", wParam, lParam);
+    }
     return true;
   }
 

@@ -7,6 +7,7 @@
 #include "MSWindowsHookTests.h"
 
 #include "platform/MSWindowsKeyEventPolicy.h"
+#include "platform/MSWindowsMouseEventPolicy.h"
 
 void MSWindowsHookTests::windowsHotKeyRegistration_data()
 {
@@ -71,6 +72,53 @@ void MSWindowsHookTests::relaySuppression()
       deskflow::platform::shouldSuppressLocalKey(
           static_cast<EHookMode>(mode), static_cast<WPARAM>(virtualKey), static_cast<LPARAM>(keyInfo),
           lowLevelHookActive
+      ),
+      expected
+  );
+}
+
+void MSWindowsHookTests::preRelayMouseMotion_data()
+{
+  QTest::addColumn<int>("mode");
+  QTest::addColumn<quint64>("message");
+  QTest::addColumn<quint64>("eventTime");
+  QTest::addColumn<quint64>("relayCutoff");
+  QTest::addColumn<bool>("hasRelayCutoff");
+  QTest::addColumn<bool>("expected");
+
+  QTest::newRow("older relay motion")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << true;
+  QTest::newRow("same-tick relay motion")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1000) << quint64(1000) << true << true;
+  QTest::newRow("new relay motion")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1001) << quint64(1000) << true << false;
+  QTest::newRow("local motion")
+      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << false;
+  QTest::newRow("relay button")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_LBUTTONDOWN) << quint64(990) << quint64(1000) << true << false;
+  QTest::newRow("missing cutoff")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << false << false;
+  QTest::newRow("older motion across tick wrap")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(0xfffffff0u) << quint64(0x00000005u) << true
+      << true;
+  QTest::newRow("new motion across tick wrap")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(0x00000005u) << quint64(0xfffffff0u) << true
+      << false;
+}
+
+void MSWindowsHookTests::preRelayMouseMotion()
+{
+  QFETCH(int, mode);
+  QFETCH(quint64, message);
+  QFETCH(quint64, eventTime);
+  QFETCH(quint64, relayCutoff);
+  QFETCH(bool, hasRelayCutoff);
+  QFETCH(bool, expected);
+
+  QCOMPARE(
+      deskflow::platform::shouldDropPreRelayMouseMotion(
+          static_cast<EHookMode>(mode), static_cast<WPARAM>(message), static_cast<DWORD>(eventTime),
+          static_cast<DWORD>(relayCutoff), hasRelayCutoff
       ),
       expected
   );

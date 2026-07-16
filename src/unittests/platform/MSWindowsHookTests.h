@@ -17,4 +17,6 @@ private Q_SLOTS:
   void windowsHotKeyRegistration();
   void relaySuppression_data();
   void relaySuppression();
+  void preRelayMouseMotion_data();
+  void preRelayMouseMotion();
 };

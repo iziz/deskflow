@@ -46,6 +46,7 @@ if(WIN32)
     MSWindowsHook.h
     MSWindowsKeyEventPolicy.h
     MSWindowsKeyInput.h
+    MSWindowsMouseEventPolicy.h
     MSWindowsKeyState.cpp
     MSWindowsKeyState.h
     MSWindowsPowerManager.cpp

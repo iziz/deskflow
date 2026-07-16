@@ -10,6 +10,7 @@
 #include "base/Log.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsKeyEventPolicy.h"
+#include "platform/MSWindowsMouseEventPolicy.h"
 
 #ifndef WM_MOUSEHWHEEL
 #define WM_MOUSEHWHEEL 0x020E
@@ -38,6 +39,11 @@ static BYTE g_keyState[256] = {0};
 static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
+static DWORD g_lastMouseEventTime = 0;
+static DWORD g_relayInputCutoff = 0;
+static bool g_hasLastMouseEventTime = false;
+static bool g_hasRelayInputCutoff = false;
+static bool g_reportedPreRelayMouseMotion = false;
 
 static const char *hookModeToString(EHookMode mode)
 {
@@ -116,6 +122,11 @@ int MSWindowsHook::init(DWORD threadID)
   g_yScreen = 0;
   g_wScreen = 0;
   g_hScreen = 0;
+  g_lastMouseEventTime = 0;
+  g_relayInputCutoff = 0;
+  g_hasLastMouseEventTime = false;
+  g_hasRelayInputCutoff = false;
+  g_reportedPreRelayMouseMotion = false;
 
   return 1;
 }
@@ -155,6 +166,19 @@ void MSWindowsHook::setMode(EHookMode mode)
     return;
   }
   LOG_DEBUG("windows hook mode changed from %s to %s", hookModeToString(g_mode), hookModeToString(mode));
+
+  if (mode == kHOOK_RELAY_EVENTS) {
+    // Low-level hook callbacks for motion that occurred before the screen
+    // switch can arrive after relay mode is enabled. Preserve the newest
+    // observed hook timestamp so those stale events cannot move the cursor
+    // across the newly entered screen.
+    g_relayInputCutoff = g_hasLastMouseEventTime ? g_lastMouseEventTime : GetTickCount();
+    g_hasRelayInputCutoff = true;
+    g_reportedPreRelayMouseMotion = false;
+  } else {
+    g_hasRelayInputCutoff = false;
+  }
+
   g_mode = mode;
 }
 
@@ -572,6 +596,20 @@ static LRESULT CALLBACK mouseLLHook(int code, WPARAM wParam, LPARAM lParam)
   if (code >= 0) {
     // decode the message
     MSLLHOOKSTRUCT *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
+
+    g_lastMouseEventTime = info->time;
+    g_hasLastMouseEventTime = true;
+
+    if (deskflow::platform::shouldDropPreRelayMouseMotion(
+            g_mode, wParam, info->time, g_relayInputCutoff, g_hasRelayInputCutoff
+        )) {
+      if (!g_reportedPreRelayMouseMotion) {
+        const auto lag = static_cast<LONG>(info->time - g_relayInputCutoff);
+        PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_PRE_RELAY_MOUSE_MOVE, lag);
+        g_reportedPreRelayMouseMotion = true;
+      }
+      return 1;
+    }
 
     bool const injected = info->flags & LLMHF_INJECTED;
     if (!g_isPrimary && injected) {
