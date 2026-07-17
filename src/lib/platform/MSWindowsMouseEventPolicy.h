@@ -10,17 +10,18 @@
 
 namespace deskflow::platform {
 
-inline bool shouldDropPreRelayMouseMotion(
-    EHookMode mode, WPARAM message, DWORD eventTime, DWORD relayCutoff, bool hasRelayCutoff
+inline bool shouldDropPreModeMouseMotion(
+    EHookMode mode, WPARAM message, DWORD eventTime, DWORD modeCutoff, bool hasModeCutoff
 )
 {
-  if (mode != kHOOK_RELAY_EVENTS || message != WM_MOUSEMOVE || !hasRelayCutoff) {
+  const bool handlesMouseMotion = mode == kHOOK_WATCH_JUMP_ZONE || mode == kHOOK_RELAY_EVENTS;
+  if (!handlesMouseMotion || message != WM_MOUSEMOVE || !hasModeCutoff) {
     return false;
   }
 
   // Event timestamps and GetTickCount share the Win32 millisecond tick domain.
   // Signed subtraction keeps the comparison valid when the 32-bit counter wraps.
-  return static_cast<LONG>(eventTime - relayCutoff) <= 0;
+  return static_cast<LONG>(eventTime - modeCutoff) <= 0;
 }
 
 } // namespace deskflow::platform

@@ -39,11 +39,9 @@ static BYTE g_keyState[256] = {0};
 static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
-static DWORD g_lastMouseEventTime = 0;
-static DWORD g_relayInputCutoff = 0;
-static bool g_hasLastMouseEventTime = false;
-static bool g_hasRelayInputCutoff = false;
-static bool g_reportedPreRelayMouseMotion = false;
+static DWORD g_mouseModeCutoff = 0;
+static bool g_hasMouseModeCutoff = false;
+static bool g_reportedPreModeMouseMotion = false;
 
 static const char *hookModeToString(EHookMode mode)
 {
@@ -122,11 +120,9 @@ int MSWindowsHook::init(DWORD threadID)
   g_yScreen = 0;
   g_wScreen = 0;
   g_hScreen = 0;
-  g_lastMouseEventTime = 0;
-  g_relayInputCutoff = 0;
-  g_hasLastMouseEventTime = false;
-  g_hasRelayInputCutoff = false;
-  g_reportedPreRelayMouseMotion = false;
+  g_mouseModeCutoff = 0;
+  g_hasMouseModeCutoff = false;
+  g_reportedPreModeMouseMotion = false;
 
   return 1;
 }
@@ -167,16 +163,17 @@ void MSWindowsHook::setMode(EHookMode mode)
   }
   LOG_DEBUG("windows hook mode changed from %s to %s", hookModeToString(g_mode), hookModeToString(mode));
 
-  if (mode == kHOOK_RELAY_EVENTS) {
-    // Low-level hook callbacks for motion that occurred before the screen
-    // switch can arrive after relay mode is enabled. Preserve the newest
-    // observed hook timestamp so those stale events cannot move the cursor
-    // across the newly entered screen.
-    g_relayInputCutoff = g_hasLastMouseEventTime ? g_lastMouseEventTime : GetTickCount();
-    g_hasRelayInputCutoff = true;
-    g_reportedPreRelayMouseMotion = false;
+  if (mode == kHOOK_WATCH_JUMP_ZONE || mode == kHOOK_RELAY_EVENTS) {
+    // Low-level hook callbacks are delivered through the installing thread's
+    // message loop. A callback for motion that predates this mode transition
+    // can therefore run under the new mode and immediately reverse a screen
+    // switch. Use the transition tick, rather than the last observed event,
+    // so every queued pre-transition motion sample is rejected.
+    g_mouseModeCutoff = GetTickCount();
+    g_hasMouseModeCutoff = true;
+    g_reportedPreModeMouseMotion = false;
   } else {
-    g_hasRelayInputCutoff = false;
+    g_hasMouseModeCutoff = false;
   }
 
   g_mode = mode;
@@ -597,16 +594,13 @@ static LRESULT CALLBACK mouseLLHook(int code, WPARAM wParam, LPARAM lParam)
     // decode the message
     MSLLHOOKSTRUCT *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
 
-    g_lastMouseEventTime = info->time;
-    g_hasLastMouseEventTime = true;
-
-    if (deskflow::platform::shouldDropPreRelayMouseMotion(
-            g_mode, wParam, info->time, g_relayInputCutoff, g_hasRelayInputCutoff
+    if (deskflow::platform::shouldDropPreModeMouseMotion(
+            g_mode, wParam, info->time, g_mouseModeCutoff, g_hasMouseModeCutoff
         )) {
-      if (!g_reportedPreRelayMouseMotion) {
-        const auto lag = static_cast<LONG>(info->time - g_relayInputCutoff);
-        PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_PRE_RELAY_MOUSE_MOVE, lag);
-        g_reportedPreRelayMouseMotion = true;
+      if (!g_reportedPreModeMouseMotion) {
+        const auto lag = static_cast<LONG>(info->time - g_mouseModeCutoff);
+        PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE, lag);
+        g_reportedPreModeMouseMotion = true;
       }
       return 1;
     }

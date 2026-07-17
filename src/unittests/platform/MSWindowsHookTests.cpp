@@ -77,13 +77,13 @@ void MSWindowsHookTests::relaySuppression()
   );
 }
 
-void MSWindowsHookTests::preRelayMouseMotion_data()
+void MSWindowsHookTests::preModeMouseMotion_data()
 {
   QTest::addColumn<int>("mode");
   QTest::addColumn<quint64>("message");
   QTest::addColumn<quint64>("eventTime");
-  QTest::addColumn<quint64>("relayCutoff");
-  QTest::addColumn<bool>("hasRelayCutoff");
+  QTest::addColumn<quint64>("modeCutoff");
+  QTest::addColumn<bool>("hasModeCutoff");
   QTest::addColumn<bool>("expected");
 
   QTest::newRow("older relay motion")
@@ -92,8 +92,12 @@ void MSWindowsHookTests::preRelayMouseMotion_data()
       << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1000) << quint64(1000) << true << true;
   QTest::newRow("new relay motion")
       << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1001) << quint64(1000) << true << false;
-  QTest::newRow("local motion")
-      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << false;
+  QTest::newRow("older local motion")
+      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << true;
+  QTest::newRow("new local motion")
+      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(1001) << quint64(1000) << true << false;
+  QTest::newRow("disabled hook")
+      << int(kHOOK_DISABLE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << false;
   QTest::newRow("relay button")
       << int(kHOOK_RELAY_EVENTS) << quint64(WM_LBUTTONDOWN) << quint64(990) << quint64(1000) << true << false;
   QTest::newRow("missing cutoff")
@@ -106,19 +110,19 @@ void MSWindowsHookTests::preRelayMouseMotion_data()
       << false;
 }
 
-void MSWindowsHookTests::preRelayMouseMotion()
+void MSWindowsHookTests::preModeMouseMotion()
 {
   QFETCH(int, mode);
   QFETCH(quint64, message);
   QFETCH(quint64, eventTime);
-  QFETCH(quint64, relayCutoff);
-  QFETCH(bool, hasRelayCutoff);
+  QFETCH(quint64, modeCutoff);
+  QFETCH(bool, hasModeCutoff);
   QFETCH(bool, expected);
 
   QCOMPARE(
-      deskflow::platform::shouldDropPreRelayMouseMotion(
+      deskflow::platform::shouldDropPreModeMouseMotion(
           static_cast<EHookMode>(mode), static_cast<WPARAM>(message), static_cast<DWORD>(eventTime),
-          static_cast<DWORD>(relayCutoff), hasRelayCutoff
+          static_cast<DWORD>(modeCutoff), hasModeCutoff
       ),
       expected
   );

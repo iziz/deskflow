@@ -67,18 +67,15 @@ SwitchBackGuard::UpdateResult SwitchBackGuard::update(const Bounds &bounds, int3
     return result;
   }
 
-  result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
-
-  // A timeout can relax the motion-settling requirement, but it must not
-  // release the guard while the cursor is still able to cross the edge it
-  // just entered. Otherwise a delayed transition sample can switch straight
-  // back and arm the same failure in the opposite direction.
+  // The guard only covers the bounded interval in which transition motion can
+  // still be in flight. Keeping it armed at an edge after that interval makes
+  // a later, intentional reversal indistinguishable from stale input.
   if (now - m_armedAt >= MaximumDuration) {
-    if (result.awayFromBlockedEdge) {
-      result.reason = ReleaseReason::Expired;
-    }
+    result.reason = ReleaseReason::Expired;
     return result;
   }
+
+  result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
 
   const int32_t position = axisPosition(x, y);
   if (resetAfterSampleGap(position, now)) {
