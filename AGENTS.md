@@ -20,8 +20,9 @@
     `/Applications/Deskflow.app`, and restart the app.
   - Windows 11 server PC: sync/build in `Z:\@Development\deskflow`, generate the
     Release MSI, and replace the installed/running binaries.
-  - Windows 11 client PC: sync/build and replace the installed/running binaries
-    after its host, account, and workspace are recorded.
+  - Windows 11 client PC (`ZEN-WINDOWS7`, `192.168.0.4`): sync/build and replace
+    the installed/running binaries after its account, workspace, and remote
+    management access are recorded.
 - If any required validation machine is not reachable or not yet configured,
   report the block explicitly and do not treat the code change as fully
   complete.
@@ -45,3 +46,8 @@
 - Stop the running `/Applications/Deskflow.app` processes before installing; `install-macos-app-fast` refuses to update a running app.
 - Use `cmake --preset macos-release`, then `cmake --build --preset macos-release-gui`, `cmake --build --preset macos-release-core`, and `cmake --build --preset macos-install-app-fast` for the normal local update path when the destination app already has deployed frameworks.
 - Restart `/Applications/Deskflow.app` after installing so the GUI and `deskflow-core` use the rebuilt binaries.
+
+## Windows Client
+
+- The Windows 11 client is `ZEN-WINDOWS7` at `192.168.0.4`.
+- The SSH account, workspace path, and remote management method are not yet configured.

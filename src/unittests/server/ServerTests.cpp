@@ -219,17 +219,22 @@ void ServerTests::switchBackGuard_isPollingRateIndependent()
   QVERIFY(lowRateResult.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
 }
 
-void ServerTests::switchBackGuard_expiresAtBlockedEdge()
+void ServerTests::switchBackGuard_doesNotExpireAtBlockedEdge()
 {
   SwitchBackGuard guard;
   const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
   const auto start = SwitchBackGuard::TimePoint{};
   guard.arm(Direction::Right, 2991, 700, start);
 
-  const auto result = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
+  const auto blocked = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
 
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
+  QVERIFY(!blocked.shouldRelease());
+  QVERIFY(!blocked.awayFromBlockedEdge);
+
+  const auto inward = guard.update(bounds, 2943, 700, start + SwitchBackGuard::MaximumDuration + 1ms);
+  QVERIFY(inward.shouldRelease());
+  QCOMPARE(inward.reason, SwitchBackGuard::ReleaseReason::Expired);
+  QVERIFY(inward.awayFromBlockedEdge);
 }
 
 void ServerTests::switchBackGuard_resetsEvidenceAfterSampleGap()
@@ -276,8 +281,10 @@ void ServerTests::switchBackGuard_sampleGapDoesNotExtendDeadline()
 
   QVERIFY(!guard.update(bounds, 2500, 700, start + 10ms).shouldRelease());
   QVERIFY(!guard.update(bounds, 3007, 700, start + 200ms).shouldRelease());
-  const auto result = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
+  const auto blocked = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
+  QVERIFY(!blocked.shouldRelease());
 
+  const auto result = guard.update(bounds, 2943, 700, start + SwitchBackGuard::MaximumDuration + 1ms);
   QVERIFY(result.shouldRelease());
   QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
 }
@@ -290,8 +297,10 @@ void ServerTests::switchBackGuard_cursorResyncDoesNotExtendDeadline()
   guard.arm(Direction::Left, 16, 700, start);
 
   guard.resynchronize(0, 700, start + 300ms);
-  const auto result = guard.update(bounds, 0, 700, start + SwitchBackGuard::MaximumDuration);
+  const auto blocked = guard.update(bounds, 0, 700, start + SwitchBackGuard::MaximumDuration);
+  QVERIFY(!blocked.shouldRelease());
 
+  const auto result = guard.update(bounds, 64, 700, start + SwitchBackGuard::MaximumDuration + 1ms);
   QVERIFY(result.shouldRelease());
   QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
 }
@@ -307,7 +316,10 @@ void ServerTests::switchBackGuard_separatesDeadlineFromFirstSample()
   QVERIFY(!motion.shouldRelease());
   QVERIFY(motion.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
 
-  const auto expired = guard.update(bounds, 3000, 700, start + SwitchBackGuard::MaximumDuration);
+  const auto blocked = guard.update(bounds, 3000, 700, start + SwitchBackGuard::MaximumDuration);
+  QVERIFY(!blocked.shouldRelease());
+
+  const auto expired = guard.update(bounds, 2943, 700, start + SwitchBackGuard::MaximumDuration + 1ms);
   QVERIFY(expired.shouldRelease());
   QCOMPARE(expired.reason, SwitchBackGuard::ReleaseReason::Expired);
 }

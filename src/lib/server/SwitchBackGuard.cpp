@@ -67,16 +67,21 @@ SwitchBackGuard::UpdateResult SwitchBackGuard::update(const Bounds &bounds, int3
     return result;
   }
 
-  // This guard only protects the transition's residual-motion window. Input
-  // stalls and cursor resynchronization must never extend that window.
+  result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
+
+  // A timeout can relax the motion-settling requirement, but it must not
+  // release the guard while the cursor is still able to cross the edge it
+  // just entered. Otherwise a delayed transition sample can switch straight
+  // back and arm the same failure in the opposite direction.
   if (now - m_armedAt >= MaximumDuration) {
-    result.reason = ReleaseReason::Expired;
+    if (result.awayFromBlockedEdge) {
+      result.reason = ReleaseReason::Expired;
+    }
     return result;
   }
 
   const int32_t position = axisPosition(x, y);
   if (resetAfterSampleGap(position, now)) {
-    result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
     if (result.awayFromBlockedEdge) {
       m_awaySince = now;
     }
@@ -90,7 +95,6 @@ SwitchBackGuard::UpdateResult SwitchBackGuard::update(const Bounds &bounds, int3
   const double windowTowardVelocity = towardVelocity(m_samples.front(), m_samples.back());
   result.towardVelocity = std::max(instantaneousTowardVelocity, windowTowardVelocity);
 
-  result.awayFromBlockedEdge = isAwayFromBlockedEdge(bounds, x, y);
   if (!result.awayFromBlockedEdge) {
     m_awaySince.reset();
     return result;

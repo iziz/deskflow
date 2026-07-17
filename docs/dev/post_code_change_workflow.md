@@ -21,7 +21,7 @@ do not describe the code change as fully complete.
 | --- | --- | --- | --- | --- |
 | Local macOS | Local validation | This computer | `/Volumes/AI.DEV/@Dev/deskflow` | Build `macos-release`, install `/Applications/Deskflow.app`, restart Deskflow |
 | Windows 11 server PC | Server validation | `deskflow-server` (`192.168.0.5`) | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
-| Windows 11 client PC | Client validation | Pending | Pending | Sync, build, replace binaries |
+| Windows 11 client PC | Client validation | `ZEN-WINDOWS7` (`192.168.0.4`) | Pending | Configure remote access, then sync, build, and replace binaries |
 
 Update this table and `AGENTS.md` as soon as the Windows client PC connection
 details are known.
@@ -91,8 +91,9 @@ The Windows 11 client PC must follow the same principles as the server PC:
 - Stop existing Deskflow processes before replacing binaries.
 - Restart Deskflow after replacement.
 
-The exact host, account, workspace, and replacement command are pending and must
-be recorded before this step can be automated.
+The host is `ZEN-WINDOWS7` (`192.168.0.4`). The account, workspace, remote
+management method, and replacement command are pending and must be recorded
+before this step can be automated.
 
 ## Git Requirements
 
