@@ -11,10 +11,8 @@
 #include "server/EdgeSwitchGeometry.h"
 #include "server/EdgeSwitchTypes.h"
 #include "server/Server.h"
-#include "server/SwitchBackGuard.h"
 
 #include <array>
-#include <chrono>
 #include <string>
 #include <string_view>
 
@@ -34,13 +32,11 @@ using deskflow::server::observeConfiguredPhysicalCandidate;
 using deskflow::server::observeConnectedPhysicalCandidateAtPosition;
 using deskflow::server::PendingClipboardPublication;
 using deskflow::server::shouldCacheNeighborMiss;
-using deskflow::server::SwitchBackGuard;
 using deskflow::server::SwitchPolicyCondition;
 using deskflow::server::switchPolicyConditionKeywords;
 using deskflow::server::SwitchPolicyDecision;
 using deskflow::server::switchPolicyDecisionKeyword;
 using deskflow::server::SwitchPolicyResult;
-using namespace std::chrono_literals;
 
 void ServerTests::SwitchToScreenInfo_alloc_screen()
 {
@@ -140,174 +136,6 @@ void ServerTests::pendingClipboardPublication_cancellationPreventsLateCommit()
   publication.cancel(17);
   QVERIFY(!publication.resolve(kClipboardClipboard, 381).has_value());
   QVERIFY(publication.begin(kClipboardClipboard, 382, 18));
-}
-
-void ServerTests::switchBackGuard_releasesNearPerpendicularEdge()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 0, start);
-
-  QVERIFY(!guard.update(bounds, 2940, 0, start + 10ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2900, 0, start + 50ms).shouldRelease());
-  const auto result = guard.update(bounds, 2860, 0, start + 90ms);
-
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::MotionSettled);
-}
-
-void ServerTests::switchBackGuard_blocksFastDirectionReversal()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!guard.update(bounds, 2800, 700, start + 10ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2300, 700, start + 60ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2400, 700, start + 70ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2500, 700, start + 80ms).shouldRelease());
-  const auto result = guard.update(bounds, 2600, 700, start + 90ms);
-
-  QVERIFY(!result.shouldRelease());
-  QVERIFY(result.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
-}
-
-void ServerTests::switchBackGuard_releasesSlowDirectionReversal()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!guard.update(bounds, 2800, 700, start + 10ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2300, 700, start + 60ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2200, 700, start + 70ms).shouldRelease());
-  const auto result = guard.update(bounds, 2202, 700, start + 90ms);
-
-  QVERIFY(result.shouldRelease());
-  QVERIFY(result.towardVelocity <= SwitchBackGuard::MaximumTowardVelocity);
-}
-
-void ServerTests::switchBackGuard_isPollingRateIndependent()
-{
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  SwitchBackGuard highRate;
-  SwitchBackGuard lowRate;
-  highRate.arm(Direction::Right, 2991, 700, start);
-  lowRate.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!highRate.update(bounds, 2800, 700, start + 10ms).shouldRelease());
-  QVERIFY(!highRate.update(bounds, 2300, 700, start + 60ms).shouldRelease());
-  SwitchBackGuard::UpdateResult highRateResult;
-  for (int i = 1; i <= 30; ++i) {
-    highRateResult = highRate.update(bounds, 2300 + i, 700, start + 60ms + std::chrono::milliseconds(i));
-    QVERIFY(!highRateResult.shouldRelease());
-  }
-
-  QVERIFY(!lowRate.update(bounds, 2800, 700, start + 10ms).shouldRelease());
-  QVERIFY(!lowRate.update(bounds, 2300, 700, start + 60ms).shouldRelease());
-  SwitchBackGuard::UpdateResult lowRateResult;
-  for (int i = 1; i <= 4; ++i) {
-    lowRateResult = lowRate.update(bounds, 2300 + (8 * i), 700, start + 60ms + std::chrono::milliseconds(8 * i));
-    QVERIFY(!lowRateResult.shouldRelease());
-  }
-
-  QVERIFY(highRateResult.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
-  QVERIFY(lowRateResult.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
-}
-
-void ServerTests::switchBackGuard_expiresAtBlockedEdge()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  const auto result = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
-
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
-}
-
-void ServerTests::switchBackGuard_resetsEvidenceAfterSampleGap()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!guard.update(bounds, 2600, 700, start + 10ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 2500, 700, start + 50ms).shouldRelease());
-
-  const auto firstAfterGap = guard.update(bounds, 2600, 700, start + 160ms);
-  QVERIFY(!firstAfterGap.shouldRelease());
-  QCOMPARE(firstAfterGap.awayDuration, 0ms);
-
-  QVERIFY(!guard.update(bounds, 2650, 700, start + 210ms).shouldRelease());
-  const auto settled = guard.update(bounds, 2650, 700, start + 280ms);
-  QVERIFY(settled.shouldRelease());
-  QCOMPARE(settled.reason, SwitchBackGuard::ReleaseReason::MotionSettled);
-}
-
-void ServerTests::switchBackGuard_resetsEvidenceAfterCursorResync()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!guard.update(bounds, 2500, 700, start + 10ms).shouldRelease());
-  guard.resynchronize(1500, 700, start + 70ms);
-
-  const auto firstAfterResync = guard.update(bounds, 1501, 700, start + 80ms);
-  QVERIFY(!firstAfterResync.shouldRelease());
-  QCOMPARE(firstAfterResync.awayDuration, 0ms);
-}
-
-void ServerTests::switchBackGuard_sampleGapDoesNotExtendDeadline()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start);
-
-  QVERIFY(!guard.update(bounds, 2500, 700, start + 10ms).shouldRelease());
-  QVERIFY(!guard.update(bounds, 3007, 700, start + 200ms).shouldRelease());
-  const auto result = guard.update(bounds, 3007, 700, start + SwitchBackGuard::MaximumDuration);
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
-}
-
-void ServerTests::switchBackGuard_cursorResyncDoesNotExtendDeadline()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Left, 16, 700, start);
-
-  guard.resynchronize(0, 700, start + 300ms);
-  const auto result = guard.update(bounds, 0, 700, start + SwitchBackGuard::MaximumDuration);
-  QVERIFY(result.shouldRelease());
-  QCOMPARE(result.reason, SwitchBackGuard::ReleaseReason::Expired);
-}
-
-void ServerTests::switchBackGuard_separatesDeadlineFromFirstSample()
-{
-  SwitchBackGuard guard;
-  const SwitchBackGuard::Bounds bounds{0, 0, 3008, 1692};
-  const auto start = SwitchBackGuard::TimePoint{};
-  guard.arm(Direction::Right, 2991, 700, start, start + 300ms);
-
-  const auto motion = guard.update(bounds, 3000, 700, start + 310ms);
-  QVERIFY(!motion.shouldRelease());
-  QVERIFY(motion.towardVelocity > SwitchBackGuard::MaximumTowardVelocity);
-
-  const auto expired = guard.update(bounds, 3000, 700, start + SwitchBackGuard::MaximumDuration);
-  QVERIFY(expired.shouldRelease());
-  QCOMPARE(expired.reason, SwitchBackGuard::ReleaseReason::Expired);
 }
 
 void ServerTests::edgeSwitchProbe_preservesHorizontalOvershoot()
@@ -458,20 +286,13 @@ void ServerTests::switchPolicy_classifiesConditionsAndKeywords()
       TestCase{SwitchPolicyCondition::DoubleTapPending, SwitchPolicyDecision::Deferred, "double-tap-pending"},
       TestCase{SwitchPolicyCondition::WaitDelayPending, SwitchPolicyDecision::Deferred, "wait-delay-pending"},
       TestCase{pending, SwitchPolicyDecision::Deferred, "double-tap-pending,wait-delay-pending"},
-      TestCase{SwitchPolicyCondition::TransitionGuard, SwitchPolicyDecision::Blocked, "transition-guard"},
       TestCase{SwitchPolicyCondition::LockedCorner, SwitchPolicyDecision::Blocked, "locked-corner"},
       TestCase{SwitchPolicyCondition::LockedToScreen, SwitchPolicyDecision::Blocked, "locked-to-screen"},
       TestCase{
-          SwitchPolicyCondition::TransitionGuard | SwitchPolicyCondition::WaitDelayPending,
+          SwitchPolicyCondition::DoubleTapPending | SwitchPolicyCondition::WaitDelayPending |
+              SwitchPolicyCondition::LockedCorner | SwitchPolicyCondition::LockedToScreen,
           SwitchPolicyDecision::Blocked,
-          "transition-guard,wait-delay-pending",
-      },
-      TestCase{
-          SwitchPolicyCondition::TransitionGuard | SwitchPolicyCondition::DoubleTapPending |
-              SwitchPolicyCondition::WaitDelayPending | SwitchPolicyCondition::LockedCorner |
-              SwitchPolicyCondition::LockedToScreen,
-          SwitchPolicyDecision::Blocked,
-          "transition-guard,double-tap-pending,wait-delay-pending,locked-corner,locked-to-screen",
+          "double-tap-pending,wait-delay-pending,locked-corner,locked-to-screen",
       },
   };
 

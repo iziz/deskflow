@@ -99,8 +99,7 @@ std::string_view neighborMapStatusKeyword(NeighborMapStatus status)
 
 SwitchPolicyDecision classifySwitchPolicy(SwitchPolicyCondition conditions)
 {
-  constexpr auto terminalConditions = SwitchPolicyCondition::TransitionGuard | SwitchPolicyCondition::LockedCorner |
-                                      SwitchPolicyCondition::LockedToScreen;
+  constexpr auto terminalConditions = SwitchPolicyCondition::LockedCorner | SwitchPolicyCondition::LockedToScreen;
   if ((static_cast<uint8_t>(conditions) & static_cast<uint8_t>(terminalConditions)) != 0) {
     return SwitchPolicyDecision::Blocked;
   }
@@ -136,7 +135,6 @@ std::string switchPolicyConditionKeywords(SwitchPolicyCondition conditions)
   }
 
   constexpr std::array entries = {
-      std::pair{SwitchPolicyCondition::TransitionGuard, std::string_view{"transition-guard"}},
       std::pair{SwitchPolicyCondition::DoubleTapPending, std::string_view{"double-tap-pending"}},
       std::pair{SwitchPolicyCondition::WaitDelayPending, std::string_view{"wait-delay-pending"}},
       std::pair{SwitchPolicyCondition::LockedCorner, std::string_view{"locked-corner"}},

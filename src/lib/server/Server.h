@@ -18,7 +18,6 @@
 #include "server/ClipboardPublicationAuthority.h"
 #include "server/Config.h"
 #include "server/EdgeSwitchTypes.h"
-#include "server/SwitchBackGuard.h"
 
 #include <climits>
 #include <map>
@@ -231,14 +230,6 @@ private:
   // change the active screen
   void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver, const char *reason);
 
-  void startSwitchBackGuard(
-      BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection,
-      deskflow::server::SwitchBackGuard::TimePoint transitionStartedAt
-  );
-  void updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y);
-  void clearSwitchBackGuard();
-  bool isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const;
-
   void startNoNeighborEdgeGuard(BaseClientProxy *screen, Direction blockedDirection);
   void updateNoNeighborEdgeGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y);
   void clearNoNeighborEdgeGuard();
@@ -433,9 +424,6 @@ private:
   BaseClientProxy *m_activeSaver = nullptr;
 
   BaseClientProxy *m_switchScreen = nullptr;
-  BaseClientProxy *m_switchBackGuardScreen = nullptr;
-  BaseClientProxy *m_switchBackGuardTarget = nullptr;
-  deskflow::server::SwitchBackGuard m_switchBackGuard;
   BaseClientProxy *m_noNeighborEdgeGuardScreen = nullptr;
   double m_switchWaitDelay = 0.0;
   EventQueueTimer *m_switchWaitTimer = nullptr;

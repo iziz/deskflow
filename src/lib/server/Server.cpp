@@ -55,29 +55,6 @@ bool shouldLogMouseMotion()
   return true;
 }
 
-Direction oppositeDirection(Direction direction)
-{
-  switch (direction) {
-    using enum Direction;
-  case Left:
-    return Right;
-
-  case Right:
-    return Left;
-
-  case Top:
-    return Bottom;
-
-  case Bottom:
-    return Top;
-
-  case NoDirection:
-    return NoDirection;
-  }
-
-  return Direction::NoDirection;
-}
-
 bool containsPhysicalPosition(float start, float length, float position)
 {
   return position >= start && position < start + length;
@@ -312,7 +289,6 @@ bool Server::setConfig(const ServerConfig &config)
   // close clients that are connected but being dropped from the
   // configuration.
   closeClients(config);
-  clearSwitchBackGuard();
   clearNoNeighborEdgeGuard();
 
   // cut over
@@ -628,66 +604,6 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
   } else {
     m_active->mouseMove(x, y);
   }
-}
-
-void Server::startSwitchBackGuard(
-    BaseClientProxy *screen, BaseClientProxy *blockedTarget, Direction blockedDirection,
-    SwitchBackGuard::TimePoint transitionStartedAt
-)
-{
-  if (screen == nullptr || blockedTarget == nullptr || blockedDirection == Direction::NoDirection) {
-    clearSwitchBackGuard();
-    return;
-  }
-
-  m_switchBackGuardScreen = screen;
-  m_switchBackGuardTarget = blockedTarget;
-  m_switchBackGuard.arm(blockedDirection, m_x, m_y, transitionStartedAt, SwitchBackGuard::Clock::now());
-  clearNoNeighborEdgeGuard();
-}
-
-void Server::updateSwitchBackGuard(int32_t ax, int32_t ay, int32_t aw, int32_t ah, int32_t x, int32_t y)
-{
-  if (m_switchBackGuardScreen == nullptr) {
-    return;
-  }
-
-  if (m_active != m_switchBackGuardScreen) {
-    clearSwitchBackGuard();
-    return;
-  }
-
-  if (!m_switchBackGuard.isArmed()) {
-    clearSwitchBackGuard();
-    return;
-  }
-
-  const auto result = m_switchBackGuard.update({ax, ay, aw, ah}, x, y);
-  if (!result.shouldRelease()) {
-    return;
-  }
-
-  LOG_DEBUG(
-      "released switch-back guard on \"%s\" away from \"%s\" on %s: reason=%s cursor=%d,%d bounds=%d,%d %dx%d "
-      "toward-velocity=%.1fpx/s away=%lldms",
-      getName(m_switchBackGuardScreen).c_str(), getName(m_switchBackGuardTarget).c_str(),
-      Config::dirName(m_switchBackGuard.direction()), SwitchBackGuard::releaseReasonName(result.reason), x, y, ax, ay,
-      aw, ah, result.towardVelocity, static_cast<long long>(result.awayDuration.count())
-  );
-  clearSwitchBackGuard();
-}
-
-void Server::clearSwitchBackGuard()
-{
-  m_switchBackGuardScreen = nullptr;
-  m_switchBackGuardTarget = nullptr;
-  m_switchBackGuard.clear();
-}
-
-bool Server::isSwitchBackGuardBlocked(BaseClientProxy *newScreen, Direction dir) const
-{
-  return m_switchBackGuardScreen != nullptr && m_active == m_switchBackGuardScreen &&
-         newScreen == m_switchBackGuardTarget && dir == m_switchBackGuard.direction();
 }
 
 void Server::startNoNeighborEdgeGuard(BaseClientProxy *screen, Direction blockedDirection)
@@ -1313,16 +1229,6 @@ SwitchPolicyResult Server::applySwitchPolicy(
     return result;
   };
 
-  if (isSwitchBackGuardBlocked(newScreen, dir)) {
-    LOG_DEBUG(
-        "blocked immediate switch back from \"%s\" to \"%s\" on %s: delta=%+d,%+d previous=%+d,%+d",
-        getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_xDelta, m_yDelta, m_xDelta2,
-        m_yDelta2
-    );
-    stopSwitch();
-    return finish(SwitchPolicyCondition::TransitionGuard);
-  }
-
   // should we switch or not?
   bool preventSwitch = false;
   bool allowSwitch = false;
@@ -1720,7 +1626,6 @@ void Server::syncClientCursorPosition(BaseClientProxy *client, const char *reaso
     // A client cursor report starts a new motion epoch. Pending edge intent
     // belongs to the old coordinate stream and must not survive the resync.
     stopSwitch();
-    m_switchBackGuard.resynchronize(x, y);
     clearNoNeighborEdgeGuard();
     m_x = x;
     m_y = y;
@@ -1891,13 +1796,7 @@ void Server::handleSwitchWaitTimeout()
   }
 
   BaseClientProxy *newScreen = m_switchScreen;
-  BaseClientProxy *previousScreen = m_active;
-  const Direction switchDirection = m_switchDir;
-  const auto transitionStartedAt = SwitchBackGuard::Clock::now();
   switchScreen(newScreen, m_switchWaitX, m_switchWaitY, false, "switch-wait-timeout");
-  if (m_active == newScreen && previousScreen != newScreen) {
-    startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDirection), transitionStartedAt);
-  }
 }
 
 void Server::handleClientDisconnected(BaseClientProxy *client)
@@ -2420,7 +2319,6 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   int32_t ah;
   m_active->getShape(ax, ay, aw, ah);
   int32_t zoneSize = getJumpZoneSize(m_active);
-  updateSwitchBackGuard(ax, ay, aw, ah, m_x, m_y);
   updateNoNeighborEdgeGuard(ax, ay, aw, ah, m_x, m_y);
 
   // clamp position to screen
@@ -2497,12 +2395,7 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
       );
 
       // switch screen
-      BaseClientProxy *previousScreen = m_active;
-      const auto transitionStartedAt = SwitchBackGuard::Clock::now();
       switchScreen(mapping.target(), mapping.position().x, mapping.position().y, false, "primary-edge-motion");
-      if (m_active == mapping.target() && previousScreen != mapping.target()) {
-        startSwitchBackGuard(mapping.target(), previousScreen, oppositeDirection(dir), transitionStartedAt);
-      }
       return true;
     }
   }
@@ -2570,7 +2463,6 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   int32_t aw;
   int32_t ah;
   m_active->getShape(ax, ay, aw, ah);
-  updateSwitchBackGuard(ax, ay, aw, ah, m_x, m_y);
   updateNoNeighborEdgeGuard(ax, ay, aw, ah, m_x, m_y);
 
   // Find horizontal and vertical candidates independently so a corner miss on
@@ -2663,12 +2555,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     );
 
     // switch screens
-    BaseClientProxy *previousScreen = m_active;
-    const auto transitionStartedAt = SwitchBackGuard::Clock::now();
     switchScreen(newScreen, newX, newY, false, "secondary-edge-motion");
-    if (m_active == newScreen && previousScreen != newScreen) {
-      startSwitchBackGuard(newScreen, previousScreen, oppositeDirection(switchDir), transitionStartedAt);
-    }
   } else {
     // same screen.  clamp mouse to edge.
     const int32_t requestedX = xOld + dx;
@@ -2761,9 +2648,6 @@ bool Server::removeClient(BaseClientProxy *client)
     return false;
   }
 
-  if (client == m_switchBackGuardScreen || client == m_switchBackGuardTarget) {
-    clearSwitchBackGuard();
-  }
   if (client == m_noNeighborEdgeGuardScreen) {
     clearNoNeighborEdgeGuard();
   }

@@ -52,8 +52,6 @@ add_library(server STATIC
   PrimaryClient.h
   Server.cpp
   Server.h
-  SwitchBackGuard.cpp
-  SwitchBackGuard.h
 )
 
 target_link_libraries(server PUBLIC common)

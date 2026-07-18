@@ -91,11 +91,10 @@ enum class SwitchPolicyDecision : uint8_t
 enum class SwitchPolicyCondition : uint8_t
 {
   None = 0,
-  TransitionGuard = 1u << 0,
-  DoubleTapPending = 1u << 1,
-  WaitDelayPending = 1u << 2,
-  LockedCorner = 1u << 3,
-  LockedToScreen = 1u << 4
+  DoubleTapPending = 1u << 0,
+  WaitDelayPending = 1u << 1,
+  LockedCorner = 1u << 2,
+  LockedToScreen = 1u << 3
 };
 
 constexpr SwitchPolicyCondition operator|(SwitchPolicyCondition lhs, SwitchPolicyCondition rhs)
