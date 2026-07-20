@@ -258,9 +258,11 @@ bool Client::leave()
   m_screen->leave();
 
   if (m_enableClipboard) {
-    // send clipboards that we own and that have changed
+    // Capture a clipboard generation that changed while this screen was
+    // active even if its queued grab event has not been dispatched yet.
     for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-      if (m_clipboards.ownsClipboard(id)) {
+      const auto sequence = static_cast<IClipboard::Time>(m_screen->clipboardSequence(id));
+      if (m_clipboards.shouldCaptureOnLeave(id, sequence)) {
         sendClipboard(id);
       }
     }

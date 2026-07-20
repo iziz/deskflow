@@ -99,10 +99,8 @@ OSXClipboard::OSXClipboard() : m_time(0), m_pboard(nullptr)
     return;
   }
 
-  OSStatus syncErr = PasteboardSynchronize(m_pboard);
-  if (syncErr != noErr) {
-    LOG_WARN("failed to syncronize clipboard: error %i", syncErr);
-  }
+  const PasteboardSyncFlags syncFlags = PasteboardSynchronize(m_pboard);
+  LOG_VERBOSE("initial pasteboard synchronization flags: %x", syncFlags);
 }
 
 OSXClipboard::~OSXClipboard()

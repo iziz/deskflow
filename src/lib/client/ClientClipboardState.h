@@ -39,6 +39,7 @@ public:
 
   bool isRemoteRevisionStale(ClipboardID id, uint32_t revision) const;
   bool shouldIgnoreGrabbedClipboard(ClipboardID id, const std::string &data) const;
+  bool shouldCaptureOnLeave(ClipboardID id, IClipboard::Time observedTime) const;
 
   void markServerClipboardGrabbed(ClipboardID id);
   void markRemoteClipboardApplied(ClipboardID id, uint32_t revision, std::string data);

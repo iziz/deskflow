@@ -50,6 +50,16 @@ bool ClientClipboardState::shouldIgnoreGrabbedClipboard(ClipboardID id, const st
   return clipboard.cacheState != CacheState::Empty && data == clipboard.data;
 }
 
+bool ClientClipboardState::shouldCaptureOnLeave(ClipboardID id, IClipboard::Time observedTime) const
+{
+  if (!isValidId(id)) {
+    return false;
+  }
+
+  const auto &clipboard = m_clipboards[id];
+  return clipboard.owns || (observedTime != 0 && observedTime != clipboard.time);
+}
+
 void ClientClipboardState::markServerClipboardGrabbed(ClipboardID id)
 {
   if (!isValidId(id)) {
