@@ -189,6 +189,8 @@ void MSWindowsScreen::enable()
   m_events->addHandler(EventTypes::Timer, m_fixTimer, [this](const auto &) { handleFixes(); });
 
   // install our clipboard snooper
+  m_clipboardSequenceNumber = GetClipboardSequenceNumber();
+  m_ownClipboard = MSWindowsClipboard::isOwnedByDeskflow();
   if (!AddClipboardFormatListener(m_window)) {
     LOG_WARN("failed to add the clipboard format listener: %d", GetLastError());
   }
@@ -349,22 +351,16 @@ bool MSWindowsScreen::setClipboard(ClipboardID, const IClipboard *src)
 
 void MSWindowsScreen::checkClipboards()
 {
-  // if we think we own the clipboard but we don't then somebody
-  // grabbed the clipboard on this screen without us knowing.
-  // tell the server that this screen grabbed the clipboard.
-  //
-  // this works around bugs in the clipboard viewer chain.
-  // sometimes NT will simply never send WM_DRAWCLIPBOARD
-  // messages for no apparent reason and rebooting fixes the
-  // problem.  since we don't want a broken clipboard until the
-  // next reboot we do this double check.  clipboard ownership
-  // won't be reflected on other screens until we leave but at
-  // least the clipboard itself will work.
-  if (m_ownClipboard && !MSWindowsClipboard::isOwnedByDeskflow()) {
-    LOG_DEBUG("clipboard changed: lost ownership and no notification received");
-    m_ownClipboard = false;
-    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
-    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
+  // Poll the sequence number as a fallback for missed WM_CLIPBOARDUPDATE
+  // notifications. Ownership alone cannot detect repeated local changes.
+  const auto sequenceNumber = GetClipboardSequenceNumber();
+  if (sequenceNumber != 0 && sequenceNumber != m_clipboardSequenceNumber) {
+    LOG_DEBUG(
+        "clipboard changed: sequence number %lu, current %lu, no notification received", sequenceNumber,
+        m_clipboardSequenceNumber
+    );
+    m_clipboardSequenceNumber = sequenceNumber;
+    onClipboardChange();
   }
 }
 
@@ -633,9 +629,8 @@ uint32_t MSWindowsScreen::registerHotKey(KeyID key, KeyModifierMask mask)
   }
 
   LOG_DEBUG(
-      "registered hotkey %s (id=%04x mask=%04x) as id=%d via %s",
-      deskflow::KeyMap::formatKey(key, mask).c_str(), key, mask, id,
-      registerWithWindows ? "Windows" : "keyboard hook"
+      "registered hotkey %s (id=%04x mask=%04x) as id=%d via %s", deskflow::KeyMap::formatKey(key, mask).c_str(), key,
+      mask, id, registerWithWindows ? "Windows" : "keyboard hook"
   );
   return id;
 }
@@ -899,9 +894,7 @@ bool MSWindowsScreen::onPreDispatch(HWND hwnd, UINT message, WPARAM wParam, LPAR
     if (wParam == DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE) {
       LOG_DEBUG("dropped pre-mode mouse motion: event lag=%ldms", static_cast<LONG>(lParam));
     } else if (wParam == DESKFLOW_HOOK_DEBUG_LOCAL_KEY_RESTORE) {
-      LOG_DEBUG(
-          "passed local key restore through hook: vk=0x%02x flags=0x%02x", LOWORD(lParam), HIWORD(lParam)
-      );
+      LOG_DEBUG("passed local key restore through hook: vk=0x%02x flags=0x%02x", LOWORD(lParam), HIWORD(lParam));
     } else {
       LOG_VERBOSE("hook: 0x%08x 0x%08x", wParam, lParam);
     }
@@ -1410,12 +1403,10 @@ void MSWindowsScreen::onClipboardChange()
   // now notify client that somebody changed the clipboard (unless
   // we're the owner).
   if (!MSWindowsClipboard::isOwnedByDeskflow()) {
-    if (m_ownClipboard) {
-      LOG_DEBUG("clipboard changed: lost ownership");
-      m_ownClipboard = false;
-      sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
-      sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
-    }
+    LOG_DEBUG("clipboard changed: local application owns clipboard");
+    m_ownClipboard = false;
+    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
+    sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);
   } else if (!m_ownClipboard) {
     LOG_DEBUG("clipboard changed: %s owned", kAppId);
     m_ownClipboard = true;
@@ -1748,9 +1739,8 @@ LRESULT CALLBACK MSWindowsScreen::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 
 void MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
 {
-  auto input = makeWindowsKeyInput(
-      m_keyState->mapButtonToVirtualKey(button), button, press, kWindowsLocalKeyRestoreExtraInfo
-  );
+  auto input =
+      makeWindowsKeyInput(m_keyState->mapButtonToVirtualKey(button), button, press, kWindowsLocalKeyRestoreExtraInfo);
   if (SendInput(1, &input, sizeof(input)) != 1) {
     LOG_WARN("failed to restore local key state for button %d: %lu", button, GetLastError());
   }

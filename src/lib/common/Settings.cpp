@@ -19,6 +19,10 @@
 
 namespace {
 
+constexpr uint kDefaultClipboardSizeMiB = 64;
+constexpr uint kLegacyDefaultClipboardSizeMiB = 3;
+constexpr uint kClipboardSizeLimitVersion = 2;
+
 #if defined(Q_OS_WIN)
 bool isDaemonApp()
 {
@@ -176,6 +180,15 @@ void Settings::upgradeSettings()
       m_settings->setValue(newKey, m_settings->value(oldKey));
     }
   }
+
+  const auto clipboardLimitVersion = m_settings->value(InternalConfig::ClipboardSizeLimitVersion, 0).toUInt();
+  if (clipboardLimitVersion < kClipboardSizeLimitVersion) {
+    if (!m_settings->contains(Server::ClipboardSize) ||
+        m_settings->value(Server::ClipboardSize).toUInt() == kLegacyDefaultClipboardSizeMiB) {
+      m_settings->setValue(Server::ClipboardSize, kDefaultClipboardSizeMiB);
+    }
+    m_settings->setValue(InternalConfig::ClipboardSizeLimitVersion, kClipboardSizeLimitVersion);
+  }
 }
 
 void Settings::cleanSettings()
@@ -294,7 +307,7 @@ QVariant Settings::defaultValue(const QString &key)
     return 250;
 
   if (key == Server::ClipboardSize)
-    return 3; // 3 MiB
+    return kDefaultClipboardSizeMiB;
 
   return QVariant();
 }

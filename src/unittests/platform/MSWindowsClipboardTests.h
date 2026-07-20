@@ -34,6 +34,9 @@ private Q_SLOTS:
   void bitmapConverter_acceptsCompleteDibFromIClipboard();
   void bitmapConverter_normalizesMacOsBitmapV5DibFromIClipboard();
   void bitmapConverter_rejectsTruncatedDibToIClipboard();
+  void bitmapConverter_normalizesBitmapV5DibToIClipboard();
+  void bitmapConverter_trimsTrailingBytesToIClipboard();
+  void bitmapConverter_supportsDibV5ClipboardFormat();
 
 private:
   Log m_log;

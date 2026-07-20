@@ -9,6 +9,7 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/ClipboardWireCodec.h"
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
 #include "server/Server.h"
@@ -58,14 +59,30 @@ void ClientProxy1_9::setClipboard(ClipboardID id, const IClipboard *clipboard, u
     return;
   }
 
-  m_clipboard[id].m_dirty = false;
   Clipboard::copy(&m_clipboard[id].m_clipboard, clipboard);
-  auto data = m_clipboard[id].m_clipboard.marshall();
-  if (data.size() <= sizeof(uint32_t)) {
+  auto clipboardData = m_clipboard[id].m_clipboard.marshall();
+  if (clipboardData.size() <= sizeof(uint32_t)) {
+    m_clipboard[id].m_dirty = false;
     LOG_DEBUG("skipping clipboard %u transfer to \"%s\" because it has no supported formats", id, getName().c_str());
     return;
   }
-  sendActions(m_outgoing.queue(id, revision, std::move(data), true));
+
+  const auto logicalSize = clipboardData.size();
+  auto wireData = deskflow::encodeClipboardWirePayload(std::move(clipboardData), m_clipboardCompression);
+  if (wireData.size() > m_server->getMaximumClipboardSizeBytes()) {
+    LOG_WARN(
+        "not sending clipboard %u to \"%s\" because wire size=%zu exceeds limit=%zu", id, getName().c_str(),
+        wireData.size(), m_server->getMaximumClipboardSizeBytes()
+    );
+    return;
+  }
+
+  m_clipboard[id].m_dirty = false;
+  LOG_DEBUG(
+      "prepared clipboard %u for \"%s\", logical_size=%zu wire_size=%zu compressed=%s", id, getName().c_str(),
+      logicalSize, wireData.size(), wireData.size() < logicalSize ? "true" : "false"
+  );
+  sendActions(m_outgoing.queue(id, revision, std::move(wireData), true));
 }
 
 void ClientProxy1_9::grabClipboard(ClipboardID id)
@@ -74,17 +91,15 @@ void ClientProxy1_9::grabClipboard(ClipboardID id)
   ClientProxy1_8::grabClipboard(id);
 }
 
-void ClientProxy1_9::supersedeClipboardTransfers(
-    ClipboardID id, std::optional<uint32_t> preserveIncomingSequence
-)
+void ClientProxy1_9::supersedeClipboardTransfers(ClipboardID id, std::optional<uint32_t> preserveIncomingSequence)
 {
   sendActions(m_outgoing.supersede(id));
 
   if (m_incoming.active() && m_incoming.clipboardId() == id) {
     if (preserveIncomingSequence.has_value() && m_incoming.matches(id, *preserveIncomingSequence)) {
       LOG_DEBUG(
-          "preserving clipboard transfer %u from \"%s\" for matching ownership sequence %u",
-          m_incoming.transferId(), getName().c_str(), *preserveIncomingSequence
+          "preserving clipboard transfer %u from \"%s\" for matching ownership sequence %u", m_incoming.transferId(),
+          getName().c_str(), *preserveIncomingSequence
       );
       return;
     }
@@ -218,6 +233,11 @@ void ClientProxy1_9::resumeClipboardTransport()
   if (clipboardStream() != nullptr) {
     sendActions(m_outgoing.transportReady());
   }
+}
+
+void ClientProxy1_9::enableClipboardCompression()
+{
+  m_clipboardCompression = true;
 }
 
 void ClientProxy1_9::onClipboardStreamDisconnected()
@@ -558,8 +578,17 @@ bool ClientProxy1_9::recvClipboardTransfer()
     clearIncomingTimer();
     restoreIncomingHeartbeat();
     try {
+      auto decoded = deskflow::decodeClipboardWirePayload(
+          m_incoming.data(), m_clipboardCompression, m_server->getMaximumClipboardSizeBytes()
+      );
+      if (!decoded.valid) {
+        m_incoming.reset();
+        m_incomingProgress = 0;
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return true;
+      }
       Clipboard clipboard;
-      if (!clipboard.unmarshall(m_incoming.data(), 0)) {
+      if (!clipboard.unmarshall(decoded.data, 0)) {
         m_incoming.reset();
         m_incomingProgress = 0;
         sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
@@ -572,6 +601,10 @@ bool ClientProxy1_9::recvClipboardTransfer()
         return true;
       }
       Clipboard::copy(&m_clipboard[id].m_clipboard, &clipboard);
+      LOG_DEBUG(
+          "decoded clipboard transfer %u from \"%s\", logical_size=%zu wire_size=%zu compressed=%s", transferId,
+          getName().c_str(), decoded.data.size(), m_incoming.data().size(), decoded.compressed ? "true" : "false"
+      );
     } catch (...) {
       m_incoming.reset();
       m_incomingProgress = 0;

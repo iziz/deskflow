@@ -29,6 +29,7 @@ MSWindowsClipboard::MSWindowsClipboard(HWND window)
   // add converters, most desired first
   m_converters.push_back(new MSWindowsClipboardUTF16Converter);
   m_converters.push_back(new MSWindowsClipboardBitmapConverter);
+  m_converters.push_back(new MSWindowsClipboardBitmapConverter(CF_DIBV5));
   m_converters.push_back(new MSWindowsClipboardHTMLConverter);
 }
 
@@ -189,7 +190,7 @@ std::string MSWindowsClipboard::get(Format format) const
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
 
     converter = *index;
-    if (converter->getFormat() == format) {
+    if (converter->getFormat() == format && IsClipboardFormatAvailable(converter->getWin32Format())) {
       break;
     }
     converter = nullptr;
@@ -214,7 +215,12 @@ std::string MSWindowsClipboard::get(Format format) const
   }
 
   // convert
-  return converter->toIClipboard(win32Data);
+  auto data = converter->toIClipboard(win32Data);
+  if (data.empty()) {
+    LOG_WARN("failed to convert Windows clipboard data for format %d", format);
+    m_readFailed = true;
+  }
+  return data;
 }
 
 bool MSWindowsClipboard::readSucceeded() const

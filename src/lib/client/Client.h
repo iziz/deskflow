@@ -131,6 +131,7 @@ public:
     return m_resolvedAddressesCount;
   }
   size_t getMaximumClipboardReceiveSizeBytes() const;
+  size_t getMaximumClipboardSendSizeBytes() const;
   void connectClipboardChannel(std::string token);
 
   //@}

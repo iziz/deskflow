@@ -273,10 +273,7 @@ void MSWindowsClipboardTests::bitmapConverter_normalizesMacOsBitmapV5DibFromICli
   QCOMPARE(header->biBitCount, static_cast<WORD>(32));
   QCOMPARE(header->biCompression, static_cast<DWORD>(BI_RGB));
   QCOMPARE(header->biSizeImage, static_cast<DWORD>(16));
-  QCOMPARE(
-      std::string(data + sizeof(BITMAPINFOHEADER), 16),
-      source.substr(sizeof(BITMAPV5HEADER), 16)
-  );
+  QCOMPARE(std::string(data + sizeof(BITMAPINFOHEADER), 16), source.substr(sizeof(BITMAPV5HEADER), 16));
   GlobalUnlock(handle);
   GlobalFree(handle);
 }
@@ -290,6 +287,44 @@ void MSWindowsClipboardTests::bitmapConverter_rejectsTruncatedDibToIClipboard()
 
   QCOMPARE(converter.toIClipboard(handle), std::string());
   GlobalFree(handle);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_normalizesBitmapV5DibToIClipboard()
+{
+  auto source = makeMacOsBitmapV5Dib();
+  auto *sourceHeader = reinterpret_cast<BITMAPV5HEADER *>(source.data());
+  sourceHeader->bV5Compression = BI_RGB;
+  HGLOBAL handle = makeGlobalDib(source);
+  QVERIFY(handle != nullptr);
+
+  MSWindowsClipboardBitmapConverter converter;
+  const auto normalized = converter.toIClipboard(handle);
+  QCOMPARE(normalized.size(), sizeof(BITMAPINFOHEADER) + 16);
+  const auto *header = reinterpret_cast<const BITMAPINFOHEADER *>(normalized.data());
+  QCOMPARE(header->biSize, static_cast<DWORD>(sizeof(BITMAPINFOHEADER)));
+  QCOMPARE(header->biCompression, static_cast<DWORD>(BI_RGB));
+  QCOMPARE(header->biSizeImage, static_cast<DWORD>(16));
+  QCOMPARE(normalized.substr(sizeof(BITMAPINFOHEADER)), source.substr(sizeof(BITMAPV5HEADER)));
+  GlobalFree(handle);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_trimsTrailingBytesToIClipboard()
+{
+  auto source = makeDib(16);
+  source.append(32, '\0');
+  HGLOBAL handle = makeGlobalDib(source);
+  QVERIFY(handle != nullptr);
+
+  MSWindowsClipboardBitmapConverter converter;
+  const auto normalized = converter.toIClipboard(handle);
+  QCOMPARE(normalized.size(), sizeof(BITMAPINFOHEADER) + 16);
+  GlobalFree(handle);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_supportsDibV5ClipboardFormat()
+{
+  MSWindowsClipboardBitmapConverter converter(CF_DIBV5);
+  QCOMPARE(converter.getWin32Format(), static_cast<UINT>(CF_DIBV5));
 }
 
 QTEST_MAIN(MSWindowsClipboardTests)

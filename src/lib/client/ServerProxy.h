@@ -45,7 +45,7 @@ public:
   */
   ServerProxy(
       Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard,
-      bool clipboardFlowControl, bool separateClipboardChannel, bool atomicClipboardPublish
+      bool clipboardFlowControl, bool separateClipboardChannel, bool atomicClipboardPublish, bool clipboardCompression
   );
   ServerProxy(ServerProxy const &) = delete;
   ServerProxy(ServerProxy &&) = delete;
@@ -183,6 +183,7 @@ private:
   bool m_clipboardFlowControl = false;
   bool m_separateClipboardChannel = false;
   bool m_atomicClipboardPublish = false;
+  bool m_clipboardCompression = false;
   deskflow::IStream *m_clipboardStream = nullptr;
   EventQueueTimer *m_clipboardChannelRequestTimer = nullptr;
   bool m_clipboardChannelRequestOutstanding = false;

@@ -134,20 +134,18 @@ bool isCompleteDibPayload(const BITMAPINFOHEADER *bitmap, size_t pixelOffset, si
   return true;
 }
 
-std::string normalizeMacOsBitmapV5(
-    const void *data, const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes
-)
+std::string
+normalizeMacOsBitmapV5(const void *data, const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes)
 {
-  if (bitmap->biSize != sizeof(BITMAPV5HEADER) || bitmap->biBitCount != 32 ||
-      bitmap->biCompression != BI_BITFIELDS || pixelOffset != sizeof(BITMAPV5HEADER) ||
-      pixelBytes > std::numeric_limits<DWORD>::max()) {
+  if (bitmap->biSize != sizeof(BITMAPV5HEADER) || bitmap->biBitCount != 32 || bitmap->biCompression != BI_BITFIELDS ||
+      pixelOffset != sizeof(BITMAPV5HEADER) || pixelBytes > std::numeric_limits<DWORD>::max()) {
     return {};
   }
 
   BITMAPV5HEADER source = {};
   memcpy(&source, data, sizeof(source));
-  if (source.bV5RedMask != 0x00ff0000 || source.bV5GreenMask != 0x0000ff00 ||
-      source.bV5BlueMask != 0x000000ff || (source.bV5AlphaMask != 0 && source.bV5AlphaMask != 0xff000000)) {
+  if (source.bV5RedMask != 0x00ff0000 || source.bV5GreenMask != 0x0000ff00 || source.bV5BlueMask != 0x000000ff ||
+      (source.bV5AlphaMask != 0 && source.bV5AlphaMask != 0xff000000)) {
     LOG_DEBUG(
         "rejecting macOS clipboard bitmap, unsupported masks: red=%08x green=%08x blue=%08x alpha=%08x",
         source.bV5RedMask, source.bV5GreenMask, source.bV5BlueMask, source.bV5AlphaMask
@@ -165,6 +163,28 @@ std::string normalizeMacOsBitmapV5(
   normalized.biSizeImage = static_cast<DWORD>(pixelBytes);
   normalized.biXPelsPerMeter = source.bV5XPelsPerMeter;
   normalized.biYPelsPerMeter = source.bV5YPelsPerMeter;
+
+  std::string result(reinterpret_cast<const char *>(&normalized), sizeof(normalized));
+  result.append(static_cast<const char *>(data) + pixelOffset, pixelBytes);
+  return result;
+}
+
+std::string normalizeBiRgbDib(const void *data, const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes)
+{
+  if (bitmap->biCompression != BI_RGB || pixelBytes > std::numeric_limits<DWORD>::max()) {
+    return {};
+  }
+
+  BITMAPINFOHEADER normalized = {};
+  normalized.biSize = sizeof(normalized);
+  normalized.biWidth = bitmap->biWidth;
+  normalized.biHeight = bitmap->biHeight;
+  normalized.biPlanes = bitmap->biPlanes;
+  normalized.biBitCount = bitmap->biBitCount;
+  normalized.biCompression = BI_RGB;
+  normalized.biSizeImage = static_cast<DWORD>(pixelBytes);
+  normalized.biXPelsPerMeter = bitmap->biXPelsPerMeter;
+  normalized.biYPelsPerMeter = bitmap->biYPelsPerMeter;
 
   std::string result(reinterpret_cast<const char *>(&normalized), sizeof(normalized));
   result.append(static_cast<const char *>(data) + pixelOffset, pixelBytes);
@@ -194,6 +214,10 @@ HGLOBAL copyToGlobalMemory(const void *data, size_t size)
 // MSWindowsClipboardBitmapConverter
 //
 
+MSWindowsClipboardBitmapConverter::MSWindowsClipboardBitmapConverter(UINT win32Format) : m_win32Format(win32Format)
+{
+}
+
 IClipboard::Format MSWindowsClipboardBitmapConverter::getFormat() const
 {
   return IClipboard::Format::Bitmap;
@@ -201,7 +225,7 @@ IClipboard::Format MSWindowsClipboardBitmapConverter::getFormat() const
 
 UINT MSWindowsClipboardBitmapConverter::getWin32Format() const
 {
-  return CF_DIB;
+  return m_win32Format;
 }
 
 HANDLE
@@ -250,13 +274,10 @@ std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
     GlobalUnlock(data);
     return std::string();
   }
-  (void)srcPixelBytes;
-
   // check image type
   LOG((CLOG_INFO "bitmap: %dx%d %d", bitmap->biWidth, bitmap->biHeight, static_cast<int>(bitmap->biBitCount)));
   if (bitmap->biCompression == BI_RGB) {
-    // already in canonical form
-    std::string image(static_cast<char const *>(src), srcSize);
+    auto image = normalizeBiRgbDib(src, bitmap, srcBitsOffset, srcPixelBytes);
     GlobalUnlock(data);
     return image;
   }
@@ -267,13 +288,20 @@ std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
   BITMAPINFOHEADER info;
   LONG w = bitmap->biWidth;
   LONG h = bitmap->biHeight < 0 ? -bitmap->biHeight : bitmap->biHeight;
+  size_t destinationPixelBytes = 0;
+  if (!checkedMul(static_cast<size_t>(w), static_cast<size_t>(h), destinationPixelBytes) ||
+      !checkedMul(destinationPixelBytes, 4, destinationPixelBytes) ||
+      destinationPixelBytes > std::numeric_limits<DWORD>::max()) {
+    GlobalUnlock(data);
+    return std::string();
+  }
   info.biSize = sizeof(BITMAPINFOHEADER);
   info.biWidth = w;
   info.biHeight = h;
   info.biPlanes = 1;
   info.biBitCount = 32;
   info.biCompression = BI_RGB;
-  info.biSizeImage = 0;
+  info.biSizeImage = static_cast<DWORD>(destinationPixelBytes);
   info.biXPelsPerMeter = 1000;
   info.biYPelsPerMeter = 1000;
   info.biClrUsed = 0;
@@ -304,7 +332,7 @@ std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
 
   // extract data
   std::string image((const char *)&info, info.biSize);
-  image.append(static_cast<const char *>(raw), 4 * static_cast<size_t>(w) * static_cast<size_t>(h));
+  image.append(static_cast<const char *>(raw), destinationPixelBytes);
 
   // clean up GDI
   DeleteObject(dst);

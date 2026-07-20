@@ -101,4 +101,20 @@ void SettingsTests::checkCleanScreenName_LongName()
   QCOMPARE(Settings::value(Settings::Core::ComputerName).toString(), expected);
 }
 
+void SettingsTests::migratesLegacyClipboardLimit()
+{
+  const auto legacySettingsFile = QStringLiteral("%1/Deskflow-legacy.conf").arg(m_settingsPathTemp);
+  QFile::remove(legacySettingsFile);
+  {
+    QSettings legacySettings(legacySettingsFile, QSettings::IniFormat);
+    legacySettings.setValue(Settings::Server::ClipboardSize, 3);
+    legacySettings.sync();
+  }
+
+  Settings::setSettingsFile(legacySettingsFile);
+  QCOMPARE(Settings::value(Settings::Server::ClipboardSize).toUInt(), 64u);
+
+  Settings::setSettingsFile(m_settingsFile);
+}
+
 QTEST_MAIN(SettingsTests)

@@ -147,6 +147,7 @@ public:
     inline static const auto RelativeMouseMoves = QStringLiteral("internalConfig/relativeMouseMoves");
     inline static const auto Protocol = QStringLiteral("internalConfig/protocol");
     inline static const auto ClipboardSharingSize = QStringLiteral("internalConfig/clipboardSharingSize");
+    inline static const auto ClipboardSizeLimitVersion = QStringLiteral("internalConfig/clipboardSizeLimitVersion");
   };
 
   // Enums types used in settings

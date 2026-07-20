@@ -22,9 +22,8 @@ public:
 
   void setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision = 0) override;
   void grabClipboard(ClipboardID id) override;
-  void supersedeClipboardTransfers(
-      ClipboardID id, std::optional<uint32_t> preserveIncomingSequence = std::nullopt
-  ) override;
+  void
+  supersedeClipboardTransfers(ClipboardID id, std::optional<uint32_t> preserveIncomingSequence = std::nullopt) override;
   void beginClipboardSend() override;
   void finishClipboardSend() override;
   bool hasPendingClipboardPublish(ClipboardID id, uint32_t sequence) const override;
@@ -44,6 +43,7 @@ protected:
   bool hasClipboardStream() const;
   deskflow::IStream *clipboardStream() const;
   void resumeClipboardTransport();
+  void enableClipboardCompression();
 
   virtual void onClipboardStreamDisconnected();
 
@@ -80,6 +80,7 @@ private:
   IEventQueue *m_events;
   bool m_clipboardFlowControl = false;
   bool m_separateClipboardChannel = false;
+  bool m_clipboardCompression = false;
   std::unique_ptr<deskflow::IStream> m_clipboardStream;
   ClipboardTransferQueue m_outgoing;
   ClipboardTransferAssembler m_incoming;

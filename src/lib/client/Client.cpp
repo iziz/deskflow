@@ -207,6 +207,11 @@ size_t Client::getMaximumClipboardReceiveSizeBytes() const
   return m_maximumClipboardReceiveSize;
 }
 
+size_t Client::getMaximumClipboardSendSizeBytes() const
+{
+  return m_maximumClipboardSize * 1024;
+}
+
 void Client::connectClipboardChannel(std::string token)
 {
   if (m_serverProtocolMinor < 11 || m_server == nullptr || token.size() != kClipboardChannelTokenSize) {
@@ -427,6 +432,7 @@ void Client::setOptions(const OptionsList &options)
       index++;
       if (index != options.end()) {
         m_maximumClipboardSize = *index;
+        m_maximumClipboardReceiveSize = m_maximumClipboardSize * 1024;
       }
     } else if (id == kOptionRelativeMouseMoves) {
       index++;
@@ -465,7 +471,7 @@ bool Client::sendClipboardData(ClipboardID id, IClipboard::Time time, std::strin
     LOG_DEBUG("skipping clipboard transfer because the clipboard has no supported formats");
     return false;
   }
-  if (data.size() >= m_maximumClipboardSize * 1024) {
+  if (data.size() > m_maximumClipboardSize * 1024) {
     LOG_WARN("not sending clipboard data, exceeds limit: %zu KB", m_maximumClipboardSize);
     return false;
   }
@@ -542,7 +548,7 @@ bool Client::publishClipboardData(ClipboardID id, IClipboard::Time sequence, std
   }
 
   const auto maximumBytes = m_maximumClipboardSize * 1024;
-  if (data.size() >= maximumBytes) {
+  if (data.size() > maximumBytes) {
     LOG_WARN(
         "not publishing clipboard %u ownership because data exceeds limit: size=%zu limit=%zu", id, data.size(),
         maximumBytes
@@ -628,7 +634,7 @@ void Client::setupScreen()
   m_ready = false;
   m_server = new ServerProxy(
       this, m_stream, m_events, m_serverProtocolMinor >= 9, m_serverProtocolMinor >= 10, m_serverProtocolMinor >= 11,
-      m_serverProtocolMinor >= 12
+      m_serverProtocolMinor >= 12, m_serverProtocolMinor >= 13
   );
   m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
     handleShapeChanged();

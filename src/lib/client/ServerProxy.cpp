@@ -13,6 +13,7 @@
 #include "client/Client.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardChunk.h"
+#include "deskflow/ClipboardWireCodec.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/ProtocolTypes.h"
@@ -52,7 +53,7 @@ size_t parseSize(const std::string &size)
 
 ServerProxy::ServerProxy(
     Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard,
-    bool clipboardFlowControl, bool separateClipboardChannel, bool atomicClipboardPublish
+    bool clipboardFlowControl, bool separateClipboardChannel, bool atomicClipboardPublish, bool clipboardCompression
 )
     : m_client(client),
       m_stream(stream),
@@ -60,6 +61,7 @@ ServerProxy::ServerProxy(
       m_clipboardFlowControl(clipboardFlowControl),
       m_separateClipboardChannel(separateClipboardChannel),
       m_atomicClipboardPublish(atomicClipboardPublish),
+      m_clipboardCompression(clipboardCompression),
       m_clipboardStream(separateClipboardChannel ? nullptr : stream),
       m_clipboardOutgoing(0x80000000u, clipboardFlowControl),
       m_events(events)
@@ -486,7 +488,19 @@ bool ServerProxy::onClipboardChanged(ClipboardID id, std::string data, bool forc
     LOG_DEBUG("skipping clipboard %d transfer because it has no supported formats", id);
     return false;
   }
-  LOG_DEBUG("sending clipboard %d seqnum=%d", id, m_seqNum);
+  const auto logicalSize = data.size();
+  data = deskflow::encodeClipboardWirePayload(std::move(data), m_clipboardCompression);
+  if (data.size() > m_client->getMaximumClipboardSendSizeBytes()) {
+    LOG_WARN(
+        "not sending clipboard %u because wire size=%zu exceeds limit=%zu", id, data.size(),
+        m_client->getMaximumClipboardSendSizeBytes()
+    );
+    return false;
+  }
+  LOG_DEBUG(
+      "sending clipboard %d seqnum=%d logical_size=%zu wire_size=%zu compressed=%s", id, m_seqNum, logicalSize,
+      data.size(), data.size() < logicalSize ? "true" : "false"
+  );
 
   if (m_transactionalClipboard) {
     rememberClipboardQueued(id, m_seqNum, data.size(), force);
@@ -832,8 +846,8 @@ void ServerProxy::removeClipboardChannelHandlers()
 void ServerProxy::handleClipboardChannelData()
 {
   size_t packets = 0;
-  while (m_clipboardStream != nullptr && m_clipboardStream->isReady() &&
-         packets < kClipboardChannelPacketsPerDispatch) {
+  while (m_clipboardStream != nullptr && m_clipboardStream->isReady() && packets < kClipboardChannelPacketsPerDispatch
+  ) {
     uint8_t code[4]{};
     if (m_clipboardStream->read(code, sizeof(code)) != sizeof(code)) {
       handleClipboardChannelFailure("incomplete clipboard message code");
@@ -1187,13 +1201,27 @@ void ServerProxy::setClipboardTransfer()
     clearClipboardIncomingTimer();
     restoreKeepAliveAfterClipboardIncomingTransfer();
     try {
+      auto decoded = deskflow::decodeClipboardWirePayload(
+          m_clipboardIncoming.data(), m_clipboardCompression, m_client->getMaximumClipboardReceiveSizeBytes()
+      );
+      if (!decoded.valid) {
+        m_clipboardIncoming.reset();
+        m_clipboardIncomingProgress = 0;
+        clearClipboardIncomingTiming(transferId);
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return;
+      }
       Clipboard clipboard;
-      if (!clipboard.unmarshall(m_clipboardIncoming.data(), 0)) {
+      if (!clipboard.unmarshall(decoded.data, 0)) {
         m_clipboardIncoming.reset();
         clearClipboardIncomingTiming(transferId);
         sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
         return;
       }
+      LOG_DEBUG(
+          "decoded clipboard transfer %u from server, logical_size=%zu wire_size=%zu compressed=%s", transferId,
+          decoded.data.size(), m_clipboardIncoming.data().size(), decoded.compressed ? "true" : "false"
+      );
       if (!m_client->applyClipboard(id, &clipboard, sequence)) {
         m_clipboardIncoming.reset();
         m_clipboardIncomingProgress = 0;

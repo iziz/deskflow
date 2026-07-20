@@ -40,6 +40,8 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   ClipboardChannelProtocol.h
   ClipboardTransfer.cpp
   ClipboardTransfer.h
+  ClipboardWireCodec.cpp
+  ClipboardWireCodec.h
   DeskflowException.cpp
   DeskflowException.h
   DisplayInvalidException.h

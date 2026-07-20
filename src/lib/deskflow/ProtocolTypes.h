@@ -45,7 +45,7 @@ static const int16_t kProtocolMajorVersion = 1;
  * @note When incrementing the minor version, the Deskflow application version should also increment
  * @since Protocol version 1.0
  */
-static const int16_t kProtocolMinorVersion = 12;
+static const int16_t kProtocolMinorVersion = 13;
 
 /**
  * @brief Default TCP port for Deskflow connections
@@ -1034,6 +1034,10 @@ extern const char *const kMsgDClipboard;
  * issued by the server with kMsgCEnter. The server rejects unknown or
  * superseded epochs with kMsgCClipboardCancel and acknowledges only committed
  * or idempotently repeated publications.
+ *
+ * Protocol v1.13 peers may encode the complete marshalled clipboard payload
+ * with the lossless ClipboardWireCodec before it is split into chunks. The
+ * receiver decodes the payload only after the transaction is complete.
  * @since Protocol version 1.9
  */
 extern const char *const kMsgDClipboardTransfer;
