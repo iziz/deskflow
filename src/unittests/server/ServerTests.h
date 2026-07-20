@@ -14,6 +14,7 @@ private Q_SLOTS:
   void KeyboardBroadcastInfo_alloc_stateAndSceens();
   void clipboardPublicationAuthority_acceptsIssuedFocusAfterScreenSwitch();
   void clipboardPublicationAuthority_rejectsForgedFocusAndRetainsIssuedHistory();
+  void clipboardPublicationAuthority_boundsIssuedHistory();
   void clipboardPublicationAuthority_ordersConcurrentPublications();
   void clipboardPublicationAuthority_detectsIdempotentRetry();
   void pendingClipboardPublication_resolvesOnlyMatchingCommit();

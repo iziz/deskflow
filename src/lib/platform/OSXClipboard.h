@@ -35,6 +35,8 @@ public:
   Time getTime() const override;
   bool has(Format) const override;
   std::string get(Format) const override;
+  bool readSucceeded() const override;
+  bool writeSucceeded() const override;
 
   bool synchronize();
   void setMaximumDataSize(size_t maximumDataSize);
@@ -42,7 +44,7 @@ public:
   static size_t estimatedBitmapDataSize(size_t width, size_t height);
 
 private:
-  void markOwnedByDeskflow() const;
+  bool markOwnedByDeskflow() const;
   void clearConverters();
 
 private:
@@ -52,6 +54,8 @@ private:
   ConverterList m_converters;
   PasteboardRef m_pboard;
   size_t m_maximumDataSize = std::numeric_limits<size_t>::max();
+  mutable bool m_readFailed = false;
+  bool m_writeFailed = false;
 };
 
 //! Clipboard format converter interface

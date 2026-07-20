@@ -8,13 +8,25 @@
 
 #include "deskflow/ClipboardTransfer.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace deskflow::server {
 
 void ClipboardPublicationAuthority::recordFocus(std::string screen, uint32_t sequence)
 {
-  m_focusOwners.insert_or_assign(sequence, std::move(screen));
+  const auto existing = m_focusOwners.find(sequence);
+  if (existing != m_focusOwners.end()) {
+    existing->second = std::move(screen);
+    return;
+  }
+
+  m_focusOwners.emplace(sequence, std::move(screen));
+  m_focusOrder.push_back(sequence);
+  while (m_focusOrder.size() > kMaximumRetainedFocusGrants) {
+    m_focusOwners.erase(m_focusOrder.front());
+    m_focusOrder.pop_front();
+  }
 }
 
 void ClipboardPublicationAuthority::removeScreen(std::string_view screen)
@@ -26,12 +38,24 @@ void ClipboardPublicationAuthority::removeScreen(std::string_view screen)
       ++focus;
     }
   }
+  m_focusOrder.erase(
+      std::remove_if(
+          m_focusOrder.begin(), m_focusOrder.end(),
+          [this](uint32_t sequence) { return m_focusOwners.find(sequence) == m_focusOwners.end(); }
+      ),
+      m_focusOrder.end()
+  );
 }
 
 bool ClipboardPublicationAuthority::isFocusValid(std::string_view screen, uint32_t sequence) const
 {
   const auto found = m_focusOwners.find(sequence);
   return found != m_focusOwners.end() && found->second == screen;
+}
+
+size_t ClipboardPublicationAuthority::retainedFocusCount() const
+{
+  return m_focusOwners.size();
 }
 
 ClipboardPublicationAuthority::Decision ClipboardPublicationAuthority::evaluate(

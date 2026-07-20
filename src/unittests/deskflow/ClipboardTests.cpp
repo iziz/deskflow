@@ -10,6 +10,72 @@
 
 #include "deskflow/Clipboard.h"
 
+namespace {
+class StatusClipboard : public IClipboard
+{
+public:
+  bool empty() override
+  {
+    return m_clipboard.empty();
+  }
+
+  void add(Format format, const std::string &data) override
+  {
+    m_clipboard.add(format, data);
+  }
+
+  bool open(Time time) const override
+  {
+    return m_clipboard.open(time);
+  }
+
+  void close() const override
+  {
+    m_clipboard.close();
+  }
+
+  Time getTime() const override
+  {
+    return m_clipboard.getTime();
+  }
+
+  bool has(Format format) const override
+  {
+    return m_clipboard.has(format);
+  }
+
+  std::string get(Format format) const override
+  {
+    return m_clipboard.get(format);
+  }
+
+  bool readSucceeded() const override
+  {
+    return m_readSucceeded;
+  }
+
+  bool writeSucceeded() const override
+  {
+    return m_writeSucceeded;
+  }
+
+  void setReadSucceeded(bool succeeded)
+  {
+    m_readSucceeded = succeeded;
+  }
+
+  void setWriteSucceeded(bool succeeded)
+  {
+    m_writeSucceeded = succeeded;
+  }
+
+private:
+  Clipboard m_clipboard;
+  bool m_readSucceeded = true;
+  bool m_writeSucceeded = true;
+};
+} // namespace
+
 void ClipboardTests::initTestCase()
 {
   m_log.setFilter(LogLevel::Level::Verbose);
@@ -32,6 +98,32 @@ void ClipboardTests::basicFunction()
 
   QVERIFY(clipboard.open(1));
   QCOMPARE(clipboard.getTime(), 0);
+}
+
+void ClipboardTests::copyFailsWhenSourceReadFails()
+{
+  StatusClipboard source;
+  Clipboard destination;
+  QVERIFY(source.open(0));
+  QVERIFY(source.empty());
+  source.add(IClipboard::Format::Text, kTestString1);
+  source.close();
+  source.setReadSucceeded(false);
+
+  QVERIFY(!IClipboard::copy(&destination, &source));
+}
+
+void ClipboardTests::copyFailsWhenDestinationWriteFails()
+{
+  Clipboard source;
+  StatusClipboard destination;
+  QVERIFY(source.open(0));
+  QVERIFY(source.empty());
+  source.add(IClipboard::Format::Text, kTestString1);
+  source.close();
+  destination.setWriteSucceeded(false);
+
+  QVERIFY(!IClipboard::copy(&destination, &source));
 }
 
 void ClipboardTests::basicText()

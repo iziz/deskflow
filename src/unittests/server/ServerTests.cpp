@@ -81,6 +81,19 @@ void ServerTests::clipboardPublicationAuthority_rejectsForgedFocusAndRetainsIssu
   authority.removeScreen("mac");
   QVERIFY(!authority.isFocusValid("mac", 381));
   QVERIFY(!authority.isFocusValid("mac", 383));
+  QCOMPARE(authority.retainedFocusCount(), 1u);
+}
+
+void ServerTests::clipboardPublicationAuthority_boundsIssuedHistory()
+{
+  ClipboardPublicationAuthority authority;
+  for (uint32_t sequence = 1; sequence <= ClipboardPublicationAuthority::kMaximumRetainedFocusGrants + 1; ++sequence) {
+    authority.recordFocus(sequence % 2 == 0 ? "windows" : "mac", sequence);
+  }
+
+  QCOMPARE(authority.retainedFocusCount(), ClipboardPublicationAuthority::kMaximumRetainedFocusGrants);
+  QVERIFY(!authority.isFocusValid("mac", 1));
+  QVERIFY(authority.isFocusValid("mac", ClipboardPublicationAuthority::kMaximumRetainedFocusGrants + 1));
 }
 
 void ServerTests::clipboardPublicationAuthority_ordersConcurrentPublications()

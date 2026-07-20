@@ -39,6 +39,15 @@ elseif(APPLE)
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
 elseif(UNIX)
+  if (HAVE_LP_CLIPBOARD)
+    create_test(
+      NAME PortalClipboardTests
+      DEPENDS platform
+      LIBS base arch
+      SOURCE PortalClipboardTests.cpp
+      WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+    )
+  endif()
   if (BUILD_X11_SUPPORT)
     create_test(
       NAME XWindowsClipboardTests

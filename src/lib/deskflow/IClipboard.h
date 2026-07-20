@@ -120,6 +120,26 @@ public:
   */
   virtual std::string get(Format) const = 0;
 
+  //! Report whether all reads in the current operation succeeded.
+  /*!
+  Platform clipboards that can advertise a format before its data becomes
+  available should override this method and report a failed snapshot.
+  */
+  virtual bool readSucceeded() const
+  {
+    return true;
+  }
+
+  //! Report whether all writes in the current operation succeeded.
+  /*!
+  This allows a clipboard with a void add() API to propagate platform write
+  failures to copy().
+  */
+  virtual bool writeSucceeded() const
+  {
+    return true;
+  }
+
   //! Marshall clipboard data
   /*!
   Merge \p clipboard's data into a single buffer that can be later

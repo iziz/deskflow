@@ -8,7 +8,9 @@
 
 #include "deskflow/ClipboardTypes.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -20,6 +22,8 @@ namespace deskflow::server {
 class ClipboardPublicationAuthority
 {
 public:
+  static constexpr size_t kMaximumRetainedFocusGrants = 4096;
+
   enum class Decision
   {
     Commit,
@@ -31,15 +35,17 @@ public:
   void recordFocus(std::string screen, uint32_t sequence);
   void removeScreen(std::string_view screen);
   bool isFocusValid(std::string_view screen, uint32_t sequence) const;
+  size_t retainedFocusCount() const;
   Decision evaluate(
       std::string_view screen, uint32_t sequence, std::string_view currentOwner, uint32_t currentSequence,
       std::string_view currentData, std::string_view data
   ) const;
 
 private:
-  // Retain exact grants until the screen disconnects so in-flight transfers
-  // remain valid across any number of later focus transitions.
+  // Retain enough issued epochs for in-flight transfers while enforcing a
+  // deterministic memory bound on long-running servers.
   std::map<uint32_t, std::string> m_focusOwners;
+  std::deque<uint32_t> m_focusOrder;
 };
 
 class PendingClipboardPublication

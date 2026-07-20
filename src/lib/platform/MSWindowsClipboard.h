@@ -53,6 +53,8 @@ public:
   Time getTime() const override;
   bool has(Format) const override;
   std::string get(Format) const override;
+  bool readSucceeded() const override;
+  bool writeSucceeded() const override;
 
   void setFacade(IMSWindowsClipboardFacade &facade);
   bool writesSucceeded() const;
@@ -76,6 +78,7 @@ private:
   static UINT s_ownershipFormat;
   IMSWindowsClipboardFacade *m_facade;
   bool m_deleteFacade;
+  mutable bool m_readFailed = false;
   bool m_writeFailed = false;
 };
 

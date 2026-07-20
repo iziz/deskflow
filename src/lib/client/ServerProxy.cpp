@@ -1126,8 +1126,11 @@ void ServerProxy::setClipboard()
     // forward
     Clipboard clipboard;
     if (clipboard.unmarshall(m_legacyClipboardIncoming.data(), 0)) {
-      m_client->setClipboard(id, &clipboard, seq);
-      LOG_INFO("clipboard was updated");
+      if (m_client->applyClipboard(id, &clipboard, seq)) {
+        LOG_INFO("clipboard was updated");
+      } else {
+        LOG_WARN("failed to apply clipboard update from server");
+      }
     } else {
       LOG_WARN("ignored invalid clipboard update from server");
     }
@@ -1191,7 +1194,13 @@ void ServerProxy::setClipboardTransfer()
         sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
         return;
       }
-      m_client->setClipboard(id, &clipboard, sequence);
+      if (!m_client->applyClipboard(id, &clipboard, sequence)) {
+        m_clipboardIncoming.reset();
+        m_clipboardIncomingProgress = 0;
+        clearClipboardIncomingTiming(transferId);
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return;
+      }
       m_clipboardIncoming.commitSequence(id, sequence);
     } catch (...) {
       m_clipboardIncoming.reset();

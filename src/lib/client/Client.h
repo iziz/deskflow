@@ -145,6 +145,7 @@ public:
   void enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool forScreensaver) override;
   bool leave() override;
   void setClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0) override;
+  bool applyClipboard(ClipboardID, const IClipboard *, uint32_t revision = 0);
   void grabClipboard(ClipboardID) override;
   void forgetSentClipboard(ClipboardID);
   void onClipboardTransferAcknowledged(ClipboardID);

@@ -273,19 +273,24 @@ bool Client::leave()
 
 void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
 {
+  applyClipboard(id, clipboard, revision);
+}
+
+bool Client::applyClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t revision)
+{
   if (id >= kClipboardEnd || clipboard == nullptr) {
     LOG_WARN("ignored invalid remote clipboard update");
-    return;
+    return false;
   }
 
   if (m_clipboards.isRemoteRevisionStale(id, revision)) {
     LOG_DEBUG("ignored stale remote clipboard %u revision=%u, current=%u", id, revision, m_clipboards.revision(id));
-    return;
+    return true;
   }
 
   if (!m_screen->setClipboard(id, clipboard)) {
-    LOG_DEBUG("ignored unsupported remote clipboard %u", id);
-    return;
+    LOG_WARN("failed to apply remote clipboard %u revision=%u", id, revision);
+    return false;
   }
   m_clipboards.markRemoteClipboardApplied(id, revision, IClipboard::marshall(clipboard));
 
@@ -297,6 +302,7 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard, uint32_t 
     m_clipboards.updateCachedClipboard(id, appliedClipboard.getTime(), appliedClipboard.marshall());
   }
   LOG_DEBUG("applied remote clipboard %u revision=%u", id, revision);
+  return true;
 }
 
 void Client::grabClipboard(ClipboardID id)

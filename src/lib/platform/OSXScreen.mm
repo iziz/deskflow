@@ -271,6 +271,9 @@ bool OSXScreen::getClipboard(ClipboardID id, IClipboard *dst) const
     LOG_DEBUG("discarding clipboard snapshot because pasteboard changed during capture");
     return false;
   }
+  if (!copied) {
+    LOG_WARN("failed to capture a complete macOS clipboard snapshot");
+  }
   return copied;
 }
 
@@ -882,6 +885,10 @@ bool OSXScreen::setClipboard(ClipboardID id, const IClipboard *src)
     const bool copied = Clipboard::copy(&m_pasteboard, src);
     m_pasteboard.synchronize();
     m_pasteboardChangeCount = currentPasteboardChangeCount();
+    if (!copied) {
+      LOG_WARN("failed to apply a complete remote clipboard on macOS");
+      return false;
+    }
     m_lastDeskflowPasteboardChangeCount = m_pasteboardChangeCount;
     LOG_DEBUG(
         "recorded Deskflow-owned pasteboard change count: %lld",

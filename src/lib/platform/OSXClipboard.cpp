@@ -7,7 +7,6 @@
 
 #include "platform/OSXClipboard.h"
 
-#include "arch/ArchException.h"
 #include "base/Log.h"
 #include "platform/OSXClipboardBMPConverter.h"
 #include "platform/OSXClipboardHTMLConverter.h"
@@ -115,16 +114,22 @@ OSXClipboard::~OSXClipboard()
 bool OSXClipboard::empty()
 {
   LOG_DEBUG("emptying clipboard");
-  if (m_pboard == nullptr)
+  m_writeFailed = false;
+  if (m_pboard == nullptr) {
+    m_writeFailed = true;
     return false;
+  }
 
   OSStatus err = PasteboardClear(m_pboard);
   if (err != noErr) {
     LOG_WARN("failed to clear clipboard: error %i", err);
+    m_writeFailed = true;
     return false;
   }
 
-  markOwnedByDeskflow();
+  if (!markOwnedByDeskflow()) {
+    m_writeFailed = true;
+  }
   return true;
 }
 
@@ -147,13 +152,13 @@ bool OSXClipboard::isOwnedByDeskflow()
   return isOwned;
 }
 
-void OSXClipboard::markOwnedByDeskflow() const
+bool OSXClipboard::markOwnedByDeskflow() const
 {
   const uint8_t marker = 1;
   CFDataRef dataRef = CFDataCreate(kCFAllocatorDefault, &marker, sizeof(marker));
   if (dataRef == nullptr) {
     LOG_WARN("failed to create Deskflow clipboard ownership marker");
-    return;
+    return false;
   }
 
   PasteboardItemID itemID = 0;
@@ -163,7 +168,9 @@ void OSXClipboard::markOwnedByDeskflow() const
 
   if (err != noErr) {
     LOG_WARN("failed to mark clipboard as Deskflow-owned: error %i", err);
+    return false;
   }
+  return true;
 }
 
 bool OSXClipboard::synchronize()
@@ -182,8 +189,10 @@ bool OSXClipboard::synchronize()
 
 void OSXClipboard::add(Format format, const std::string &data)
 {
-  if (m_pboard == nullptr)
+  if (m_pboard == nullptr) {
+    m_writeFailed = true;
     return;
+  }
 
   LOG_DEBUG("add %d bytes to clipboard format: %d", data.size(), format);
   if (format == IClipboard::Format::Text) {
@@ -194,31 +203,48 @@ void OSXClipboard::add(Format format, const std::string &data)
     LOG_DEBUG("format of data to be added to clipboard was kHTML");
   }
 
+  bool hasConverter = false;
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
 
     IOSXClipboardConverter *converter = *index;
 
     // skip converters for other formats
     if (converter->getFormat() == format) {
+      hasConverter = true;
       std::string osXData = converter->fromIClipboard(data);
       CFStringRef flavorType = converter->getOSXFormat();
       CFDataRef dataRef = CFDataCreate(kCFAllocatorDefault, (uint8_t *)osXData.data(), osXData.size());
       PasteboardItemID itemID = 0;
 
-      if (dataRef) {
-        PasteboardPutItemFlavor(m_pboard, itemID, flavorType, dataRef, kPasteboardFlavorNoFlags);
-
-        CFRelease(dataRef);
-        LOG_DEBUG("added %d bytes to clipboard format: %d", data.size(), format);
+      if (dataRef == nullptr) {
+        LOG_WARN("failed to allocate macOS clipboard flavor data for format %d", format);
+        m_writeFailed = true;
+        continue;
       }
+
+      const auto err = PasteboardPutItemFlavor(m_pboard, itemID, flavorType, dataRef, kPasteboardFlavorNoFlags);
+      CFRelease(dataRef);
+      if (err != noErr) {
+        LOG_WARN("failed to write macOS clipboard format %d: error %i", format, err);
+        m_writeFailed = true;
+        continue;
+      }
+      LOG_DEBUG("added %d bytes to clipboard format: %d", data.size(), format);
     }
+  }
+  if (!hasConverter) {
+    LOG_WARN("no macOS clipboard converter for format %d", format);
+    m_writeFailed = true;
   }
 }
 
 bool OSXClipboard::open(Time time) const
 {
-  if (m_pboard == nullptr)
+  m_readFailed = false;
+  if (m_pboard == nullptr) {
+    m_readFailed = true;
     return false;
+  }
 
   LOG_DEBUG("opening clipboard");
   m_time = time;
@@ -241,8 +267,15 @@ bool OSXClipboard::has(Format format) const
   if (m_pboard == nullptr)
     return false;
 
-  PasteboardItemID item;
-  PasteboardGetItemIdentifier(m_pboard, (CFIndex)1, &item);
+  PasteboardItemID item = nullptr;
+  const auto itemErr = PasteboardGetItemIdentifier(m_pboard, (CFIndex)1, &item);
+  if (itemErr != noErr) {
+    if (itemErr != badPasteboardIndexErr) {
+      LOG_WARN("failed to get macOS clipboard item while checking format %d: error %i", format, itemErr);
+      m_readFailed = true;
+    }
+    return false;
+  }
 
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
     IOSXClipboardConverter *converter = *index;
@@ -250,9 +283,8 @@ bool OSXClipboard::has(Format format) const
       PasteboardFlavorFlags flags;
       CFStringRef type = converter->getOSXFormat();
 
-      OSStatus res;
-
-      if ((res = PasteboardGetItemFlavorFlags(m_pboard, item, type, &flags)) == noErr) {
+      const auto flavorErr = PasteboardGetItemFlavorFlags(m_pboard, item, type, &flags);
+      if (flavorErr == noErr) {
         if (format == Format::Bitmap && m_maximumDataSize != std::numeric_limits<size_t>::max()) {
           const auto dimensions = imageDimensions(m_pboard, item);
           if (!dimensions.has_value()) {
@@ -272,6 +304,10 @@ bool OSXClipboard::has(Format format) const
         }
         return true;
       }
+      if (flavorErr != badPasteboardFlavorErr) {
+        LOG_WARN("failed to inspect macOS clipboard format %d: error %i", format, flavorErr);
+        m_readFailed = true;
+      }
     }
   }
 
@@ -280,14 +316,19 @@ bool OSXClipboard::has(Format format) const
 
 std::string OSXClipboard::get(Format format) const
 {
-  CFStringRef type;
-  PasteboardItemID item;
+  CFStringRef type = nullptr;
+  PasteboardItemID item = nullptr;
   std::string result;
 
   if (m_pboard == nullptr)
     return result;
 
-  PasteboardGetItemIdentifier(m_pboard, (CFIndex)1, &item);
+  const auto itemErr = PasteboardGetItemIdentifier(m_pboard, (CFIndex)1, &item);
+  if (itemErr != noErr) {
+    LOG_WARN("failed to get macOS clipboard item while reading format %d: error %i", format, itemErr);
+    m_readFailed = true;
+    return result;
+  }
 
   // find the converter for the first clipboard format we can handle
   IOSXClipboardConverter *converter = nullptr;
@@ -297,8 +338,15 @@ std::string OSXClipboard::get(Format format) const
     PasteboardFlavorFlags flags;
     type = converter->getOSXFormat();
 
-    if (converter->getFormat() == format && PasteboardGetItemFlavorFlags(m_pboard, item, type, &flags) == noErr) {
-      break;
+    if (converter->getFormat() == format) {
+      const auto flavorErr = PasteboardGetItemFlavorFlags(m_pboard, item, type, &flags);
+      if (flavorErr == noErr) {
+        break;
+      }
+      if (flavorErr != badPasteboardFlavorErr) {
+        LOG_WARN("failed to inspect macOS clipboard format %d while reading: error %i", format, flavorErr);
+        m_readFailed = true;
+      }
     }
     converter = nullptr;
   }
@@ -306,30 +354,37 @@ std::string OSXClipboard::get(Format format) const
   // if no converter then we don't recognize any formats
   if (converter == nullptr) {
     LOG_DEBUG("unable to find converter for data");
+    m_readFailed = true;
     return result;
   }
 
-  // get the clipboard data.
+  // Get the clipboard data. A flavor can disappear after has() when another
+  // process updates the global pasteboard, so report that as a failed snapshot.
   CFDataRef buffer = nullptr;
-  try {
-    OSStatus err = PasteboardCopyItemFlavorData(m_pboard, item, type, &buffer);
-
-    if (err != noErr) {
-      throw err;
+  const auto dataErr = PasteboardCopyItemFlavorData(m_pboard, item, type, &buffer);
+  if (dataErr != noErr || buffer == nullptr) {
+    LOG_WARN("failed to read macOS clipboard format %d: error %i", format, dataErr);
+    m_readFailed = true;
+    if (buffer != nullptr) {
+      CFRelease(buffer);
     }
-
-    result = std::string((char *)CFDataGetBytePtr(buffer), CFDataGetLength(buffer));
-  } catch (OSStatus err) {
-    LOG_DEBUG("exception thrown in OSXClipboard::get MacError (%d)", err);
-  } catch (...) {
-    LOG_DEBUG("unknown exception in OSXClipboard::get");
-    RETHROW_THREADEXCEPTION
+    return result;
   }
 
-  if (buffer != nullptr)
-    CFRelease(buffer);
+  result = std::string((char *)CFDataGetBytePtr(buffer), CFDataGetLength(buffer));
+  CFRelease(buffer);
 
   return converter->toIClipboard(result);
+}
+
+bool OSXClipboard::readSucceeded() const
+{
+  return !m_readFailed;
+}
+
+bool OSXClipboard::writeSucceeded() const
+{
+  return !m_writeFailed;
 }
 
 void OSXClipboard::clearConverters()

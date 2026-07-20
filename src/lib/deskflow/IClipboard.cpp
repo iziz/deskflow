@@ -166,7 +166,7 @@ bool IClipboard::copy(IClipboard *dst, const IClipboard *src, Time time)
             dst->add(eFormat, src->get(eFormat));
           }
         }
-        success = true;
+        success = src->readSucceeded() && dst->writeSucceeded();
       }
       dst->close();
     }

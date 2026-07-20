@@ -19,6 +19,20 @@ class EiClipboard;
 class PortalClipboard
 {
 public:
+  enum class SelectionReadStatus
+  {
+    Complete,
+    Timeout,
+    Error,
+    TooLarge
+  };
+
+  struct SelectionReadResult
+  {
+    SelectionReadStatus status = SelectionReadStatus::Error;
+    QByteArray data;
+  };
+
   struct SupportedMime
   {
     const char *mime;
@@ -41,7 +55,10 @@ public:
   static const SupportedMime *pickSupportedMime(const char *const *available);
   static QByteArray encodeFormat(IClipboard::Format format, const QByteArray &data);
   static QByteArray decodeFormat(IClipboard::Format format, const QByteArray &bytes);
-  static QByteArray readSelectionBytes(XdpSession *session, const char *mime, qint64 maxBytes);
+  static SelectionReadResult readSelectionBytes(XdpSession *session, const char *mime, qint64 maxBytes);
+
+  /// Read and close a portal selection fd. Exposed for deterministic pipe tests.
+  static SelectionReadResult readSelectionFd(int fd, qint64 maxBytes);
 
   /// Advertise the cache's formats to the portal selection.
   static void claimOwnership(EiClipboard *cache, XdpSession *session);

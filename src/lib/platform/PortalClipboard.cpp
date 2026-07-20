@@ -9,6 +9,8 @@
 #include "base/Log.h"
 #include "platform/EiClipboard.h"
 
+#include <array>
+#include <cerrno>
 #include <cstring>
 #include <poll.h>
 #include <unistd.h>
@@ -156,35 +158,81 @@ QByteArray PortalClipboard::decodeFormat(IClipboard::Format format, const QByteA
   return bytes;
 }
 
-QByteArray PortalClipboard::readSelectionBytes(XdpSession *session, const char *mime, qint64 maxBytes)
+PortalClipboard::SelectionReadResult
+PortalClipboard::readSelectionBytes(XdpSession *session, const char *mime, qint64 maxBytes)
 {
   const int fd = xdp_session_selection_read(session, mime);
   if (fd < 0) {
     LOG_ERR("failed to read clipboard selection: invalid fd");
-    return {};
+    return {SelectionReadStatus::Error, {}};
+  }
+
+  return readSelectionFd(fd, maxBytes);
+}
+
+PortalClipboard::SelectionReadResult PortalClipboard::readSelectionFd(int fd, qint64 maxBytes)
+{
+  if (fd < 0 || maxBytes < 0) {
+    if (fd >= 0) {
+      ::close(fd);
+    }
+    LOG_WARN("invalid portal clipboard read parameters");
+    return {SelectionReadStatus::Error, {}};
   }
 
   QFile pipe;
   if (!pipe.open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)) {
     LOG_WARN("failed to wrap clipboard pipe");
     ::close(fd);
-    return {};
+    return {SelectionReadStatus::Error, {}};
   }
 
   QByteArray contents;
   contents.reserve(std::min<qint64>(maxBytes, kChunkBytes));
-  while (contents.size() < maxBytes) {
-    pollfd pfd{fd, POLLIN, 0};
-    if (poll(&pfd, 1, kReadTimeoutMs) <= 0)
-      break;
+  std::array<char, static_cast<size_t>(kChunkBytes)> buffer;
+  while (true) {
+    pollfd pfd{fd, static_cast<short>(POLLIN | POLLHUP), 0};
+    int pollResult;
+    do {
+      pollResult = poll(&pfd, 1, kReadTimeoutMs);
+    } while (pollResult < 0 && errno == EINTR);
 
-    const auto chunk = pipe.read(std::min<qint64>(kChunkBytes, maxBytes - contents.size()));
-    if (chunk.isEmpty())
-      break;
+    if (pollResult == 0) {
+      LOG_WARN("timed out reading portal clipboard selection");
+      return {SelectionReadStatus::Timeout, {}};
+    }
+    if (pollResult < 0 || (pfd.revents & (POLLERR | POLLNVAL)) != 0) {
+      LOG_WARN("failed while polling portal clipboard selection: error=%d revents=%d", errno, pfd.revents);
+      return {SelectionReadStatus::Error, {}};
+    }
+    if ((pfd.revents & (POLLIN | POLLHUP)) == 0) {
+      LOG_WARN("portal clipboard selection returned unexpected poll events: %d", pfd.revents);
+      return {SelectionReadStatus::Error, {}};
+    }
 
-    contents.append(chunk);
+    // Read one byte beyond the configured limit so hitting the limit can be
+    // distinguished from a clean EOF at exactly maxBytes.
+    const auto remainingWithProbe = maxBytes - contents.size() + 1;
+    const auto requested = std::min<qint64>(kChunkBytes, remainingWithProbe);
+    ssize_t bytesRead;
+    do {
+      bytesRead = ::read(fd, buffer.data(), static_cast<size_t>(requested));
+    } while (bytesRead < 0 && errno == EINTR);
+
+    if (bytesRead == 0) {
+      return {SelectionReadStatus::Complete, std::move(contents)};
+    }
+    if (bytesRead < 0) {
+      LOG_WARN("failed to read portal clipboard selection: error=%d", errno);
+      return {SelectionReadStatus::Error, {}};
+    }
+
+    contents.append(buffer.data(), static_cast<qsizetype>(bytesRead));
+    if (contents.size() > maxBytes) {
+      LOG_WARN("portal clipboard selection exceeds limit: size>%lld", static_cast<long long>(maxBytes));
+      return {SelectionReadStatus::TooLarge, {}};
+    }
   }
-  return contents;
 }
 
 void PortalClipboard::claimOwnership(EiClipboard *cache, XdpSession *session)
@@ -294,7 +342,13 @@ bool PortalClipboard::readSelectionIntoCache(
     if (!g_strv_contains(mimeTypes, entry.mime))
       continue;
 
-    auto bytes = readSelectionBytes(session, entry.mime, maxBytes);
+    auto read = readSelectionBytes(session, entry.mime, maxBytes);
+    if (read.status != SelectionReadStatus::Complete) {
+      LOG_WARN("clipboard read did not complete for mime %s: status=%d", entry.mime, static_cast<int>(read.status));
+      continue;
+    }
+
+    auto bytes = std::move(read.data);
     if (bytes.isEmpty()) {
       LOG_DEBUG("clipboard read returned no data for mime: %s", entry.mime);
       continue;

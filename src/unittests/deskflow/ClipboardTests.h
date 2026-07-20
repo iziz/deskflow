@@ -27,6 +27,8 @@ private Q_SLOTS:
   void unMarshalLongerText();
   void unMarshalTextAndHtml();
   void equalClipboards();
+  void copyFailsWhenSourceReadFails();
+  void copyFailsWhenDestinationWriteFails();
 
 private:
   const std::string kTestString1 = "deskflow rocks";

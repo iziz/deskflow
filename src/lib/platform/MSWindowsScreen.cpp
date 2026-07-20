@@ -430,11 +430,18 @@ void *MSWindowsScreen::getEventTarget() const
   return const_cast<MSWindowsScreen *>(this);
 }
 
-bool MSWindowsScreen::getClipboard(ClipboardID, IClipboard *dst) const
+bool MSWindowsScreen::getClipboard(ClipboardID id, IClipboard *dst) const
 {
+  if (id >= kClipboardEnd || dst == nullptr) {
+    return false;
+  }
   MSWindowsClipboard src(m_window);
-  Clipboard::copy(dst, &src);
-  return true;
+  return Clipboard::copy(dst, &src);
+}
+
+uint32_t MSWindowsScreen::clipboardSequence(ClipboardID id) const
+{
+  return id < kClipboardEnd ? GetClipboardSequenceNumber() : 0;
 }
 
 void MSWindowsScreen::getShape(int32_t &x, int32_t &y, int32_t &w, int32_t &h) const

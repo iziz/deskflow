@@ -121,12 +121,18 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
 
 bool MSWindowsClipboard::writesSucceeded() const
 {
+  return writeSucceeded();
+}
+
+bool MSWindowsClipboard::writeSucceeded() const
+{
   return !m_writeFailed;
 }
 
 bool MSWindowsClipboard::open(Time time) const
 {
   LOG_DEBUG("open clipboard");
+  m_readFailed = false;
 
   // The clipboard is a global mutex on Windows. We aren't always going to
   // get the lock on the first try, so try a few times before giving up.
@@ -192,6 +198,7 @@ std::string MSWindowsClipboard::get(Format format) const
   // if no converter then we don't recognize any formats
   if (converter == nullptr) {
     LOG_WARN("no converter for format %d", format);
+    m_readFailed = true;
     return std::string();
   }
 
@@ -201,11 +208,18 @@ std::string MSWindowsClipboard::get(Format format) const
     // nb: can't cause this using integ tests; this is only caused when
     // the selected converter returns an invalid format -- which you
     // cannot cause using public functions.
+    LOG_WARN("failed to get Windows clipboard data for format %d: error=%lu", format, GetLastError());
+    m_readFailed = true;
     return std::string();
   }
 
   // convert
   return converter->toIClipboard(win32Data);
+}
+
+bool MSWindowsClipboard::readSucceeded() const
+{
+  return !m_readFailed;
 }
 
 void MSWindowsClipboard::clearConverters()
