@@ -41,4 +41,22 @@ void MSWindowsScreenTests::localKeyInputPreservesExtendedFlagForKeyRelease()
   QCOMPARE(input.ki.dwFlags, static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP));
 }
 
+void MSWindowsScreenTests::localKeyRestoreInputIsTaggedAndRecognized()
+{
+  const auto input = makeWindowsKeyInput(VK_LWIN, 0x15bu, false, kWindowsLocalKeyRestoreExtraInfo);
+
+  QCOMPARE(input.ki.dwExtraInfo, kWindowsLocalKeyRestoreExtraInfo);
+  QVERIFY(isWindowsLocalKeyRestoreInput(LLKHF_INJECTED | LLKHF_UP, input.ki.dwExtraInfo));
+}
+
+void MSWindowsScreenTests::unrelatedInjectedInputIsNotRecognizedAsLocalRestore()
+{
+  QVERIFY(!isWindowsLocalKeyRestoreInput(LLKHF_INJECTED, 0));
+}
+
+void MSWindowsScreenTests::physicalInputCannotSpoofLocalRestoreTag()
+{
+  QVERIFY(!isWindowsLocalKeyRestoreInput(0, kWindowsLocalKeyRestoreExtraInfo));
+}
+
 QTEST_MAIN(MSWindowsScreenTests)

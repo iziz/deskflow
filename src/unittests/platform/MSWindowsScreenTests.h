@@ -17,4 +17,7 @@ private Q_SLOTS:
   void localKeyInputUsesKeyUpForRegularKeyRelease();
   void localKeyInputPreservesExtendedFlagForKeyDown();
   void localKeyInputPreservesExtendedFlagForKeyRelease();
+  void localKeyRestoreInputIsTaggedAndRecognized();
+  void unrelatedInjectedInputIsNotRecognizedAsLocalRestore();
+  void physicalInputCannotSpoofLocalRestoreTag();
 };

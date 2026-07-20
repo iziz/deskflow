@@ -11,11 +11,19 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
-inline INPUT makeWindowsKeyInput(UINT virtualKey, KeyButton button, bool press)
+inline constexpr ULONG_PTR kWindowsLocalKeyRestoreExtraInfo = static_cast<ULONG_PTR>(0x44534652u);
+
+inline bool isWindowsLocalKeyRestoreInput(DWORD hookFlags, ULONG_PTR extraInfo)
+{
+  return (hookFlags & LLKHF_INJECTED) != 0 && extraInfo == kWindowsLocalKeyRestoreExtraInfo;
+}
+
+inline INPUT makeWindowsKeyInput(UINT virtualKey, KeyButton button, bool press, ULONG_PTR extraInfo = 0)
 {
   INPUT input = {};
   input.type = INPUT_KEYBOARD;
   input.ki.wVk = static_cast<WORD>(virtualKey);
+  input.ki.dwExtraInfo = extraInfo;
   if ((button & 0x100u) != 0) {
     input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
   }

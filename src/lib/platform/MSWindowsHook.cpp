@@ -10,6 +10,7 @@
 #include "base/Log.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsKeyEventPolicy.h"
+#include "platform/MSWindowsKeyInput.h"
 #include "platform/MSWindowsMouseEventPolicy.h"
 
 #ifndef WM_MOUSEHWHEEL
@@ -446,6 +447,17 @@ static LRESULT CALLBACK keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
   if (code >= 0) {
     // decode the message
     KBDLLHOOKSTRUCT *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+
+    // Local key-state restoration must reach Windows even if the hook mode has
+    // already returned to relay mode. Identify only Deskflow's own tagged
+    // SendInput event instead of opening a pass-through window for all keys.
+    if (isWindowsLocalKeyRestoreInput(info->flags, info->dwExtraInfo)) {
+      PostThreadMessage(
+          g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_LOCAL_KEY_RESTORE,
+          MAKELPARAM(static_cast<WORD>(info->vkCode), static_cast<WORD>(info->flags))
+      );
+      return CallNextHookEx(g_keyboardLL, code, wParam, lParam);
+    }
 
     bool const injected = info->flags & LLKHF_INJECTED;
     if (!g_isPrimary && injected) {

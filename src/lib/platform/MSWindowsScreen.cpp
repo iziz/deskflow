@@ -891,6 +891,10 @@ bool MSWindowsScreen::onPreDispatch(HWND hwnd, UINT message, WPARAM wParam, LPAR
   case DESKFLOW_MSG_DEBUG:
     if (wParam == DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE) {
       LOG_DEBUG("dropped pre-mode mouse motion: event lag=%ldms", static_cast<LONG>(lParam));
+    } else if (wParam == DESKFLOW_HOOK_DEBUG_LOCAL_KEY_RESTORE) {
+      LOG_DEBUG(
+          "passed local key restore through hook: vk=0x%02x flags=0x%02x", LOWORD(lParam), HIWORD(lParam)
+      );
     } else {
       LOG_VERBOSE("hook: 0x%08x 0x%08x", wParam, lParam);
     }
@@ -1068,10 +1072,8 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
     PrimaryKeyDownList::iterator find = std::find(m_primaryKeyDownList.begin(), m_primaryKeyDownList.end(), button);
     if (find != m_primaryKeyDownList.end()) {
       LOG_VERBOSE("release key button %d on primary", *find);
-      m_hook.setMode(kHOOK_WATCH_JUMP_ZONE);
       fakeLocalKey(*find, false);
       m_primaryKeyDownList.erase(find);
-      m_hook.setMode(kHOOK_RELAY_EVENTS);
       return true;
     }
   }
@@ -1737,7 +1739,9 @@ LRESULT CALLBACK MSWindowsScreen::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 
 void MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
 {
-  auto input = makeWindowsKeyInput(m_keyState->mapButtonToVirtualKey(button), button, press);
+  auto input = makeWindowsKeyInput(
+      m_keyState->mapButtonToVirtualKey(button), button, press, kWindowsLocalKeyRestoreExtraInfo
+  );
   if (SendInput(1, &input, sizeof(input)) != 1) {
     LOG_WARN("failed to restore local key state for button %d: %lu", button, GetLastError());
   }
