@@ -41,7 +41,6 @@ using namespace deskflow::server;
 
 namespace {
 
-constexpr int32_t kSecondarySwitchEdgeMargin = 16;
 constexpr auto kMouseMotionLogInterval = std::chrono::milliseconds(100);
 
 bool shouldLogMouseMotion()
@@ -1110,42 +1109,36 @@ void Server::avoidJumpZone(const BaseClientProxy *dst, Direction dir, int32_t &x
   int32_t dh;
   dst->getShape(dx, dy, dw, dh);
   float t = mapToFraction(dst, dir, x, y);
-  int32_t z = getJumpZoneSize(dst);
-  const int32_t minZoneSize = (dst == m_primaryClient) ? 1 : kSecondarySwitchEdgeMargin;
-  if (z < minZoneSize) {
-    z = minZoneSize;
-  }
+  const int32_t margin = std::max(getJumpZoneSize(dst), kEdgeSwitchEntryMargin);
+  bool hasReturnNeighbor = false;
 
-  // move in far enough to avoid the jump zone.  if entering a side
-  // that doesn't have a neighbor (i.e. an asymmetrical side) then we
-  // don't need to move inwards because that side can't provoke a jump.
+  // Only inset an entry edge that can immediately return to the source.
   switch (dir) {
     using enum Direction;
   case Left:
-    if ((!m_config->getNeighbor(dstName, Right, t, nullptr).empty() || hasPhysicalNeighbor(dst, Right)) &&
-        x > dx + dw - 1 - z)
-      x = dx + dw - 1 - z;
+    hasReturnNeighbor = !m_config->getNeighbor(dstName, Right, t, nullptr).empty() || hasPhysicalNeighbor(dst, Right);
     break;
 
   case Right:
-    if ((!m_config->getNeighbor(dstName, Left, t, nullptr).empty() || hasPhysicalNeighbor(dst, Left)) && x < dx + z)
-      x = dx + z;
+    hasReturnNeighbor = !m_config->getNeighbor(dstName, Left, t, nullptr).empty() || hasPhysicalNeighbor(dst, Left);
     break;
 
   case Top:
-    if ((!m_config->getNeighbor(dstName, Bottom, t, nullptr).empty() || hasPhysicalNeighbor(dst, Bottom)) &&
-        y > dy + dh - 1 - z)
-      y = dy + dh - 1 - z;
+    hasReturnNeighbor = !m_config->getNeighbor(dstName, Bottom, t, nullptr).empty() || hasPhysicalNeighbor(dst, Bottom);
     break;
 
   case Bottom:
-    if ((!m_config->getNeighbor(dstName, Top, t, nullptr).empty() || hasPhysicalNeighbor(dst, Top)) && y < dy + z)
-      y = dy + z;
+    hasReturnNeighbor = !m_config->getNeighbor(dstName, Top, t, nullptr).empty() || hasPhysicalNeighbor(dst, Top);
     break;
 
   case NoDirection:
     assert(0 && "bad direction");
+    return;
   }
+
+  const auto destination = insetEdgeSwitchDestination({dx, dy, dw, dh}, dir, {x, y}, margin, hasReturnNeighbor);
+  x = destination.x;
+  y = destination.y;
 }
 
 void Server::avoidJumpRestoreZone(const BaseClientProxy *dst, int32_t &x, int32_t &y) const
@@ -1159,11 +1152,7 @@ void Server::avoidJumpRestoreZone(const BaseClientProxy *dst, int32_t &x, int32_
 
   const int32_t maxX = dx + dw - 1;
   const int32_t maxY = dy + dh - 1;
-  int32_t z = getJumpZoneSize(dst);
-  const int32_t minZoneSize = (dst == m_primaryClient) ? 1 : kSecondarySwitchEdgeMargin;
-  if (z < minZoneSize) {
-    z = minZoneSize;
-  }
+  const int32_t z = std::max(getJumpZoneSize(dst), kEdgeSwitchEntryMargin);
 
   int32_t minX = dx;
   int32_t restoreMaxX = maxX;

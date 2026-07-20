@@ -1216,13 +1216,15 @@ bool MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
   bool pressed = mapPressFromEvent(wParam, lParam);
   ButtonID button = mapButtonFromEvent(wParam, lParam);
 
-  // keep our shadow key state up to date
-  if (button >= kButtonLeft && button <= kButtonExtra0 + 1) {
-    m_buttons[button] = pressed;
-  }
-
   // ignore message if posted prior to last mark change
   if (!ignore()) {
+    // Keep the shadow state consistent with the accepted event stream. A
+    // pre-transition message must not lock the current screen after its input
+    // event has been discarded.
+    if (button >= kButtonLeft && button <= kButtonExtra0 + 1) {
+      m_buttons[button] = pressed;
+    }
+
     recordRemoteUserActivity();
 
     KeyModifierMask mask = m_keyState->getActiveModifiers();

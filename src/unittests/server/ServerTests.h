@@ -21,6 +21,9 @@ private Q_SLOTS:
   void pendingClipboardPublication_cancellationPreventsLateCommit();
   void edgeSwitchProbe_preservesHorizontalOvershoot();
   void edgeSwitchProbe_preservesVerticalOvershoot();
+  void edgeSwitchDestination_insetsReturnEdge();
+  void edgeSwitchDestination_preservesAsymmetricEdge();
+  void edgeSwitchDestination_clampsMarginToSmallScreen();
   void edgeSwitchDirections_retainsCornerFallback();
   void neighborLookup_classifiesFacts();
   void physicalLookupFacts_accumulateCandidateStates();

@@ -23,6 +23,8 @@ using deskflow::server::EdgeLookupFacts;
 using deskflow::server::EdgeLookupKind;
 using deskflow::server::EdgeSwitchBounds;
 using deskflow::server::EdgeSwitchPosition;
+using deskflow::server::insetEdgeSwitchDestination;
+using deskflow::server::kEdgeSwitchEntryMargin;
 using deskflow::server::makeEdgeSwitchDirections;
 using deskflow::server::makeEdgeSwitchProbe;
 using deskflow::server::mergeNeighborMiss;
@@ -175,6 +177,44 @@ void ServerTests::edgeSwitchProbe_preservesVerticalOvershoot()
   const EdgeSwitchPosition bottom = makeEdgeSwitchProbe(bounds, Direction::Bottom, {4000, 2000});
   QCOMPARE(bottom.x, 3017);
   QCOMPARE(bottom.y, 2000);
+}
+
+void ServerTests::edgeSwitchDestination_insetsReturnEdge()
+{
+  const EdgeSwitchBounds bounds{0, 0, 3840, 2160};
+
+  const auto fromRightScreen =
+      insetEdgeSwitchDestination(bounds, Direction::Left, {3839, 830}, kEdgeSwitchEntryMargin, true);
+  QCOMPARE(fromRightScreen.x, 3823);
+  QCOMPARE(fromRightScreen.y, 830);
+
+  const auto fromLeftScreen =
+      insetEdgeSwitchDestination(bounds, Direction::Right, {0, 830}, kEdgeSwitchEntryMargin, true);
+  QCOMPARE(fromLeftScreen.x, 16);
+  QCOMPARE(fromLeftScreen.y, 830);
+}
+
+void ServerTests::edgeSwitchDestination_preservesAsymmetricEdge()
+{
+  const EdgeSwitchBounds bounds{0, 0, 3840, 2160};
+
+  const auto destination =
+      insetEdgeSwitchDestination(bounds, Direction::Left, {3839, 830}, kEdgeSwitchEntryMargin, false);
+  QCOMPARE(destination.x, 3839);
+  QCOMPARE(destination.y, 830);
+}
+
+void ServerTests::edgeSwitchDestination_clampsMarginToSmallScreen()
+{
+  const EdgeSwitchBounds bounds{10, 20, 8, 6};
+
+  const auto horizontal = insetEdgeSwitchDestination(bounds, Direction::Left, {17, 22}, kEdgeSwitchEntryMargin, true);
+  QCOMPARE(horizontal.x, 10);
+  QCOMPARE(horizontal.y, 22);
+
+  const auto vertical = insetEdgeSwitchDestination(bounds, Direction::Bottom, {14, 20}, kEdgeSwitchEntryMargin, true);
+  QCOMPARE(vertical.x, 14);
+  QCOMPARE(vertical.y, 25);
 }
 
 void ServerTests::edgeSwitchDirections_retainsCornerFallback()

@@ -13,6 +13,8 @@
 
 namespace deskflow::server {
 
+inline constexpr int32_t kEdgeSwitchEntryMargin = 16;
+
 struct EdgeSwitchBounds
 {
   int32_t x;
@@ -31,6 +33,14 @@ struct EdgeSwitchPosition
 // fraction probe inside the source screen on the perpendicular axis.
 EdgeSwitchPosition
 makeEdgeSwitchProbe(const EdgeSwitchBounds &bounds, Direction direction, const EdgeSwitchPosition &requested);
+
+// Move a mapped destination away from the edge that can immediately return
+// to the source screen. This provides spatial hysteresis without delaying an
+// intentional reverse switch.
+EdgeSwitchPosition insetEdgeSwitchDestination(
+    const EdgeSwitchBounds &bounds, Direction direction, const EdgeSwitchPosition &requested, int32_t margin,
+    bool hasReturnNeighbor
+);
 
 // Return edge candidates in the same horizontal-first order used by the
 // primary screen while retaining a vertical fallback at corners.

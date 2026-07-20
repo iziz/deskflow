@@ -37,6 +37,46 @@ makeEdgeSwitchProbe(const EdgeSwitchBounds &bounds, Direction direction, const E
   return probe;
 }
 
+EdgeSwitchPosition insetEdgeSwitchDestination(
+    const EdgeSwitchBounds &bounds, Direction direction, const EdgeSwitchPosition &requested, int32_t margin,
+    bool hasReturnNeighbor
+)
+{
+  EdgeSwitchPosition destination = requested;
+  if (!hasReturnNeighbor || margin <= 0 || bounds.width <= 0 || bounds.height <= 0) {
+    return destination;
+  }
+
+  const int32_t horizontalInset = std::min(margin, bounds.width - 1);
+  const int32_t verticalInset = std::min(margin, bounds.height - 1);
+  const int32_t maxX = bounds.x + bounds.width - 1;
+  const int32_t maxY = bounds.y + bounds.height - 1;
+
+  switch (direction) {
+    using enum Direction;
+  case Left:
+    destination.x = std::min(destination.x, maxX - horizontalInset);
+    break;
+
+  case Right:
+    destination.x = std::max(destination.x, bounds.x + horizontalInset);
+    break;
+
+  case Top:
+    destination.y = std::min(destination.y, maxY - verticalInset);
+    break;
+
+  case Bottom:
+    destination.y = std::max(destination.y, bounds.y + verticalInset);
+    break;
+
+  case NoDirection:
+    break;
+  }
+
+  return destination;
+}
+
 std::array<Direction, 2> makeEdgeSwitchDirections(const EdgeSwitchBounds &bounds, const EdgeSwitchPosition &requested)
 {
   std::array<Direction, 2> directions{Direction::NoDirection, Direction::NoDirection};
