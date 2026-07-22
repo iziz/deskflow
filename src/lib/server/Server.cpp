@@ -2346,9 +2346,18 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     yv += zoneSize;
     dirv = Bottom;
   }
-  if (dirh == NoDirection && dirv == NoDirection) {
+  const bool hasSwitchCandidate = dirh != NoDirection || dirv != NoDirection;
+  const auto routingDecision = classifyEdgeSwitchRouting(hasSwitchCandidate, hasSwitchCandidate && isLockedToScreen());
+  if (routingDecision == EdgeSwitchRoutingDecision::NoCandidate) {
     // still on local screen
     noSwitch(x, y);
+    return false;
+  }
+  if (routingDecision == EdgeSwitchRoutingDecision::BlockedByScreenLock) {
+    stopSwitch();
+    if (logMouseMotion) {
+      LOG_VERBOSE("skipped primary edge routing while screen is locked");
+    }
     return false;
   }
 
@@ -2469,7 +2478,11 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   const int32_t xc = std::clamp(m_x, ax, ax + aw - 1);
   const int32_t yc = std::clamp(m_y, ay, ay + ah - 1);
 
-  if (switchDirections[0] == Direction::NoDirection && switchDirections[1] == Direction::NoDirection) {
+  const bool hasSwitchCandidate =
+      switchDirections[0] != Direction::NoDirection || switchDirections[1] != Direction::NoDirection;
+  const auto routingDecision = classifyEdgeSwitchRouting(hasSwitchCandidate, hasSwitchCandidate && isLockedToScreen());
+
+  if (routingDecision == EdgeSwitchRoutingDecision::NoCandidate) {
     // If waiting and the mouse has left the pending border, cancel the wait
     // and arm the double tap.
     if (m_switchScreen != nullptr) {
@@ -2496,6 +2509,11 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
       if (clearWait) {
         noSwitch(m_x, m_y);
       }
+    }
+  } else if (routingDecision == EdgeSwitchRoutingDecision::BlockedByScreenLock) {
+    stopSwitch();
+    if (logMouseMotion) {
+      LOG_VERBOSE("skipped secondary edge routing while screen is locked");
     }
   } else {
     for (const Direction dir : switchDirections) {

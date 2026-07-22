@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 
+using deskflow::server::classifyEdgeSwitchRouting;
 using deskflow::server::classifyNeighborLookup;
 using deskflow::server::classifySwitchPolicy;
 using deskflow::server::ClipboardPublicationAuthority;
@@ -23,6 +24,7 @@ using deskflow::server::EdgeLookupFacts;
 using deskflow::server::EdgeLookupKind;
 using deskflow::server::EdgeSwitchBounds;
 using deskflow::server::EdgeSwitchPosition;
+using deskflow::server::EdgeSwitchRoutingDecision;
 using deskflow::server::insetEdgeSwitchDestination;
 using deskflow::server::kEdgeSwitchEntryMargin;
 using deskflow::server::makeEdgeSwitchDirections;
@@ -323,6 +325,14 @@ void ServerTests::neighborMapStatus_cacheAndKeywords()
     QCOMPARE(neighborMapStatusKeyword(test.status), test.keyword);
     QCOMPARE(shouldCacheNeighborMiss(test.status), test.cache);
   }
+}
+
+void ServerTests::edgeSwitchRouting_blocksLockedCandidates()
+{
+  QCOMPARE(classifyEdgeSwitchRouting(false, false), EdgeSwitchRoutingDecision::NoCandidate);
+  QCOMPARE(classifyEdgeSwitchRouting(false, true), EdgeSwitchRoutingDecision::NoCandidate);
+  QCOMPARE(classifyEdgeSwitchRouting(true, false), EdgeSwitchRoutingDecision::Evaluate);
+  QCOMPARE(classifyEdgeSwitchRouting(true, true), EdgeSwitchRoutingDecision::BlockedByScreenLock);
 }
 
 void ServerTests::switchPolicy_classifiesConditionsAndKeywords()

@@ -231,9 +231,8 @@ public:
   //! Get screen lock state
   /*!
   Returns true if there's any reason that the user should not be
-  allowed to leave the screen (usually because a button or key is
-  pressed).  If this method returns true it logs a message as to
-  why at the CLOG_DEBUG level.
+  allowed to leave the screen (usually because a mouse button is
+  pressed).
   */
   bool isLockedToScreen() const;
 

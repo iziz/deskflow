@@ -360,7 +360,6 @@ bool Screen::isOnScreen() const
 bool Screen::isLockedToScreen() const
 {
   if (uint32_t buttonID = 0; m_screen->isAnyMouseButtonDown(buttonID)) {
-    LOG_DEBUG("locked by mouse buttonID: %d", buttonID);
     return true;
   }
   // not locked

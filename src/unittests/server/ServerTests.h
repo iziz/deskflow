@@ -29,5 +29,6 @@ private Q_SLOTS:
   void physicalLookupFacts_accumulateCandidateStates();
   void neighborMiss_mergePreservesActiveLookup();
   void neighborMapStatus_cacheAndKeywords();
+  void edgeSwitchRouting_blocksLockedCandidates();
   void switchPolicy_classifiesConditionsAndKeywords();
 };

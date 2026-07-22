@@ -88,6 +88,15 @@ enum class SwitchPolicyDecision : uint8_t
   Blocked
 };
 
+enum class EdgeSwitchRoutingDecision : uint8_t
+{
+  NoCandidate,
+  Evaluate,
+  BlockedByScreenLock
+};
+
+EdgeSwitchRoutingDecision classifyEdgeSwitchRouting(bool hasCandidate, bool screenLocked);
+
 enum class SwitchPolicyCondition : uint8_t
 {
   None = 0,

@@ -97,6 +97,17 @@ std::string_view neighborMapStatusKeyword(NeighborMapStatus status)
   return "unknown";
 }
 
+EdgeSwitchRoutingDecision classifyEdgeSwitchRouting(bool hasCandidate, bool screenLocked)
+{
+  if (!hasCandidate) {
+    return EdgeSwitchRoutingDecision::NoCandidate;
+  }
+  if (screenLocked) {
+    return EdgeSwitchRoutingDecision::BlockedByScreenLock;
+  }
+  return EdgeSwitchRoutingDecision::Evaluate;
+}
+
 SwitchPolicyDecision classifySwitchPolicy(SwitchPolicyCondition conditions)
 {
   constexpr auto terminalConditions = SwitchPolicyCondition::LockedCorner | SwitchPolicyCondition::LockedToScreen;
