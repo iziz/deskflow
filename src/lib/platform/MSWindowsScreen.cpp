@@ -250,11 +250,7 @@ void MSWindowsScreen::enter()
     // enable special key sequences on win95 family
     enableSpecialKeys(true);
 
-    // watch jump zones
-    m_hook.setMode(kHOOK_WATCH_JUMP_ZONE);
-
-    // all messages prior to now are invalid
-    nextMark();
+    beginMouseInputEpoch(kHOOK_WATCH_JUMP_ZONE);
 
     m_primaryKeyDownList.clear();
   } else {
@@ -305,14 +301,11 @@ void MSWindowsScreen::leave()
     // disable special key sequences on win95 family
     enableSpecialKeys(false);
 
-    // all messages prior to now are invalid
-    nextMark();
-
     // remember the modifier state.  this is the modifier state
     // reflected in the internal keyboard state.
     m_keyState->saveModifiers();
 
-    m_hook.setMode(kHOOK_RELAY_EVENTS);
+    beginMouseInputEpoch(kHOOK_RELAY_EVENTS);
 
     m_primaryKeyDownList.clear();
     for (KeyButton i = 0; i < IKeyState::s_numButtons; ++i) {
@@ -690,13 +683,9 @@ int32_t MSWindowsScreen::getJumpZoneSize() const
 
 bool MSWindowsScreen::isAnyMouseButtonDown(uint32_t &buttonID) const
 {
-  static const char *buttonToName[] = {"<invalid>",    "Left Button", "Middle Button",
-                                       "Right Button", "X Button 1",  "X Button 2"};
-
   for (uint32_t i = 1; i < sizeof(m_buttons) / sizeof(m_buttons[0]); ++i) {
     if (m_buttons[i]) {
       buttonID = i;
-      LOG_DEBUG("locked by \"%s\"", buttonToName[i]);
       return true;
     }
   }
@@ -891,8 +880,8 @@ bool MSWindowsScreen::onPreDispatch(HWND hwnd, UINT message, WPARAM wParam, LPAR
     return onScreensaver(wParam != 0);
 
   case DESKFLOW_MSG_DEBUG:
-    if (wParam == DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE) {
-      LOG_DEBUG("dropped pre-mode mouse motion: event lag=%ldms", static_cast<LONG>(lParam));
+    if (wParam == DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_INPUT) {
+      LOG_DEBUG("filtered pre-mode mouse input: event lag=%ldms", static_cast<LONG>(lParam));
     } else if (wParam == DESKFLOW_HOOK_DEBUG_LOCAL_KEY_RESTORE) {
       LOG_DEBUG("passed local key restore through hook: vk=0x%02x flags=0x%02x", LOWORD(lParam), HIWORD(lParam));
     } else {
@@ -1268,6 +1257,10 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     if (m_isPrimary && m_restoreCursorOnPrimaryMotion) {
       m_desks->restoreCursor();
       m_restoreCursorOnPrimaryMotion = false;
+      m_hook.restartMouseMotionEpoch();
+      nextMark();
+      LOG_DEBUG("consumed first primary motion after screen entry");
+      return true;
     }
 
     // motion on primary screen
@@ -1473,6 +1466,19 @@ void MSWindowsScreen::nextMark()
 
   // mark point in message queue where the mark was changed
   PostThreadMessage(GetCurrentThreadId(), DESKFLOW_MSG_MARK, m_mark, 0);
+}
+
+void MSWindowsScreen::beginMouseInputEpoch(EHookMode mode)
+{
+  m_hook.setMode(mode);
+  nextMark();
+  clearMouseButtonState();
+}
+
+void MSWindowsScreen::clearMouseButtonState()
+{
+  std::fill_n(m_buttons, NumButtonIDs, false);
+  LOG_DEBUG("cleared mouse button shadow state for screen transition");
 }
 
 bool MSWindowsScreen::ignore() const

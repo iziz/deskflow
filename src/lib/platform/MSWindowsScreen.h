@@ -183,6 +183,12 @@ private: // HACK
   // discard posted messages
   void nextMark();
 
+  // start a mouse input epoch for a screen transition
+  void beginMouseInputEpoch(EHookMode mode);
+
+  // reset button state that belongs to the previous input epoch
+  void clearMouseButtonState();
+
   // test if event should be ignored
   bool ignore() const;
 

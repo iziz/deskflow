@@ -40,9 +40,13 @@ static BYTE g_keyState[256] = {0};
 static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
-static DWORD g_mouseModeCutoff = 0;
-static bool g_hasMouseModeCutoff = false;
-static bool g_reportedPreModeMouseMotion = false;
+static DWORD g_mouseMotionModeCutoff = 0;
+static DWORD g_mouseButtonModeCutoff = 0;
+static bool g_hasMouseMotionModeCutoff = false;
+static bool g_hasMouseButtonModeCutoff = false;
+static deskflow::platform::PreModeMouseEventAction g_staleMouseButtonAction =
+    deskflow::platform::PreModeMouseEventAction::PassThrough;
+static bool g_reportedPreModeMouseInput = false;
 
 static const char *hookModeToString(EHookMode mode)
 {
@@ -121,9 +125,12 @@ int MSWindowsHook::init(DWORD threadID)
   g_yScreen = 0;
   g_wScreen = 0;
   g_hScreen = 0;
-  g_mouseModeCutoff = 0;
-  g_hasMouseModeCutoff = false;
-  g_reportedPreModeMouseMotion = false;
+  g_mouseMotionModeCutoff = 0;
+  g_mouseButtonModeCutoff = 0;
+  g_hasMouseMotionModeCutoff = false;
+  g_hasMouseButtonModeCutoff = false;
+  g_staleMouseButtonAction = deskflow::platform::PreModeMouseEventAction::PassThrough;
+  g_reportedPreModeMouseInput = false;
 
   return 1;
 }
@@ -164,20 +171,39 @@ void MSWindowsHook::setMode(EHookMode mode)
   }
   LOG_DEBUG("windows hook mode changed from %s to %s", hookModeToString(g_mode), hookModeToString(mode));
 
+  const EHookMode previousMode = g_mode;
+
   if (mode == kHOOK_WATCH_JUMP_ZONE || mode == kHOOK_RELAY_EVENTS) {
     // Low-level hook callbacks are delivered through the installing thread's
-    // message loop. A callback for motion that predates this mode transition
-    // can therefore run under the new mode and immediately reverse a screen
-    // switch. Use the transition tick, rather than the last observed event,
-    // so every queued pre-transition motion sample is rejected.
-    g_mouseModeCutoff = GetTickCount();
-    g_hasMouseModeCutoff = true;
-    g_reportedPreModeMouseMotion = false;
+    // message loop. A callback that predates this mode transition can therefore
+    // run under the new mode. Use the transition tick to reject queued motion
+    // and to keep queued buttons out of the new Deskflow shadow state.
+    const DWORD modeCutoff = GetTickCount();
+    g_mouseMotionModeCutoff = modeCutoff;
+    g_mouseButtonModeCutoff = modeCutoff;
+    g_hasMouseMotionModeCutoff = true;
+    g_hasMouseButtonModeCutoff = true;
+    g_staleMouseButtonAction = previousMode == kHOOK_RELAY_EVENTS
+                                   ? deskflow::platform::PreModeMouseEventAction::Suppress
+                                   : deskflow::platform::PreModeMouseEventAction::PassThrough;
+    g_reportedPreModeMouseInput = false;
   } else {
-    g_hasMouseModeCutoff = false;
+    g_hasMouseMotionModeCutoff = false;
+    g_hasMouseButtonModeCutoff = false;
   }
 
   g_mode = mode;
+}
+
+void MSWindowsHook::restartMouseMotionEpoch()
+{
+  if (g_mode != kHOOK_WATCH_JUMP_ZONE && g_mode != kHOOK_RELAY_EVENTS) {
+    return;
+  }
+
+  g_mouseMotionModeCutoff = GetTickCount();
+  g_hasMouseMotionModeCutoff = true;
+  g_reportedPreModeMouseInput = false;
 }
 
 static void keyboardGetState(BYTE keys[256], DWORD vkCode, bool kf_up)
@@ -606,15 +632,22 @@ static LRESULT CALLBACK mouseLLHook(int code, WPARAM wParam, LPARAM lParam)
     // decode the message
     MSLLHOOKSTRUCT *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
 
-    if (deskflow::platform::shouldDropPreModeMouseMotion(
-            g_mode, wParam, info->time, g_mouseModeCutoff, g_hasMouseModeCutoff
-        )) {
-      if (!g_reportedPreModeMouseMotion) {
-        const auto lag = static_cast<LONG>(info->time - g_mouseModeCutoff);
-        PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE, lag);
-        g_reportedPreModeMouseMotion = true;
+    const bool isButtonMessage = deskflow::platform::isMouseButtonMessage(wParam);
+    const DWORD modeCutoff = isButtonMessage ? g_mouseButtonModeCutoff : g_mouseMotionModeCutoff;
+    const bool hasModeCutoff = isButtonMessage ? g_hasMouseButtonModeCutoff : g_hasMouseMotionModeCutoff;
+    const auto preModeAction = deskflow::platform::classifyPreModeMouseEvent(
+        g_mode, wParam, info->time, modeCutoff, hasModeCutoff, g_staleMouseButtonAction
+    );
+    if (preModeAction != deskflow::platform::PreModeMouseEventAction::Process) {
+      if (!g_reportedPreModeMouseInput) {
+        const auto lag = static_cast<LONG>(info->time - modeCutoff);
+        PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_INPUT, lag);
+        g_reportedPreModeMouseInput = true;
       }
-      return 1;
+      if (preModeAction == deskflow::platform::PreModeMouseEventAction::Suppress) {
+        return 1;
+      }
+      return CallNextHookEx(g_mouseLL, code, wParam, lParam);
     }
 
     bool const injected = info->flags & LLMHF_INJECTED;

@@ -21,7 +21,7 @@
 #define DESKFLOW_MSG_PRE_WARP WM_APP + 0x0017     // x; y
 #define DESKFLOW_MSG_SCREEN_SAVER WM_APP + 0x0018 // activated; <unused>
 #define DESKFLOW_MSG_DEBUG WM_APP + 0x0019        // data, data
-#define DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_MOVE 0x06000000u
+#define DESKFLOW_HOOK_DEBUG_PRE_MODE_MOUSE_INPUT 0x06000000u
 #define DESKFLOW_MSG_INPUT_FIRST DESKFLOW_MSG_KEY
 #define DESKFLOW_MSG_INPUT_LAST DESKFLOW_MSG_PRE_WARP
 #define DESKFLOW_HOOK_LAST_MSG DESKFLOW_MSG_DEBUG
@@ -63,6 +63,7 @@ public:
   void setZone(int32_t x, int32_t y, int32_t w, int32_t h, int32_t jumpZoneSize);
 
   void setMode(EHookMode mode);
+  void restartMouseMotionEpoch();
 
   static EHookResult install();
 

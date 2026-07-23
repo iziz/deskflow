@@ -29,9 +29,7 @@ void MSWindowsHookTests::windowsHotKeyRegistration()
   QFETCH(bool, expected);
 
   QCOMPARE(
-      deskflow::platform::shouldRegisterHotKeyWithWindows(
-          static_cast<UINT>(virtualKey), static_cast<UINT>(modifiers)
-      ),
+      deskflow::platform::shouldRegisterHotKeyWithWindows(static_cast<UINT>(virtualKey), static_cast<UINT>(modifiers)),
       expected
   );
 }
@@ -77,53 +75,83 @@ void MSWindowsHookTests::relaySuppression()
   );
 }
 
-void MSWindowsHookTests::preModeMouseMotion_data()
+void MSWindowsHookTests::preModeMouseEvent_data()
 {
   QTest::addColumn<int>("mode");
   QTest::addColumn<quint64>("message");
   QTest::addColumn<quint64>("eventTime");
   QTest::addColumn<quint64>("modeCutoff");
   QTest::addColumn<bool>("hasModeCutoff");
-  QTest::addColumn<bool>("expected");
+  QTest::addColumn<int>("staleButtonAction");
+  QTest::addColumn<int>("expected");
 
-  QTest::newRow("older relay motion")
-      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << true;
+  QTest::newRow("older relay motion") << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990)
+                                      << quint64(1000) << true
+                                      << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+                                      << int(deskflow::platform::PreModeMouseEventAction::Suppress);
   QTest::newRow("same-tick relay motion")
-      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1000) << quint64(1000) << true << true;
-  QTest::newRow("new relay motion")
-      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1001) << quint64(1000) << true << false;
-  QTest::newRow("older local motion")
-      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << true;
-  QTest::newRow("new local motion")
-      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(1001) << quint64(1000) << true << false;
-  QTest::newRow("disabled hook")
-      << int(kHOOK_DISABLE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true << false;
-  QTest::newRow("relay button")
-      << int(kHOOK_RELAY_EVENTS) << quint64(WM_LBUTTONDOWN) << quint64(990) << quint64(1000) << true << false;
-  QTest::newRow("missing cutoff")
-      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << false << false;
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1000) << quint64(1000) << true
+      << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+      << int(deskflow::platform::PreModeMouseEventAction::Suppress);
+  QTest::newRow("new relay motion") << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(1001)
+                                    << quint64(1000) << true
+                                    << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+                                    << int(deskflow::platform::PreModeMouseEventAction::Process);
+  QTest::newRow("older local motion") << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(990)
+                                      << quint64(1000) << true
+                                      << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+                                      << int(deskflow::platform::PreModeMouseEventAction::Suppress);
+  QTest::newRow("new local motion") << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_MOUSEMOVE) << quint64(1001)
+                                    << quint64(1000) << true
+                                    << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+                                    << int(deskflow::platform::PreModeMouseEventAction::Process);
+  QTest::newRow("disabled hook") << int(kHOOK_DISABLE) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000) << true
+                                 << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+                                 << int(deskflow::platform::PreModeMouseEventAction::Process);
+  QTest::newRow("older local button before relay")
+      << int(kHOOK_RELAY_EVENTS) << quint64(WM_LBUTTONDOWN) << quint64(990) << quint64(1000) << true
+      << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+      << int(deskflow::platform::PreModeMouseEventAction::PassThrough);
+  QTest::newRow("same-tick relay button before local")
+      << int(kHOOK_WATCH_JUMP_ZONE) << quint64(WM_RBUTTONUP) << quint64(1000) << quint64(1000) << true
+      << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+      << int(deskflow::platform::PreModeMouseEventAction::Suppress);
+  QTest::newRow("new relay button") << int(kHOOK_RELAY_EVENTS) << quint64(WM_XBUTTONDOWN) << quint64(1001)
+                                    << quint64(1000) << true
+                                    << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+                                    << int(deskflow::platform::PreModeMouseEventAction::Process);
+  QTest::newRow("older wheel") << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEWHEEL) << quint64(990) << quint64(1000)
+                               << true << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+                               << int(deskflow::platform::PreModeMouseEventAction::Process);
+  QTest::newRow("missing cutoff") << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(990) << quint64(1000)
+                                  << false << int(deskflow::platform::PreModeMouseEventAction::Suppress)
+                                  << int(deskflow::platform::PreModeMouseEventAction::Process);
   QTest::newRow("older motion across tick wrap")
       << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(0xfffffff0u) << quint64(0x00000005u) << true
-      << true;
+      << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+      << int(deskflow::platform::PreModeMouseEventAction::Suppress);
   QTest::newRow("new motion across tick wrap")
       << int(kHOOK_RELAY_EVENTS) << quint64(WM_MOUSEMOVE) << quint64(0x00000005u) << quint64(0xfffffff0u) << true
-      << false;
+      << int(deskflow::platform::PreModeMouseEventAction::PassThrough)
+      << int(deskflow::platform::PreModeMouseEventAction::Process);
 }
 
-void MSWindowsHookTests::preModeMouseMotion()
+void MSWindowsHookTests::preModeMouseEvent()
 {
   QFETCH(int, mode);
   QFETCH(quint64, message);
   QFETCH(quint64, eventTime);
   QFETCH(quint64, modeCutoff);
   QFETCH(bool, hasModeCutoff);
-  QFETCH(bool, expected);
+  QFETCH(int, staleButtonAction);
+  QFETCH(int, expected);
 
   QCOMPARE(
-      deskflow::platform::shouldDropPreModeMouseMotion(
+      int(deskflow::platform::classifyPreModeMouseEvent(
           static_cast<EHookMode>(mode), static_cast<WPARAM>(message), static_cast<DWORD>(eventTime),
-          static_cast<DWORD>(modeCutoff), hasModeCutoff
-      ),
+          static_cast<DWORD>(modeCutoff), hasModeCutoff,
+          static_cast<deskflow::platform::PreModeMouseEventAction>(staleButtonAction)
+      )),
       expected
   );
 }
