@@ -24,3 +24,15 @@ create_test(
   SOURCE ClientInfoUpdateStateTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/client"
 )
+
+if(WIN32)
+  set(server_proxy_extra_libs version)
+endif()
+
+create_test(
+  NAME ServerProxyTests
+  DEPENDS client
+  LIBS arch base io mt net platform server app ${server_proxy_extra_libs}
+  SOURCE ServerProxyTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/client"
+)

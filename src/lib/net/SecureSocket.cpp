@@ -636,6 +636,8 @@ SecureSocket::TlsWaitFor SecureSocket::checkResult(int status, int &retry)
     break;
 
   case SSL_ERROR_WANT_WRITE:
+    // SSL_write() bypasses writeSocket(), so reset the cached Windows poll hint.
+    ARCH->resetPollWriteOnSocket(getSocket());
     waitFor = TlsWaitFor::Writable;
     retry++;
     break;

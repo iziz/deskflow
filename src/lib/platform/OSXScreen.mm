@@ -88,6 +88,11 @@ bool shouldLogMouseMotion()
   return true;
 }
 
+bool needsMouseEventNumber()
+{
+  return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27;
+}
+
 } // namespace
 
 int getSecureInputEventPID();
@@ -526,6 +531,10 @@ void OSXScreen::postMouseEvent(CGPoint &pos) const
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(button));
   CGEventSetIntegerValueField(event, kCGEventSourceUserData, kDeskflowSyntheticMouseEventUserData);
 
+  if (button != -1 && needsMouseEventNumber()) {
+    CGEventSetIntegerValueField(event, kCGMouseEventNumber, m_mouseEventNumber);
+  }
+
   // Dragging events also need the click state
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
 
@@ -609,6 +618,19 @@ void OSXScreen::fakeMouseButton(ButtonID id, bool press)
   CGEventType type = thisButtonMap[state];
 
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(index));
+
+  if (needsMouseEventNumber()) {
+    if (press) {
+      if (m_mouseEventNumber == 0) {
+        m_mouseEventNumber =
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventLeftMouseDown) +
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventRightMouseDown) +
+            CGEventSourceCounterForEventType(kCGEventSourceStateHIDSystemState, kCGEventOtherMouseDown);
+      }
+      ++m_mouseEventNumber;
+    }
+    CGEventSetIntegerValueField(event, kCGMouseEventNumber, m_mouseEventNumber);
+  }
 
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, m_clickState);
 
@@ -809,6 +831,7 @@ void OSXScreen::disable()
 
   if (m_eventTapPort) {
     CGEventTapEnable(m_eventTapPort, false);
+    CFMachPortInvalidate(m_eventTapPort);
     CFRelease(m_eventTapPort);
     m_eventTapPort = nullptr;
   }
@@ -836,6 +859,7 @@ void OSXScreen::enter()
   showCursor();
 
   if (m_isPrimary) {
+    CGAssociateMouseAndMouseCursorPosition(true);
     setZeroSuppressionInterval();
   } else {
     // reset buttons
@@ -865,8 +889,7 @@ void OSXScreen::leave()
 
   if (m_isPrimary) {
     avoidHesitatingCursor();
-    LOG_VERBOSE("centering cursor on leave: %+d, %+d", m_xCenter, m_yCenter);
-    warpCursor(m_xCenter, m_yCenter);
+    CGAssociateMouseAndMouseCursorPosition(false);
   }
 
   // now off screen
@@ -1119,66 +1142,39 @@ void OSXScreen::handleSystemEvent(const Event &event)
   }
 }
 
-bool OSXScreen::onMouseMove()
+bool OSXScreen::onMouseMove(CGEventRef event)
 {
-  // when we receive a mouse-move event, it is possible it was queued for a period
-  // and that the mouse has already moved again since then.  to handle this, we need
-  // to query the current mouse position rather than using the position in the event.
-  CGEventRef event = CGEventCreate(NULL);
-  CGPoint pos = CGEventGetLocation(event);
-  CFRelease(event);
-  CGFloat mx = pos.x;
-  CGFloat my = pos.y;
-
-  if (shouldLogMouseMotion()) {
-    LOG_VERBOSE("mouse move %+f,%+f", mx, my);
-  }
-
-  CGFloat x = mx - m_xCursor;
-  CGFloat y = my - m_yCursor;
-
-  if ((x == 0 && y == 0) || (mx == m_xCenter && my == m_yCenter)) {
-    return true;
-  }
-
-  // save position to compute delta of next motion
-  m_xCursor = (int32_t)mx;
-  m_yCursor = (int32_t)my;
-
   if (m_isOnScreen) {
-    // motion on primary screen
+    // Query the live cursor position because the event position may be stale by the time it is handled.
+    CGEventRef positionEvent = CGEventCreate(nullptr);
+    const CGPoint position = CGEventGetLocation(positionEvent);
+    CFRelease(positionEvent);
+    const CGFloat mouseX = position.x;
+    const CGFloat mouseY = position.y;
+
+    if (shouldLogMouseMotion()) {
+      LOG_VERBOSE("mouse move %+f,%+f", mouseX, mouseY);
+    }
+
+    const CGFloat deltaX = mouseX - m_xCursor;
+    const CGFloat deltaY = mouseY - m_yCursor;
+    if ((deltaX == 0 && deltaY == 0) || (mouseX == m_xCenter && mouseY == m_yCenter)) {
+      return true;
+    }
+
+    m_xCursor = static_cast<int32_t>(mouseX);
+    m_yCursor = static_cast<int32_t>(mouseY);
     sendEvent(EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor));
   } else {
-    // motion on secondary screen.  warp mouse back to
-    // center.
-    warpCursor(m_xCenter, m_yCenter);
+    const auto deltaX = static_cast<int32_t>(CGEventGetIntegerValueField(event, kCGMouseEventDeltaX));
+    const auto deltaY = static_cast<int32_t>(CGEventGetIntegerValueField(event, kCGMouseEventDeltaY));
 
-    // examine the motion.  if it's about the distance
-    // from the center of the screen to an edge then
-    // it's probably a bogus motion that we want to
-    // ignore (see warpCursorNoFlush() for a further
-    // description).
-    static int32_t bogusZoneSize = 10;
-    if (-x + bogusZoneSize > m_xCenter - m_x || x + bogusZoneSize > m_x + m_w - m_xCenter ||
-        -y + bogusZoneSize > m_yCenter - m_y || y + bogusZoneSize > m_y + m_h - m_yCenter) {
-      LOG_DEBUG("dropped bogus motion %+d,%+d", x, y);
-    } else {
-      // send motion
-      // Accumulate together the move into the running total
-      static CGFloat m_xFractionalMove = 0;
-      static CGFloat m_yFractionalMove = 0;
+    if (shouldLogMouseMotion()) {
+      LOG_VERBOSE("mouse delta %+d,%+d", deltaX, deltaY);
+    }
 
-      m_xFractionalMove += x;
-      m_yFractionalMove += y;
-
-      // Return the integer part
-      int32_t intX = (int32_t)m_xFractionalMove;
-      int32_t intY = (int32_t)m_yFractionalMove;
-
-      // And keep only the fractional part
-      m_xFractionalMove -= intX;
-      m_yFractionalMove -= intY;
-      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(intX, intY));
+    if (deltaX != 0 || deltaY != 0) {
+      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(deltaX, deltaY));
     }
   }
 
@@ -1884,15 +1880,7 @@ CGEventRef OSXScreen::handleCGInputEvent(CGEventTapProxy proxy, CGEventType type
   case kCGEventRightMouseDragged:
   case kCGEventOtherMouseDragged:
   case kCGEventMouseMoved:
-    // we intentionally ignore the position in the event here as the events are
-    // queued and will no longer be accurate when we process them.
-    screen->onMouseMove();
-
-    // The system ignores our cursor-centering calls if
-    // we don't return the event. This should be harmless,
-    // but might register as slight movement to other apps
-    // on the system. It hasn't been a problem before, though.
-    return event;
+    screen->onMouseMove(event);
     break;
   case kCGEventScrollWheel:
     screen->onMouseWheel(

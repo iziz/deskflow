@@ -11,6 +11,7 @@
 #include "client/ClientClipboardState.h"
 #include "deskflow/IClient.h"
 
+#include "base/Event.h"
 #include "base/EventTypes.h"
 #include "common/Enums.h"
 #include "deskflow/IClipboard.h"
@@ -19,6 +20,7 @@
 
 #include <climits>
 #include <memory>
+#include <string>
 
 class Event;
 class EventQueueTimer;
@@ -43,6 +45,39 @@ This class implements the top-level client algorithms for deskflow.
 class Client : public IClient
 {
 public:
+  class DisconnectRequest : public EventData
+  {
+  public:
+    enum class Kind
+    {
+      Disconnect,
+      Refuse
+    };
+
+    DisconnectRequest(Kind kind, const char *message);
+    DisconnectRequest(deskflow::core::ConnectionRefusal reason, const char *message);
+
+    Kind kind() const
+    {
+      return m_kind;
+    }
+
+    deskflow::core::ConnectionRefusal refusalReason() const
+    {
+      return m_refusalReason;
+    }
+
+    const char *message() const
+    {
+      return m_message.empty() ? nullptr : m_message.c_str();
+    }
+
+  private:
+    Kind m_kind = Kind::Disconnect;
+    deskflow::core::ConnectionRefusal m_refusalReason = deskflow::core::ConnectionRefusal::ProtocolError;
+    std::string m_message;
+  };
+
   class FailInfo
   {
   public:
@@ -188,6 +223,7 @@ private:
   void handleConnectTimeout();
   void handleOutputError();
   void handleDisconnected(const char *reason);
+  void handleDisconnectRequested(const Event &event);
   void handleShapeChanged();
   void handleInfoChanged();
   void handleClipboardGrabbed(const Event &event);

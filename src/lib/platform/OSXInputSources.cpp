@@ -81,8 +81,32 @@ AutoCFData copyUnicodeKeyLayoutData(TISInputSourceRef source)
 AutoCFData copyCurrentKeyboardLayoutData()
 {
   return runTISOnMainThread([] {
-    AutoTISInputSourceRef currentKeyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    return copyUnicodeKeyLayoutDataOnTISThread(currentKeyboardLayout.get());
+    AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+    AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
+
+    const bool inputSourceHasLayout =
+        inputSource && TISGetInputSourceProperty(inputSource.get(), kTISPropertyUnicodeKeyLayoutData) != nullptr;
+
+    CFBooleanRef isSelectCapable = nullptr;
+    if (keyboardLayout) {
+      isSelectCapable =
+          (CFBooleanRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceIsSelectCapable);
+    }
+    const bool keyboardLayoutIsSelectCapable = isSelectCapable && CFBooleanGetValue(isSelectCapable);
+
+    if (inputSource && keyboardLayout && !inputSourceHasLayout && !keyboardLayoutIsSelectCapable) {
+      AutoTISInputSourceRef asciiKeyboardLayout(TISCopyCurrentASCIICapableKeyboardLayoutInputSource(), CFRelease);
+      if (asciiKeyboardLayout) {
+        LOG_VERBOSE(
+            "using ASCII-capable keyboard layout '%s' instead of non-selectable IME layout '%s'",
+            inputSourceIdOnTISThread(asciiKeyboardLayout.get()).c_str(),
+            inputSourceIdOnTISThread(keyboardLayout.get()).c_str()
+        );
+        return copyUnicodeKeyLayoutDataOnTISThread(asciiKeyboardLayout.get());
+      }
+    }
+
+    return copyUnicodeKeyLayoutDataOnTISThread(keyboardLayout.get());
   });
 }
 
