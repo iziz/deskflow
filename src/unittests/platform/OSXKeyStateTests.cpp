@@ -116,6 +116,26 @@ public:
   {
     setShadowModifiers(mask);
   }
+
+  void setPolledModifiersForTest(KeyModifierMask mask)
+  {
+    m_polledModifiers = mask;
+  }
+
+  KeyModifierMask pollActiveModifiers() const override
+  {
+    return m_polledModifiers;
+  }
+
+  void fakeKey(const Keystroke &keystroke) override
+  {
+    syntheticEvents.push_back(keystroke);
+  }
+
+  std::vector<Keystroke> syntheticEvents;
+
+private:
+  KeyModifierMask m_polledModifiers{0};
 };
 
 constexpr KeyModifierMask kTrackedOSXShadowModifiers =
@@ -248,12 +268,35 @@ void OSXKeyStateTests::clearStaleModifiers_refreshesShadowFromSystemState()
   EventQueue eventQueue;
   TestOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
 
-  const auto systemMask = keyState.pollActiveModifiers() & kTrackedOSXShadowModifiers;
-  keyState.setShadowModifiersForTest(systemMask ^ KeyModifierCapsLock);
+  const auto systemMask = static_cast<KeyModifierMask>(KeyModifierCapsLock | KeyModifierSuper);
+  keyState.setPolledModifiersForTest(systemMask);
+  keyState.setShadowModifiersForTest(0);
 
   keyState.clearStaleModifiers();
 
   QCOMPARE(getShadowModifierMask(keyState), systemMask);
+  QVERIFY(keyState.syntheticEvents.empty());
+}
+
+void OSXKeyStateTests::clearStaleModifiers_releasesSyntheticModifiersMissingFromSystemState()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  TestOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  keyState.setPolledModifiersForTest(KeyModifierSuper);
+  keyState.setShadowModifiersForTest(KeyModifierShift | KeyModifierCapsLock);
+
+  keyState.clearStaleModifiers();
+
+  QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(KeyModifierSuper));
+  QCOMPARE(keyState.syntheticEvents.size(), std::size_t{2});
+  QCOMPARE(keyState.syntheticEvents[0].m_type, deskflow::KeyMap::Keystroke::KeyType::Button);
+  QCOMPARE(keyState.syntheticEvents[0].m_data.m_button.m_button, static_cast<KeyButton>(kVK_Shift + 1));
+  QVERIFY(!keyState.syntheticEvents[0].m_data.m_button.m_press);
+  QCOMPARE(keyState.syntheticEvents[1].m_type, deskflow::KeyMap::Keystroke::KeyType::Button);
+  QCOMPARE(keyState.syntheticEvents[1].m_data.m_button.m_button, static_cast<KeyButton>(kVK_CapsLock + 1));
+  QVERIFY(!keyState.syntheticEvents[1].m_data.m_button.m_press);
 }
 
 void OSXKeyStateTests::fakePollShift()

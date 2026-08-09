@@ -22,6 +22,7 @@ private Q_SLOTS:
   void syncModifiersFromOSX_ignoresNumericPadFlag();
   void syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged();
   void clearStaleModifiers_refreshesShadowFromSystemState();
+  void clearStaleModifiers_releasesSyntheticModifiersMissingFromSystemState();
   void fakePollShift();
   void fakePollChar();
   void fakePollCharWithModifier();

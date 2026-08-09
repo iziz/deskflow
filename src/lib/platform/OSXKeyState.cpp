@@ -425,6 +425,30 @@ void OSXKeyState::clearStaleModifiers()
     LOG_DEBUG("refreshing macOS modifier shadow: old=0x%04x system=0x%04x", shadowMask, systemMask);
   }
 
+  const auto staleSyntheticMask = shadowMask & ~systemMask & s_syncableModifiers;
+  if (staleSyntheticMask != 0) {
+    // Preserve physical modifiers in every synthetic release event.
+    setShadowModifiers(shadowMask | systemMask);
+  }
+
+  const auto releaseStaleModifier = [this, staleSyntheticMask](KeyModifierMask modifier, uint32_t virtualKey) {
+    if ((staleSyntheticMask & modifier) == 0) {
+      return;
+    }
+
+    LOG_DEBUG("releasing stale macOS synthetic modifier: mask=0x%04x", modifier);
+    fakeKey(Keystroke(mapVirtualKeyToKeyButton(virtualKey), false, false, 0));
+  };
+
+  // Do not discard an active synthetic shadow before sending its matching
+  // release. Otherwise macOS can retain the HID modifier while Deskflow
+  // believes it is already clear.
+  releaseStaleModifier(KeyModifierShift, s_shiftVK);
+  releaseStaleModifier(KeyModifierControl, s_controlVK);
+  releaseStaleModifier(KeyModifierAlt, s_altVK);
+  releaseStaleModifier(KeyModifierSuper, s_superVK);
+  releaseStaleModifier(KeyModifierCapsLock, s_capsLockVK);
+
   setShadowModifiers(systemMask);
 }
 
