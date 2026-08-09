@@ -17,6 +17,29 @@
 
 namespace deskflow {
 
+namespace {
+KeyID normalizeCapsLockKeyID(KeyID id, KeyModifierMask desiredMask)
+{
+  if ((desiredMask & KeyModifierCapsLock) == 0) {
+    return id;
+  }
+
+  constexpr KeyID caseOffset = 'a' - 'A';
+  const bool shiftDown = (desiredMask & KeyModifierShift) != 0;
+
+  // The incoming ASCII KeyID already reflects Caps Lock casing. Select the
+  // physical key layer from Shift alone so non-Latin IMEs do not receive a
+  // synthetic Shift press for Caps-Lock-only letters.
+  if (!shiftDown && id >= 'A' && id <= 'Z') {
+    return id + caseOffset;
+  }
+  if (shiftDown && id >= 'a' && id <= 'z') {
+    return id - caseOffset;
+  }
+  return id;
+}
+} // namespace
+
 KeyMap::NameToKeyMap *KeyMap::s_nameToKeyMap = nullptr;
 KeyMap::NameToModifierMap *KeyMap::s_nameToModifierMap = nullptr;
 KeyMap::KeyToNameMap *KeyMap::s_keyToNameMap = nullptr;
@@ -241,6 +264,12 @@ const KeyMap::KeyItem *KeyMap::mapKey(
   } else if (id == kKeyPrevGroup) {
     keys.push_back(Keystroke(-1, false, false));
     return nullptr;
+  }
+
+  const auto normalizedID = normalizeCapsLockKeyID(id, desiredMask);
+  if (normalizedID != id) {
+    LOG_VERBOSE("normalized Caps Lock key %04x to Shift layer %04x", id, normalizedID);
+    id = normalizedID;
   }
 
   const KeyItem *item;

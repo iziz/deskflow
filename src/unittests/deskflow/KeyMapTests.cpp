@@ -12,6 +12,51 @@ using namespace deskflow;
 using KeyItemList = KeyMap::KeyItemList;
 using KeyEntryList = std::vector<KeyItemList>;
 
+namespace {
+constexpr KeyButton kLetterButton = 10;
+constexpr KeyButton kShiftButton = 20;
+constexpr KeyButton kCapsLockButton = 21;
+
+void addCapsLockLetterEntries(KeyMap &keyMap)
+{
+  KeyMap::KeyItem lowercase;
+  lowercase.m_id = 't';
+  lowercase.m_button = kLetterButton;
+  lowercase.m_sensitive = KeyModifierShift;
+  keyMap.addKeyEntry(lowercase);
+
+  KeyMap::KeyItem uppercase = lowercase;
+  uppercase.m_id = 'T';
+  uppercase.m_required = KeyModifierShift;
+  keyMap.addKeyEntry(uppercase);
+
+  KeyMap::KeyItem shift;
+  shift.m_id = kKeyShift_L;
+  shift.m_button = kShiftButton;
+  shift.m_generates = KeyModifierShift;
+  keyMap.addKeyEntry(shift);
+
+  KeyMap::KeyItem capsLock;
+  capsLock.m_id = kKeyCapsLock;
+  capsLock.m_button = kCapsLockButton;
+  capsLock.m_generates = KeyModifierCapsLock;
+  capsLock.m_lock = true;
+  keyMap.addKeyEntry(capsLock);
+
+  keyMap.finish();
+}
+
+bool containsButton(const KeyMap::Keystrokes &strokes, KeyButton button)
+{
+  for (const auto &stroke : strokes) {
+    if (stroke.m_type == KeyMap::Keystroke::KeyType::Button && stroke.m_data.m_button.m_button == button) {
+      return true;
+    }
+  }
+  return false;
+}
+} // namespace
+
 void KeyMapTests::findBestKey_requiredDown_matchExactFirstItem()
 {
   KeyMap keyMap;
@@ -181,6 +226,40 @@ void KeyMapTests::mapkey()
   desiredMask = KeyModifierControl;
   result = keyMap.mapKey(strokes, kKeySetModifiers, 1, activeModifiers, currentState, desiredMask, false, "en");
   QVERIFY(result == nullptr);
+}
+
+void KeyMapTests::mapKey_capsLockUppercaseLetter_doesNotSynthesizeShift()
+{
+  KeyMap keyMap;
+  addCapsLockLetterEntries(keyMap);
+  KeyMap::Keystrokes strokes;
+  KeyMap::ModifierToKeys activeModifiers;
+  KeyModifierMask currentState = 0;
+
+  const auto *result = keyMap.mapKey(strokes, 'T', 0, activeModifiers, currentState, KeyModifierCapsLock, false, "ko");
+
+  QVERIFY(result != nullptr);
+  QCOMPARE(result->m_id, static_cast<KeyID>('t'));
+  QVERIFY(containsButton(strokes, kLetterButton));
+  QVERIFY(!containsButton(strokes, kShiftButton));
+}
+
+void KeyMapTests::mapKey_capsLockAndShiftLowercaseLetter_preservesShift()
+{
+  KeyMap keyMap;
+  addCapsLockLetterEntries(keyMap);
+  KeyMap::Keystrokes strokes;
+  KeyMap::ModifierToKeys activeModifiers;
+  KeyModifierMask currentState = 0;
+
+  const auto *result = keyMap.mapKey(
+      strokes, 't', 0, activeModifiers, currentState, KeyModifierCapsLock | KeyModifierShift, false, "ko"
+  );
+
+  QVERIFY(result != nullptr);
+  QCOMPARE(result->m_id, static_cast<KeyID>('T'));
+  QVERIFY(containsButton(strokes, kLetterButton));
+  QVERIFY(containsButton(strokes, kShiftButton));
 }
 
 void KeyMapTests::parseModifiers_plusKey_keepsPlusAsKey()
