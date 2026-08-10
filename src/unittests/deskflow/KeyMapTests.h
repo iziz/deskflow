@@ -21,6 +21,7 @@ private Q_SLOTS:
   void findBestKey_noRequiredDown_cannotMatch();
   void isCommand();
   void mapkey();
+  void mapKey_unshiftedUppercaseLetter_doesNotSynthesizeShift();
   void mapKey_capsLockUppercaseLetter_doesNotSynthesizeShift();
   void mapKey_capsLockAndShiftLowercaseLetter_preservesShift();
   void parseModifiers_plusKey_keepsPlusAsKey();

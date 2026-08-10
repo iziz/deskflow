@@ -244,6 +244,22 @@ void KeyMapTests::mapKey_capsLockUppercaseLetter_doesNotSynthesizeShift()
   QVERIFY(!containsButton(strokes, kShiftButton));
 }
 
+void KeyMapTests::mapKey_unshiftedUppercaseLetter_doesNotSynthesizeShift()
+{
+  KeyMap keyMap;
+  addCapsLockLetterEntries(keyMap);
+  KeyMap::Keystrokes strokes;
+  KeyMap::ModifierToKeys activeModifiers;
+  KeyModifierMask currentState = 0;
+
+  const auto *result = keyMap.mapKey(strokes, 'T', 0, activeModifiers, currentState, 0, false, "ko");
+
+  QVERIFY(result != nullptr);
+  QCOMPARE(result->m_id, static_cast<KeyID>('t'));
+  QVERIFY(containsButton(strokes, kLetterButton));
+  QVERIFY(!containsButton(strokes, kShiftButton));
+}
+
 void KeyMapTests::mapKey_capsLockAndShiftLowercaseLetter_preservesShift()
 {
   KeyMap keyMap;
