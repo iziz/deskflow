@@ -96,6 +96,20 @@ protected:
   */
   virtual void fakeKey(const Keystroke &keystroke) = 0;
 
+  //! Set the shadow state of one physical key
+  /*!
+  Updates only the pressed-key state. Platform event transactions can use
+  this before calculating the resulting modifier mask.
+  */
+  void setKeyDownState(KeyButton button, bool down);
+
+  //! Set the shadow modifier state
+  /*!
+  Updates only the modifier mask after a platform event transaction has
+  calculated its final state.
+  */
+  void setActiveModifiers(KeyModifierMask modifiers);
+
   //! Get the active modifiers
   /*!
   Returns the modifiers that are currently active according to our

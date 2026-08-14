@@ -682,12 +682,15 @@ void KeyState::init()
 
 void KeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
 {
-  // update modifier state
-  m_mask = newState;
-  LOG_VERBOSE("new mask: 0x%04x", m_mask);
+  setActiveModifiers(newState);
+  setKeyDownState(button, down);
+}
+
+void KeyState::setKeyDownState(KeyButton button, bool down)
+{
+  button &= kButtonMask;
 
   // ignore bogus buttons
-  button &= kButtonMask;
   if (button == 0) {
     return;
   }
@@ -700,6 +703,12 @@ void KeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
     m_keys[button] = 0;
     m_syntheticKeys[button] = 0;
   }
+}
+
+void KeyState::setActiveModifiers(KeyModifierMask modifiers)
+{
+  m_mask = modifiers;
+  LOG_VERBOSE("new mask: 0x%04x", m_mask);
 }
 
 void KeyState::sendKeyEvent(

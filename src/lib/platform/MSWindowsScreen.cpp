@@ -195,6 +195,9 @@ void MSWindowsScreen::enable()
     LOG_WARN("failed to add the clipboard format listener: %d", GetLastError());
   }
 
+  // Synchronize toggle state before the hook can enqueue key events.
+  m_keyState->enable();
+
   // track the active desk and (re)install the hooks
   m_desks->enable();
 
@@ -1034,8 +1037,7 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
   // get event info
   KeyButton button = (KeyButton)((lParam & 0x01ff0000) >> 16);
   bool down = ((lParam & 0x80000000u) == 0x00000000u);
-  bool wasDown = isKeyDown(button);
-  KeyModifierMask oldState = pollActiveModifiers();
+  const auto virtualKey = static_cast<UINT>((wParam >> 16) & 0xffu);
 
   // check for autorepeat
   if (m_keyState->testAutoRepeat(down, (lParam & 0x40000000u), button)) {
@@ -1047,15 +1049,15 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
   // that maps mouse buttons to keys is known to do this.
   // alternatively, we could just throw these events out.
   if (button == 0) {
-    button = m_keyState->virtualKeyToButton((wParam >> 16) & 0xffu);
+    button = m_keyState->virtualKeyToButton(virtualKey);
     if (button == 0) {
       return true;
     }
-    wasDown = isKeyDown(button);
   }
 
-  // record keyboard state
-  m_keyState->onKey(button, down, oldState);
+  const auto transition = m_keyState->applyKeyEvent(button, virtualKey, down);
+  const KeyModifierMask oldState = transition.modifiersBefore;
+  const KeyModifierMask state = transition.modifiersAfter;
 
   if (!down && m_isPrimary && !m_isOnScreen) {
     PrimaryKeyDownList::iterator find = std::find(m_primaryKeyDownList.begin(), m_primaryKeyDownList.end(), button);
@@ -1067,38 +1069,12 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
     }
   }
 
-  // windows doesn't tell us the modifier key state on mouse or key
-  // events so we have to figure it out.  most apps would use
-  // GetKeyState() or even GetAsyncKeyState() for that but we can't
-  // because our hook doesn't pass on key events for several modifiers.
-  // it can't otherwise the system would interpret them normally on
-  // the primary screen even when on a secondary screen.  so tapping
-  // alt would activate menus and tapping the windows key would open
-  // the start menu.  if you don't pass those events on in the hook
-  // then GetKeyState() understandably doesn't reflect the effect of
-  // the event.  curiously, neither does GetAsyncKeyState(), which is
-  // surprising.
-  //
-  // so anyway, we have to track the modifier state ourselves for
-  // at least those modifiers we don't pass on.  pollActiveModifiers()
-  // does that but we have to update the keyboard state before calling
-  // pollActiveModifiers() to get the right answer.  but the only way
-  // to set the modifier state or to set the up/down state of a key
-  // is via onKey().  so we have to call onKey() twice.
-  KeyModifierMask state = pollActiveModifiers();
-  m_keyState->onKey(button, down, state);
-
   // check for hot keys
-  const auto virtualKey = static_cast<UINT>((wParam >> 16) & 0xffu);
-  // Toggle keys change Deskflow's modifier mask but are registered as virtual
-  // key hotkeys, so they must not use the modifier-only lookup path.
-  if (!deskflow::platform::shouldUseVirtualKeyForHotKey(virtualKey, oldState != state)) {
-    // modifier key was pressed/released
+  if (transition.hotKeyRoute == deskflow::platform::WindowsHotKeyRoute::ModifierOnly) {
     if (onHotKey(0, lParam)) {
       return true;
     }
   } else {
-    // non-modifier was pressed/released
     if (onHotKey(wParam, lParam)) {
       return true;
     }

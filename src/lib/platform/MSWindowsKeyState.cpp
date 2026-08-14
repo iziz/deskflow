@@ -556,26 +556,6 @@ static const Win32Modifiers s_modifiers[] = {{VK_SHIFT, KeyModifierShift},      
                                              {VK_RMENU, KeyModifierAlt},        {VK_LWIN, KeyModifierSuper},
                                              {VK_RWIN, KeyModifierSuper}};
 
-static constexpr KeyModifierMask s_toggleModifierMask =
-    KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
-
-static KeyModifierMask modifierForWindowsToggleKey(UINT virtualKey)
-{
-  switch (virtualKey) {
-  case VK_CAPITAL:
-    return KeyModifierCapsLock;
-
-  case VK_NUMLOCK:
-    return KeyModifierNumLock;
-
-  case VK_SCROLL:
-    return KeyModifierScrollLock;
-
-  default:
-    return 0;
-  }
-}
-
 static KeyModifierMask pollWindowsToggleModifiers()
 {
   KeyModifierMask state = 0;
@@ -605,8 +585,7 @@ MSWindowsKeyState::MSWindowsKeyState(
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
-      m_toggleModifiersInitialized(false),
-      m_toggleModifiers(0),
+      m_toggleModifiers(pollWindowsToggleModifiers()),
       m_events(events)
 {
   init();
@@ -626,8 +605,7 @@ MSWindowsKeyState::MSWindowsKeyState(
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
-      m_toggleModifiersInitialized(false),
-      m_toggleModifiers(0),
+      m_toggleModifiers(pollWindowsToggleModifiers()),
       m_events(events)
 {
   init();
@@ -653,7 +631,14 @@ void MSWindowsKeyState::disable()
     m_fixTimer = nullptr;
   }
   m_lastDown = 0;
-  m_toggleModifiersInitialized = false;
+}
+
+void MSWindowsKeyState::enable()
+{
+  if (m_isPrimary) {
+    m_toggleModifiers = pollWindowsToggleModifiers();
+    LOG_DEBUG("synchronized Windows primary toggle key state: modifiers=0x%04x", m_toggleModifiers);
+  }
 }
 
 KeyButton MSWindowsKeyState::virtualKeyToButton(UINT virtualKey) const
@@ -754,27 +739,28 @@ UINT MSWindowsKeyState::mapKeyToVirtualKey(KeyID key) const
   }
 }
 
-void MSWindowsKeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
+MSWindowsKeyEventTransition MSWindowsKeyState::applyKeyEvent(KeyButton button, UINT virtualKey, bool down)
 {
+  const KeyModifierMask modifiersBefore = pollActiveModifiers();
+  const bool wasDown = isKeyDown(button);
+
   if (m_isPrimary) {
     // The low-level hook forwards input through custom thread messages. Track
     // primary toggle keys from that accepted event stream instead of relying
     // on the calling thread's Windows keyboard-state table.
-    if (!m_toggleModifiersInitialized) {
-      m_toggleModifiers = newState & s_toggleModifierMask;
-      m_toggleModifiersInitialized = true;
-    }
-
-    const auto virtualKey = mapButtonToVirtualKey(button);
-    if (deskflow::platform::shouldAdvanceWindowsToggleKeyState(virtualKey, down, isKeyDown(button))) {
-      m_toggleModifiers ^= modifierForWindowsToggleKey(virtualKey);
+    const auto nextToggleModifiers =
+        deskflow::platform::advanceWindowsToggleKeyState(m_toggleModifiers, virtualKey, down, wasDown);
+    if (nextToggleModifiers != m_toggleModifiers) {
+      m_toggleModifiers = nextToggleModifiers;
       LOG_DEBUG("tracked Windows primary toggle key state: vk=0x%02x modifiers=0x%04x", virtualKey, m_toggleModifiers);
     }
-
-    newState = (newState & ~s_toggleModifierMask) | m_toggleModifiers;
   }
 
-  KeyState::onKey(button, down, newState);
+  setKeyDownState(button, down);
+  const KeyModifierMask modifiersAfter = pollActiveModifiers();
+  setActiveModifiers(modifiersAfter);
+
+  return {modifiersBefore, modifiersAfter, wasDown, deskflow::platform::windowsHotKeyRoute(virtualKey)};
 }
 
 void MSWindowsKeyState::sendKeyEvent(
@@ -864,11 +850,6 @@ KeyModifierMask MSWindowsKeyState::pollActiveModifiers() const
   if (m_isPrimary) {
     // Secondary screens must poll Windows because synthetic input changes
     // their local toggle state. The primary owns a hook-driven shadow state.
-    if (!m_toggleModifiersInitialized) {
-      m_toggleModifiers = pollWindowsToggleModifiers();
-      m_toggleModifiersInitialized = true;
-      LOG_DEBUG("initialized Windows primary toggle key state: modifiers=0x%04x", m_toggleModifiers);
-    }
     state |= m_toggleModifiers;
   } else {
     state |= pollWindowsToggleModifiers();

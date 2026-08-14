@@ -6,9 +6,16 @@
 
 #pragma once
 
+#include "deskflow/KeyTypes.h"
 #include "platform/MSWindowsHook.h"
 
 namespace deskflow::platform {
+
+enum class WindowsHotKeyRoute
+{
+  ModifierOnly,
+  VirtualKey
+};
 
 inline bool isWindowsToggleKey(UINT virtualKey)
 {
@@ -28,9 +35,52 @@ inline bool shouldAdvanceWindowsToggleKeyState(UINT virtualKey, bool keyDown, bo
   return keyDown && !wasDown && isWindowsToggleKey(virtualKey);
 }
 
-inline bool shouldUseVirtualKeyForHotKey(UINT virtualKey, bool modifierStateChanged)
+inline KeyModifierMask modifierForWindowsToggleKey(UINT virtualKey)
 {
-  return !modifierStateChanged || isWindowsToggleKey(virtualKey);
+  switch (virtualKey) {
+  case VK_CAPITAL:
+    return KeyModifierCapsLock;
+
+  case VK_NUMLOCK:
+    return KeyModifierNumLock;
+
+  case VK_SCROLL:
+    return KeyModifierScrollLock;
+
+  default:
+    return 0;
+  }
+}
+
+inline KeyModifierMask advanceWindowsToggleKeyState(
+    KeyModifierMask modifiers, UINT virtualKey, bool keyDown, bool wasDown
+)
+{
+  if (shouldAdvanceWindowsToggleKeyState(virtualKey, keyDown, wasDown)) {
+    modifiers ^= modifierForWindowsToggleKey(virtualKey);
+  }
+  return modifiers;
+}
+
+inline WindowsHotKeyRoute windowsHotKeyRoute(UINT virtualKey)
+{
+  switch (virtualKey) {
+  case VK_SHIFT:
+  case VK_LSHIFT:
+  case VK_RSHIFT:
+  case VK_CONTROL:
+  case VK_LCONTROL:
+  case VK_RCONTROL:
+  case VK_MENU:
+  case VK_LMENU:
+  case VK_RMENU:
+  case VK_LWIN:
+  case VK_RWIN:
+    return WindowsHotKeyRoute::ModifierOnly;
+
+  default:
+    return WindowsHotKeyRoute::VirtualKey;
+  }
 }
 
 inline bool shouldRegisterHotKeyWithWindows(UINT virtualKey, UINT modifiers)

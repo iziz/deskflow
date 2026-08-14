@@ -39,25 +39,46 @@ void MSWindowsHookTests::advanceToggleKeyState()
 void MSWindowsHookTests::virtualKeyHotKeyRouting_data()
 {
   QTest::addColumn<quint64>("virtualKey");
-  QTest::addColumn<bool>("modifierStateChanged");
-  QTest::addColumn<bool>("expected");
+  QTest::addColumn<int>("expected");
 
-  QTest::newRow("regular key without modifier change") << quint64('A') << false << true;
-  QTest::newRow("regular key with modifier change") << quint64('A') << true << false;
-  QTest::newRow("Caps Lock with modifier change") << quint64(VK_CAPITAL) << true << true;
-  QTest::newRow("Num Lock with modifier change") << quint64(VK_NUMLOCK) << true << true;
-  QTest::newRow("Scroll Lock with modifier change") << quint64(VK_SCROLL) << true << true;
+  const auto modifierOnly = static_cast<int>(deskflow::platform::WindowsHotKeyRoute::ModifierOnly);
+  const auto virtualKeyRoute = static_cast<int>(deskflow::platform::WindowsHotKeyRoute::VirtualKey);
+
+  QTest::newRow("Shift") << quint64(VK_SHIFT) << modifierOnly;
+  QTest::newRow("left Control") << quint64(VK_LCONTROL) << modifierOnly;
+  QTest::newRow("right Alt") << quint64(VK_RMENU) << modifierOnly;
+  QTest::newRow("left Windows") << quint64(VK_LWIN) << modifierOnly;
+  QTest::newRow("regular key") << quint64('A') << virtualKeyRoute;
+  QTest::newRow("Caps Lock") << quint64(VK_CAPITAL) << virtualKeyRoute;
+  QTest::newRow("Num Lock") << quint64(VK_NUMLOCK) << virtualKeyRoute;
+  QTest::newRow("Scroll Lock") << quint64(VK_SCROLL) << virtualKeyRoute;
 }
 
 void MSWindowsHookTests::virtualKeyHotKeyRouting()
 {
   QFETCH(quint64, virtualKey);
-  QFETCH(bool, modifierStateChanged);
-  QFETCH(bool, expected);
+  QFETCH(int, expected);
 
   QCOMPARE(
-      deskflow::platform::shouldUseVirtualKeyForHotKey(static_cast<UINT>(virtualKey), modifierStateChanged), expected
+      static_cast<int>(deskflow::platform::windowsHotKeyRoute(static_cast<UINT>(virtualKey))), expected
   );
+}
+
+void MSWindowsHookTests::toggleKeyTransitionSequence()
+{
+  KeyModifierMask modifiers = KeyModifierNumLock;
+
+  modifiers = deskflow::platform::advanceWindowsToggleKeyState(modifiers, VK_SCROLL, true, false);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock | KeyModifierScrollLock));
+
+  modifiers = deskflow::platform::advanceWindowsToggleKeyState(modifiers, VK_SCROLL, true, true);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock | KeyModifierScrollLock));
+
+  modifiers = deskflow::platform::advanceWindowsToggleKeyState(modifiers, VK_SCROLL, false, true);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock | KeyModifierScrollLock));
+
+  modifiers = deskflow::platform::advanceWindowsToggleKeyState(modifiers, VK_SCROLL, true, false);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock));
 }
 
 void MSWindowsHookTests::windowsHotKeyRegistration_data()

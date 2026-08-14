@@ -8,6 +8,7 @@
 #pragma once
 
 #include "deskflow/KeyState.h"
+#include "platform/MSWindowsKeyEventPolicy.h"
 
 #include <string>
 #include <vector>
@@ -19,6 +20,14 @@ class Event;
 class EventQueueTimer;
 class MSWindowsDesks;
 class IEventQueue;
+
+struct MSWindowsKeyEventTransition
+{
+  KeyModifierMask modifiersBefore;
+  KeyModifierMask modifiersAfter;
+  bool wasDown;
+  deskflow::platform::WindowsHotKeyRoute hotKeyRoute;
+};
 
 //! Microsoft Windows key mapper
 /*!
@@ -46,6 +55,20 @@ public:
   brokenness.
   */
   void disable();
+
+  //! Handle screen enabling
+  /*!
+  Synchronizes the primary toggle-key shadow state before hooks begin
+  delivering input events.
+  */
+  void enable();
+
+  //! Apply one physical key event as a complete state transition
+  /*!
+  Updates pressed-key, toggle-key, and modifier state exactly once and
+  returns the before/after snapshot used by event routing.
+  */
+  MSWindowsKeyEventTransition applyKeyEvent(KeyButton button, UINT virtualKey, bool down);
 
   //! Set the active keyboard layout
   /*!
@@ -139,7 +162,6 @@ public:
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 
   // KeyState overrides
-  void onKey(KeyButton button, bool down, KeyModifierMask newState) override;
   void sendKeyEvent(
       void *target, bool press, bool isAutoRepeat, KeyID key, KeyModifierMask mask, int32_t count, KeyButton button
   ) override;
@@ -216,8 +238,7 @@ private:
   bool m_useSavedModifiers;
   KeyModifierMask m_savedModifiers;
   KeyModifierMask m_originalSavedModifiers;
-  mutable bool m_toggleModifiersInitialized;
-  mutable KeyModifierMask m_toggleModifiers;
+  KeyModifierMask m_toggleModifiers;
 
   // pointer to ToUnicodeEx.  on win95 family this will be nullptr.
   typedef int(WINAPI *ToUnicodeEx_t)(
