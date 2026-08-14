@@ -29,11 +29,11 @@ class MSWindowsKeyState : public KeyState
 public:
   MSWindowsKeyState(
       MSWindowsDesks *desks, void *eventTarget, IEventQueue *events, std::vector<std::string> layouts,
-      bool isLangSyncEnabled
+      bool isLangSyncEnabled, bool isPrimary
   );
   MSWindowsKeyState(
       MSWindowsDesks *desks, void *eventTarget, IEventQueue *events, deskflow::KeyMap &keyMap,
-      std::vector<std::string> layouts, bool isLangSyncEnabled
+      std::vector<std::string> layouts, bool isLangSyncEnabled, bool isPrimary
   );
   virtual ~MSWindowsKeyState();
 
@@ -191,6 +191,7 @@ private:
 
   void *m_eventTarget;
   MSWindowsDesks *m_desks;
+  bool m_isPrimary;
   HKL m_keyLayout;
   UINT m_buttonToVK[512];
   UINT m_buttonToNumpadVK[512];
@@ -215,6 +216,8 @@ private:
   bool m_useSavedModifiers;
   KeyModifierMask m_savedModifiers;
   KeyModifierMask m_originalSavedModifiers;
+  mutable bool m_toggleModifiersInitialized;
+  mutable KeyModifierMask m_toggleModifiers;
 
   // pointer to ToUnicodeEx.  on win95 family this will be nullptr.
   typedef int(WINAPI *ToUnicodeEx_t)(

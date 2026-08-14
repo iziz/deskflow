@@ -10,12 +10,8 @@
 
 namespace deskflow::platform {
 
-inline bool shouldMirrorToggleKeyState(UINT virtualKey, bool keyDown, bool wasDown)
+inline bool isWindowsToggleKey(UINT virtualKey)
 {
-  if (!keyDown || wasDown) {
-    return false;
-  }
-
   switch (virtualKey) {
   case VK_CAPITAL:
   case VK_NUMLOCK:
@@ -27,23 +23,29 @@ inline bool shouldMirrorToggleKeyState(UINT virtualKey, bool keyDown, bool wasDo
   }
 }
 
+inline bool shouldAdvanceWindowsToggleKeyState(UINT virtualKey, bool keyDown, bool wasDown)
+{
+  return keyDown && !wasDown && isWindowsToggleKey(virtualKey);
+}
+
+inline bool shouldUseVirtualKeyForHotKey(UINT virtualKey, bool modifierStateChanged)
+{
+  return !modifierStateChanged || isWindowsToggleKey(virtualKey);
+}
+
 inline bool shouldRegisterHotKeyWithWindows(UINT virtualKey, UINT modifiers)
 {
   if (modifiers != 0) {
     return true;
   }
 
-  switch (virtualKey) {
-  case VK_CAPITAL:
-  case VK_NUMLOCK:
-  case VK_SCROLL:
+  if (isWindowsToggleKey(virtualKey)) {
     // Keep unmodified toggle keys in the regular keyboard path so Windows
     // updates its toggle state and keyboard LEDs before Deskflow handles them.
     return false;
-
-  default:
-    return true;
   }
+
+  return true;
 }
 
 inline bool shouldSuppressLocalKey(EHookMode mode, WPARAM virtualKey, LPARAM keyInfo, bool lowLevelHookActive)

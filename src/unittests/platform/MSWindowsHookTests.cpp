@@ -9,7 +9,7 @@
 #include "platform/MSWindowsKeyEventPolicy.h"
 #include "platform/MSWindowsMouseEventPolicy.h"
 
-void MSWindowsHookTests::mirrorToggleKeyState_data()
+void MSWindowsHookTests::advanceToggleKeyState_data()
 {
   QTest::addColumn<quint64>("virtualKey");
   QTest::addColumn<bool>("keyDown");
@@ -24,14 +24,40 @@ void MSWindowsHookTests::mirrorToggleKeyState_data()
   QTest::newRow("regular key press") << quint64('A') << true << false << false;
 }
 
-void MSWindowsHookTests::mirrorToggleKeyState()
+void MSWindowsHookTests::advanceToggleKeyState()
 {
   QFETCH(quint64, virtualKey);
   QFETCH(bool, keyDown);
   QFETCH(bool, wasDown);
   QFETCH(bool, expected);
 
-  QCOMPARE(deskflow::platform::shouldMirrorToggleKeyState(static_cast<UINT>(virtualKey), keyDown, wasDown), expected);
+  QCOMPARE(
+      deskflow::platform::shouldAdvanceWindowsToggleKeyState(static_cast<UINT>(virtualKey), keyDown, wasDown), expected
+  );
+}
+
+void MSWindowsHookTests::virtualKeyHotKeyRouting_data()
+{
+  QTest::addColumn<quint64>("virtualKey");
+  QTest::addColumn<bool>("modifierStateChanged");
+  QTest::addColumn<bool>("expected");
+
+  QTest::newRow("regular key without modifier change") << quint64('A') << false << true;
+  QTest::newRow("regular key with modifier change") << quint64('A') << true << false;
+  QTest::newRow("Caps Lock with modifier change") << quint64(VK_CAPITAL) << true << true;
+  QTest::newRow("Num Lock with modifier change") << quint64(VK_NUMLOCK) << true << true;
+  QTest::newRow("Scroll Lock with modifier change") << quint64(VK_SCROLL) << true << true;
+}
+
+void MSWindowsHookTests::virtualKeyHotKeyRouting()
+{
+  QFETCH(quint64, virtualKey);
+  QFETCH(bool, modifierStateChanged);
+  QFETCH(bool, expected);
+
+  QCOMPARE(
+      deskflow::platform::shouldUseVirtualKeyForHotKey(static_cast<UINT>(virtualKey), modifierStateChanged), expected
+  );
 }
 
 void MSWindowsHookTests::windowsHotKeyRegistration_data()

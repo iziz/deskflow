@@ -13,8 +13,10 @@ class MSWindowsHookTests : public QObject
   Q_OBJECT
 
 private Q_SLOTS:
-  void mirrorToggleKeyState_data();
-  void mirrorToggleKeyState();
+  void advanceToggleKeyState_data();
+  void advanceToggleKeyState();
+  void virtualKeyHotKeyRouting_data();
+  void virtualKeyHotKeyRouting();
   void windowsHotKeyRegistration_data();
   void windowsHotKeyRegistration();
   void relaySuppression_data();

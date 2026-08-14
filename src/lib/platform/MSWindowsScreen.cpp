@@ -110,7 +110,7 @@ MSWindowsScreen::MSWindowsScreen(bool isPrimary, bool useHooks, IEventQueue *eve
         new TMethodJob<MSWindowsScreen>(this, &MSWindowsScreen::updateKeysCB)
     );
     m_keyState = new MSWindowsKeyState(
-        m_desks, getEventTarget(), m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync
+        m_desks, getEventTarget(), m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync, m_isPrimary
     );
 
     updateScreenShape();
@@ -1089,7 +1089,10 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
   m_keyState->onKey(button, down, state);
 
   // check for hot keys
-  if (oldState != state) {
+  const auto virtualKey = static_cast<UINT>((wParam >> 16) & 0xffu);
+  // Toggle keys change Deskflow's modifier mask but are registered as virtual
+  // key hotkeys, so they must not use the modifier-only lookup path.
+  if (!deskflow::platform::shouldUseVirtualKeyForHotKey(virtualKey, oldState != state)) {
     // modifier key was pressed/released
     if (onHotKey(0, lParam)) {
       return true;

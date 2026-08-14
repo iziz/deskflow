@@ -556,19 +556,57 @@ static const Win32Modifiers s_modifiers[] = {{VK_SHIFT, KeyModifierShift},      
                                              {VK_RMENU, KeyModifierAlt},        {VK_LWIN, KeyModifierSuper},
                                              {VK_RWIN, KeyModifierSuper}};
 
+static constexpr KeyModifierMask s_toggleModifierMask =
+    KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+
+static KeyModifierMask modifierForWindowsToggleKey(UINT virtualKey)
+{
+  switch (virtualKey) {
+  case VK_CAPITAL:
+    return KeyModifierCapsLock;
+
+  case VK_NUMLOCK:
+    return KeyModifierNumLock;
+
+  case VK_SCROLL:
+    return KeyModifierScrollLock;
+
+  default:
+    return 0;
+  }
+}
+
+static KeyModifierMask pollWindowsToggleModifiers()
+{
+  KeyModifierMask state = 0;
+  if ((GetKeyState(VK_CAPITAL) & 0x01) != 0) {
+    state |= KeyModifierCapsLock;
+  }
+  if ((GetKeyState(VK_NUMLOCK) & 0x01) != 0) {
+    state |= KeyModifierNumLock;
+  }
+  if ((GetKeyState(VK_SCROLL) & 0x01) != 0) {
+    state |= KeyModifierScrollLock;
+  }
+  return state;
+}
+
 MSWindowsKeyState::MSWindowsKeyState(
     MSWindowsDesks *desks, void *eventTarget, IEventQueue *events, std::vector<std::string> layouts,
-    bool isLangSyncEnabled
+    bool isLangSyncEnabled, bool isPrimary
 )
     : KeyState(events, std::move(layouts), isLangSyncEnabled),
       m_eventTarget(eventTarget),
       m_desks(desks),
+      m_isPrimary(isPrimary),
       m_keyLayout(GetKeyboardLayout(0)),
       m_fixTimer(nullptr),
       m_lastDown(0),
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
+      m_toggleModifiersInitialized(false),
+      m_toggleModifiers(0),
       m_events(events)
 {
   init();
@@ -576,17 +614,20 @@ MSWindowsKeyState::MSWindowsKeyState(
 
 MSWindowsKeyState::MSWindowsKeyState(
     MSWindowsDesks *desks, void *eventTarget, IEventQueue *events, deskflow::KeyMap &keyMap,
-    std::vector<std::string> layouts, bool isLangSyncEnabled
+    std::vector<std::string> layouts, bool isLangSyncEnabled, bool isPrimary
 )
     : KeyState(events, keyMap, std::move(layouts), isLangSyncEnabled),
       m_eventTarget(eventTarget),
       m_desks(desks),
+      m_isPrimary(isPrimary),
       m_keyLayout(GetKeyboardLayout(0)),
       m_fixTimer(nullptr),
       m_lastDown(0),
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
+      m_toggleModifiersInitialized(false),
+      m_toggleModifiers(0),
       m_events(events)
 {
   init();
@@ -612,6 +653,7 @@ void MSWindowsKeyState::disable()
     m_fixTimer = nullptr;
   }
   m_lastDown = 0;
+  m_toggleModifiersInitialized = false;
 }
 
 KeyButton MSWindowsKeyState::virtualKeyToButton(UINT virtualKey) const
@@ -714,22 +756,22 @@ UINT MSWindowsKeyState::mapKeyToVirtualKey(KeyID key) const
 
 void MSWindowsKeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
 {
-  const auto virtualKey = mapButtonToVirtualKey(button);
-  if (deskflow::platform::shouldMirrorToggleKeyState(virtualKey, down, isKeyDown(button))) {
-    BYTE keyboardState[256];
-    if (!GetKeyboardState(keyboardState)) {
-      LOG_WARN("failed to read Windows thread keyboard state while processing toggle key 0x%02x", virtualKey);
-    } else {
-      keyboardState[virtualKey] ^= 0x01u;
-      if (!SetKeyboardState(keyboardState)) {
-        LOG_WARN("failed to mirror toggle key 0x%02x into Windows thread keyboard state", virtualKey);
-      } else {
-        LOG_DEBUG(
-            "mirrored Windows thread toggle key state: vk=0x%02x state=%s", virtualKey,
-            (keyboardState[virtualKey] & 0x01u) != 0 ? "on" : "off"
-        );
-      }
+  if (m_isPrimary) {
+    // The low-level hook forwards input through custom thread messages. Track
+    // primary toggle keys from that accepted event stream instead of relying
+    // on the calling thread's Windows keyboard-state table.
+    if (!m_toggleModifiersInitialized) {
+      m_toggleModifiers = newState & s_toggleModifierMask;
+      m_toggleModifiersInitialized = true;
     }
+
+    const auto virtualKey = mapButtonToVirtualKey(button);
+    if (deskflow::platform::shouldAdvanceWindowsToggleKeyState(virtualKey, down, isKeyDown(button))) {
+      m_toggleModifiers ^= modifierForWindowsToggleKey(virtualKey);
+      LOG_DEBUG("tracked Windows primary toggle key state: vk=0x%02x modifiers=0x%04x", virtualKey, m_toggleModifiers);
+    }
+
+    newState = (newState & ~s_toggleModifierMask) | m_toggleModifiers;
   }
 
   KeyState::onKey(button, down, newState);
@@ -819,15 +861,17 @@ KeyModifierMask MSWindowsKeyState::pollActiveModifiers() const
     }
   }
 
-  // we can get toggle modifiers from the system
-  if ((GetKeyState(VK_CAPITAL) & 0x01) != 0) {
-    state |= KeyModifierCapsLock;
-  }
-  if ((GetKeyState(VK_NUMLOCK) & 0x01) != 0) {
-    state |= KeyModifierNumLock;
-  }
-  if ((GetKeyState(VK_SCROLL) & 0x01) != 0) {
-    state |= KeyModifierScrollLock;
+  if (m_isPrimary) {
+    // Secondary screens must poll Windows because synthetic input changes
+    // their local toggle state. The primary owns a hook-driven shadow state.
+    if (!m_toggleModifiersInitialized) {
+      m_toggleModifiers = pollWindowsToggleModifiers();
+      m_toggleModifiersInitialized = true;
+      LOG_DEBUG("initialized Windows primary toggle key state: modifiers=0x%04x", m_toggleModifiers);
+    }
+    state |= m_toggleModifiers;
+  } else {
+    state |= pollWindowsToggleModifiers();
   }
 
   return state;
