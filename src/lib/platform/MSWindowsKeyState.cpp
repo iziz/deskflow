@@ -13,6 +13,7 @@
 #include "common/Constants.h"
 #include "platform/MSWindowsDesks.h"
 #include "platform/MSWindowsHandle.h"
+#include "platform/MSWindowsKeyEventPolicy.h"
 
 // extended mouse buttons
 #if !defined(VK_XBUTTON1)
@@ -713,6 +714,24 @@ UINT MSWindowsKeyState::mapKeyToVirtualKey(KeyID key) const
 
 void MSWindowsKeyState::onKey(KeyButton button, bool down, KeyModifierMask newState)
 {
+  const auto virtualKey = mapButtonToVirtualKey(button);
+  if (deskflow::platform::shouldMirrorToggleKeyState(virtualKey, down, isKeyDown(button))) {
+    BYTE keyboardState[256];
+    if (!GetKeyboardState(keyboardState)) {
+      LOG_WARN("failed to read Windows thread keyboard state while processing toggle key 0x%02x", virtualKey);
+    } else {
+      keyboardState[virtualKey] ^= 0x01u;
+      if (!SetKeyboardState(keyboardState)) {
+        LOG_WARN("failed to mirror toggle key 0x%02x into Windows thread keyboard state", virtualKey);
+      } else {
+        LOG_DEBUG(
+            "mirrored Windows thread toggle key state: vk=0x%02x state=%s", virtualKey,
+            (keyboardState[virtualKey] & 0x01u) != 0 ? "on" : "off"
+        );
+      }
+    }
+  }
+
   KeyState::onKey(button, down, newState);
 }
 

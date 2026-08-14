@@ -9,6 +9,31 @@
 #include "platform/MSWindowsKeyEventPolicy.h"
 #include "platform/MSWindowsMouseEventPolicy.h"
 
+void MSWindowsHookTests::mirrorToggleKeyState_data()
+{
+  QTest::addColumn<quint64>("virtualKey");
+  QTest::addColumn<bool>("keyDown");
+  QTest::addColumn<bool>("wasDown");
+  QTest::addColumn<bool>("expected");
+
+  QTest::newRow("Caps Lock press") << quint64(VK_CAPITAL) << true << false << true;
+  QTest::newRow("Num Lock press") << quint64(VK_NUMLOCK) << true << false << true;
+  QTest::newRow("Scroll Lock press") << quint64(VK_SCROLL) << true << false << true;
+  QTest::newRow("Scroll Lock repeat") << quint64(VK_SCROLL) << true << true << false;
+  QTest::newRow("Scroll Lock release") << quint64(VK_SCROLL) << false << true << false;
+  QTest::newRow("regular key press") << quint64('A') << true << false << false;
+}
+
+void MSWindowsHookTests::mirrorToggleKeyState()
+{
+  QFETCH(quint64, virtualKey);
+  QFETCH(bool, keyDown);
+  QFETCH(bool, wasDown);
+  QFETCH(bool, expected);
+
+  QCOMPARE(deskflow::platform::shouldMirrorToggleKeyState(static_cast<UINT>(virtualKey), keyDown, wasDown), expected);
+}
+
 void MSWindowsHookTests::windowsHotKeyRegistration_data()
 {
   QTest::addColumn<quint64>("virtualKey");

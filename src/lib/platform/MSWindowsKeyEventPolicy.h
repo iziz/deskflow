@@ -10,6 +10,23 @@
 
 namespace deskflow::platform {
 
+inline bool shouldMirrorToggleKeyState(UINT virtualKey, bool keyDown, bool wasDown)
+{
+  if (!keyDown || wasDown) {
+    return false;
+  }
+
+  switch (virtualKey) {
+  case VK_CAPITAL:
+  case VK_NUMLOCK:
+  case VK_SCROLL:
+    return true;
+
+  default:
+    return false;
+  }
+}
+
 inline bool shouldRegisterHotKeyWithWindows(UINT virtualKey, UINT modifiers)
 {
   if (modifiers != 0) {
