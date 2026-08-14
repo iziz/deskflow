@@ -56,12 +56,12 @@ public:
   */
   void disable();
 
-  //! Handle screen enabling
+  //! Synchronize toggle state from the active input desktop
   /*!
-  Synchronizes the primary toggle-key shadow state before hooks begin
-  delivering input events.
+  Must be called by the desk-thread update callback so GetKeyState reads the
+  keyboard state table associated with the active Windows input desktop.
   */
-  void enable();
+  void synchronizeToggleModifiers();
 
   //! Apply one physical key event as a complete state transition
   /*!

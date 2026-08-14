@@ -11,6 +11,9 @@
 
 namespace deskflow::platform {
 
+inline constexpr KeyModifierMask kWindowsToggleModifierMask =
+    KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+
 enum class WindowsHotKeyRoute
 {
   ModifierOnly,
@@ -60,6 +63,11 @@ inline KeyModifierMask advanceWindowsToggleKeyState(
     modifiers ^= modifierForWindowsToggleKey(virtualKey);
   }
   return modifiers;
+}
+
+inline KeyModifierMask synchronizeWindowsToggleKeyState(KeyModifierMask inputDesktopModifiers)
+{
+  return inputDesktopModifiers & kWindowsToggleModifierMask;
 }
 
 inline WindowsHotKeyRoute windowsHotKeyRoute(UINT virtualKey)

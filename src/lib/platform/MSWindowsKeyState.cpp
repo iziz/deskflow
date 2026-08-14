@@ -556,7 +556,7 @@ static const Win32Modifiers s_modifiers[] = {{VK_SHIFT, KeyModifierShift},      
                                              {VK_RMENU, KeyModifierAlt},        {VK_LWIN, KeyModifierSuper},
                                              {VK_RWIN, KeyModifierSuper}};
 
-static KeyModifierMask pollWindowsToggleModifiers()
+static KeyModifierMask pollWindowsThreadToggleModifiers()
 {
   KeyModifierMask state = 0;
   if ((GetKeyState(VK_CAPITAL) & 0x01) != 0) {
@@ -585,7 +585,7 @@ MSWindowsKeyState::MSWindowsKeyState(
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
-      m_toggleModifiers(pollWindowsToggleModifiers()),
+      m_toggleModifiers(0),
       m_events(events)
 {
   init();
@@ -605,7 +605,7 @@ MSWindowsKeyState::MSWindowsKeyState(
       m_useSavedModifiers(false),
       m_savedModifiers(0),
       m_originalSavedModifiers(0),
-      m_toggleModifiers(pollWindowsToggleModifiers()),
+      m_toggleModifiers(0),
       m_events(events)
 {
   init();
@@ -633,12 +633,18 @@ void MSWindowsKeyState::disable()
   m_lastDown = 0;
 }
 
-void MSWindowsKeyState::enable()
+void MSWindowsKeyState::synchronizeToggleModifiers()
 {
-  if (m_isPrimary) {
-    m_toggleModifiers = pollWindowsToggleModifiers();
-    LOG_DEBUG("synchronized Windows primary toggle key state: modifiers=0x%04x", m_toggleModifiers);
+  if (!m_isPrimary) {
+    return;
   }
+
+  const auto inputDesktopModifiers = pollWindowsThreadToggleModifiers();
+  m_toggleModifiers = deskflow::platform::synchronizeWindowsToggleKeyState(inputDesktopModifiers);
+  LOG_DEBUG(
+      "synchronized Windows primary toggle key state from input desktop: thread=%lu modifiers=0x%04x",
+      GetCurrentThreadId(), m_toggleModifiers
+  );
 }
 
 KeyButton MSWindowsKeyState::virtualKeyToButton(UINT virtualKey) const
@@ -852,7 +858,7 @@ KeyModifierMask MSWindowsKeyState::pollActiveModifiers() const
     // their local toggle state. The primary owns a hook-driven shadow state.
     state |= m_toggleModifiers;
   } else {
-    state |= pollWindowsToggleModifiers();
+    state |= pollWindowsThreadToggleModifiers();
   }
 
   return state;

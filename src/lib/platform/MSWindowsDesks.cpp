@@ -115,7 +115,8 @@ void setCursorVisibility(bool visible);
 //
 
 MSWindowsDesks::MSWindowsDesks(
-    bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys
+    bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys,
+    IJob *synchronizeToggleModifiers
 )
     : m_isPrimary(isPrimary),
       m_useHooks(useHooks),
@@ -123,6 +124,7 @@ MSWindowsDesks::MSWindowsDesks(
       m_screensaver(screensaver),
       m_deskReady(&m_mutex, false),
       m_updateKeys(updateKeys),
+      m_synchronizeToggleModifiers(synchronizeToggleModifiers),
       m_events(events)
 {
 
@@ -138,6 +140,7 @@ MSWindowsDesks::~MSWindowsDesks()
   destroyClass(m_deskClass);
   destroyCursor(m_cursor);
   delete m_updateKeys;
+  delete m_synchronizeToggleModifiers;
 }
 
 void MSWindowsDesks::enable()
@@ -733,6 +736,16 @@ void MSWindowsDesks::deskThread(const void *vdesk)
         MSWindowsHook::uninstall();
         if (m_screensaverNotify) {
           MSWindowsHook::uninstallScreenSaver();
+        }
+      }
+
+      // GetKeyState reflects the calling thread's input queue. Synchronize the
+      // primary toggle shadow on this active desk thread while hooks are down,
+      // so no accepted key event can race ahead of the seed.
+      m_synchronizeToggleModifiers->run();
+
+      if (m_useHooks) {
+        if (m_screensaverNotify) {
           MSWindowsHook::installScreenSaver();
         }
         switch (MSWindowsHook::install()) {

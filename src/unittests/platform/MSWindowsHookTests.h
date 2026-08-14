@@ -18,6 +18,7 @@ private Q_SLOTS:
   void virtualKeyHotKeyRouting_data();
   void virtualKeyHotKeyRouting();
   void toggleKeyTransitionSequence();
+  void inputDesktopToggleSynchronization();
   void windowsHotKeyRegistration_data();
   void windowsHotKeyRegistration();
   void relaySuppression_data();

@@ -107,7 +107,8 @@ MSWindowsScreen::MSWindowsScreen(bool isPrimary, bool useHooks, IEventQueue *eve
     m_screensaver = new MSWindowsScreenSaver();
     m_desks = new MSWindowsDesks(
         m_isPrimary, m_useHooks, m_screensaver, m_events,
-        new TMethodJob<MSWindowsScreen>(this, &MSWindowsScreen::updateKeysCB)
+        new TMethodJob<MSWindowsScreen>(this, &MSWindowsScreen::updateKeysCB),
+        new TMethodJob<MSWindowsScreen>(this, &MSWindowsScreen::synchronizeToggleModifiersCB)
     );
     m_keyState = new MSWindowsKeyState(
         m_desks, getEventTarget(), m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync, m_isPrimary
@@ -194,9 +195,6 @@ void MSWindowsScreen::enable()
   if (!AddClipboardFormatListener(m_window)) {
     LOG_WARN("failed to add the clipboard format listener: %d", GetLastError());
   }
-
-  // Synchronize toggle state before the hook can enqueue key events.
-  m_keyState->enable();
 
   // track the active desk and (re)install the hooks
   m_desks->enable();
@@ -1631,6 +1629,11 @@ void MSWindowsScreen::updateKeysCB(const void *)
       }
     }
   }
+}
+
+void MSWindowsScreen::synchronizeToggleModifiersCB(const void *)
+{
+  m_keyState->synchronizeToggleModifiers();
 }
 
 void MSWindowsScreen::setupMouseKeys()

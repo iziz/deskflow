@@ -51,10 +51,13 @@ public:
   \p screensaver points to a screensaver object and it's used
   only to check if the screensaver is active.  The \p updateKeys
   job is adopted and is called when the key state should be
-  updated in a thread attached to the current desk.
-  \p hookLibrary must be a handle to the hook library.
+  updated in a thread attached to the current desk. The
+  \p synchronizeToggleModifiers job is run before hooks are installed.
   */
-  MSWindowsDesks(bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys);
+  MSWindowsDesks(
+      bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys,
+      IJob *synchronizeToggleModifiers
+  );
   ~MSWindowsDesks();
 
   //! @name manipulators
@@ -282,6 +285,7 @@ private:
 
   // keyboard stuff
   IJob *m_updateKeys;
+  IJob *m_synchronizeToggleModifiers;
   HKL m_keyLayout;
 
   // options

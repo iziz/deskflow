@@ -213,6 +213,9 @@ private: // HACK
   // job to update the key state
   void updateKeysCB(const void *);
 
+  // job to synchronize toggle modifiers on the active input desktop
+  void synchronizeToggleModifiersCB(const void *);
+
   // determine whether the mouse is hidden by the system.
   // if true and on secondary screen, enable mouse keys to show the cursor.
   // we were previously restoring the old mouse key settings when not needed, but this was causing

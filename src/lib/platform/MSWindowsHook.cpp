@@ -453,10 +453,8 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
     g_deadLParam = 0;
   }
 
-  // forward message to our window.  do this whether or not we're
-  // forwarding events to clients because this'll keep our thread's
-  // key state table up to date.  that's important for querying
-  // the scroll lock toggle state.
+  // Forward messages whether or not we're forwarding events to clients so
+  // Deskflow's accepted-event state remains current while input is local.
   // XXX -- with hot keys for actions we may only need to do this when
   // forwarding.
   if (charAndVirtKey != 0) {
