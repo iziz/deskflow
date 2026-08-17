@@ -151,7 +151,12 @@ private:
   // Post a key event to HID manager. It posts an event to HID client, a
   // much lower level than window manager which's the target from carbon
   // CGEventPost
-  kern_return_t postHIDVirtualKey(uint8_t virtualKeyCode, bool postDown);
+protected:
+  virtual kern_return_t postHIDVirtualKey(uint8_t virtualKeyCode, bool postDown, CGEventFlags flags);
+  virtual bool postKeyboardKey(CGKeyCode virtualKey, bool keyDown, CGEventFlags flags);
+
+private:
+  bool postVirtualKey(CGKeyCode virtualKey, bool keyDown);
 
   // Get keyboard event flags accorfing to keyboard modifiers
   CGEventFlags getKeyboardEventFlags() const;
@@ -159,8 +164,6 @@ private:
 
   void setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown);
   KeyModifierMask getShadowModifiers() const;
-
-  void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
 
 private:
   // OS X uses a physical key if 0 for the 'A' key.  deskflow reserves
@@ -182,9 +185,10 @@ private:
   // Updated from the distributed TIS notification on the main thread and read from the core thread.
   std::atomic<int32_t> m_activeGroup{0};
   bool m_inputSourceObserverRegistered{false};
-  bool m_shiftPressed;
-  bool m_controlPressed;
-  bool m_altPressed;
-  bool m_superPressed;
-  bool m_capsPressed;
+  // Local physical state and Deskflow-injected state have different
+  // lifecycles. Keep them separate so polling or event-tap refreshes cannot
+  // silently discard a synthetic key that still needs a native key-up.
+  std::atomic<KeyModifierMask> m_physicalModifiers{0};
+  std::atomic<uint16_t> m_syntheticModifierKeys{0};
+  std::atomic<uint16_t> m_postedModifierKeys{0};
 };

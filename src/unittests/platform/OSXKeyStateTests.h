@@ -23,12 +23,12 @@ private Q_SLOTS:
   void syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged();
   void clearStaleModifiers_refreshesShadowFromSystemState();
   void clearStaleModifiers_releasesSyntheticModifiersMissingFromSystemState();
-  void fakePollShift();
-  void fakePollChar();
-  void fakePollCharWithModifier();
+  void clearStaleModifiers_releasesPreviouslyPostedModifierAfterMatchingUp();
+  void nativeKeyTransaction_appliesAuthoritativeFlagsToEveryKey();
+  void nativeKeyTransaction_preservesRightModifierSide();
+  void nativeKeyTransaction_rollsBackModifierAfterPostFailure();
 
 private:
-  bool isKeyPressed(const OSXKeyState &keyState, KeyButton button);
   Arch m_arch;
   Log m_log;
 };

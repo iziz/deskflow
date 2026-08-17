@@ -62,8 +62,8 @@ public:
 
   //! Update the key state
   /*!
-  Causes the key state to get updated to reflect the physical keyboard
-  state.
+  Releases tracked synthetic keys, then rebuilds the key state from the
+  physical keyboard state.
   */
   virtual void updateKeyState() = 0;
 
@@ -104,7 +104,8 @@ public:
   //! Fake key releases for all fake pressed keys
   /*!
   Synthesizes a key release event for every key that is synthetically
-  pressed and updates the key state.
+  pressed, reconciles platform-specific modifier state, and updates the key
+  state.
   */
   virtual void fakeAllKeysUp() = 0;
 

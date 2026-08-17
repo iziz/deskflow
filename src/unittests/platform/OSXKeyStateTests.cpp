@@ -11,13 +11,10 @@
 #include "base/EventQueue.h"
 
 #include <ApplicationServices/ApplicationServices.h>
+#include <IOKit/hidsystem/IOLLEvent.h>
 #include <cstddef>
 #include <vector>
 
-#define SHIFT_ID_L kKeyShift_L
-#define SHIFT_ID_R kKeyShift_R
-#define SHIFT_BUTTON 57
-#define A_CHAR_ID 0x00000061
 #define A_CHAR_BUTTON 001
 
 namespace {
@@ -127,12 +124,53 @@ public:
     return m_polledModifiers;
   }
 
-  void fakeKey(const Keystroke &keystroke) override
+private:
+  KeyModifierMask m_polledModifiers{0};
+};
+
+struct NativeKeyPost
+{
+  CGKeyCode virtualKey;
+  bool keyDown;
+  CGEventFlags flags;
+  bool fallback;
+};
+
+class NativePostOSXKeyState : public OSXKeyState
+{
+public:
+  using OSXKeyState::OSXKeyState;
+
+  void injectVirtualKey(CGKeyCode virtualKey, bool keyDown)
   {
-    syntheticEvents.push_back(keystroke);
+    OSXKeyState::fakeKey(Keystroke(static_cast<KeyButton>(virtualKey + 1), keyDown, false, 0));
   }
 
-  std::vector<Keystroke> syntheticEvents;
+  void setPolledModifiersForTest(KeyModifierMask mask)
+  {
+    m_polledModifiers = mask;
+  }
+
+  KeyModifierMask pollActiveModifiers() const override
+  {
+    return m_polledModifiers;
+  }
+
+  kern_return_t postHIDVirtualKey(uint8_t virtualKey, bool keyDown, CGEventFlags flags) override
+  {
+    posts.push_back({virtualKey, keyDown, flags, false});
+    return hidResult;
+  }
+
+  bool postKeyboardKey(CGKeyCode virtualKey, bool keyDown, CGEventFlags flags) override
+  {
+    posts.push_back({virtualKey, keyDown, flags, true});
+    return fallbackSucceeds;
+  }
+
+  kern_return_t hidResult{KERN_SUCCESS};
+  bool fallbackSucceeds{true};
+  std::vector<NativeKeyPost> posts;
 
 private:
   KeyModifierMask m_polledModifiers{0};
@@ -225,9 +263,7 @@ void OSXKeyStateTests::syncModifiersFromOSX_releasesStaleSuper()
 
   QCOMPARE(keyState.getActiveModifiers(), 0);
   QCOMPARE(eventQueue.keyEvents.size(), std::size_t{1});
-  QCOMPARE(
-      static_cast<uint32_t>(eventQueue.keyEvents[0].type), static_cast<uint32_t>(EventTypes::KeyStateKeyUp)
-  );
+  QCOMPARE(static_cast<uint32_t>(eventQueue.keyEvents[0].type), static_cast<uint32_t>(EventTypes::KeyStateKeyUp));
   QCOMPARE(eventQueue.keyEvents[0].key, kKeySuper_L);
   QCOMPARE(eventQueue.keyEvents[0].mask, 0);
 }
@@ -275,104 +311,92 @@ void OSXKeyStateTests::clearStaleModifiers_refreshesShadowFromSystemState()
   keyState.clearStaleModifiers();
 
   QCOMPARE(getShadowModifierMask(keyState), systemMask);
-  QVERIFY(keyState.syntheticEvents.empty());
 }
 
 void OSXKeyStateTests::clearStaleModifiers_releasesSyntheticModifiersMissingFromSystemState()
 {
   deskflow::KeyMap keyMap;
   EventQueue eventQueue;
-  TestOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
 
   keyState.setPolledModifiersForTest(KeyModifierSuper);
-  keyState.setShadowModifiersForTest(KeyModifierShift | KeyModifierCapsLock);
+  keyState.injectVirtualKey(kVK_Shift, true);
+  keyState.injectVirtualKey(kVK_CapsLock, true);
+  keyState.posts.clear();
 
   keyState.clearStaleModifiers();
 
   QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(KeyModifierSuper));
-  QCOMPARE(keyState.syntheticEvents.size(), std::size_t{2});
-  QCOMPARE(keyState.syntheticEvents[0].m_type, deskflow::KeyMap::Keystroke::KeyType::Button);
-  QCOMPARE(keyState.syntheticEvents[0].m_data.m_button.m_button, static_cast<KeyButton>(kVK_Shift + 1));
-  QVERIFY(!keyState.syntheticEvents[0].m_data.m_button.m_press);
-  QCOMPARE(keyState.syntheticEvents[1].m_type, deskflow::KeyMap::Keystroke::KeyType::Button);
-  QCOMPARE(keyState.syntheticEvents[1].m_data.m_button.m_button, static_cast<KeyButton>(kVK_CapsLock + 1));
-  QVERIFY(!keyState.syntheticEvents[1].m_data.m_button.m_press);
+  QCOMPARE(keyState.posts.size(), std::size_t{2});
+  QCOMPARE(keyState.posts[0].virtualKey, static_cast<CGKeyCode>(kVK_Shift));
+  QVERIFY(!keyState.posts[0].keyDown);
+  QCOMPARE(keyState.posts[1].virtualKey, static_cast<CGKeyCode>(kVK_CapsLock));
+  QVERIFY(!keyState.posts[1].keyDown);
 }
 
-void OSXKeyStateTests::fakePollShift()
+void OSXKeyStateTests::clearStaleModifiers_releasesPreviouslyPostedModifierAfterMatchingUp()
 {
   deskflow::KeyMap keyMap;
   EventQueue eventQueue;
-  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
-  keyState.updateKeyMap();
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
 
-  keyState.fakeKeyDown(SHIFT_ID_L, 0, 1, "en");
-  QVERIFY(isKeyPressed(keyState, SHIFT_BUTTON));
+  keyState.injectVirtualKey(kVK_Shift, true);
+  keyState.injectVirtualKey(kVK_Shift, false);
+  QCOMPARE(keyState.posts.size(), std::size_t{2});
 
-  keyState.fakeKeyUp(1);
-  QVERIFY(!isKeyPressed(keyState, SHIFT_BUTTON));
+  keyState.clearStaleModifiers();
 
-  keyState.fakeKeyDown(SHIFT_ID_R, 0, 2, "en");
-  QVERIFY(isKeyPressed(keyState, SHIFT_BUTTON));
-
-  keyState.fakeKeyUp(2);
-  QVERIFY(!isKeyPressed(keyState, SHIFT_BUTTON));
+  QCOMPARE(keyState.posts.size(), std::size_t{3});
+  QCOMPARE(keyState.posts.back().virtualKey, static_cast<CGKeyCode>(kVK_Shift));
+  QVERIFY(!keyState.posts.back().keyDown);
+  QCOMPARE(keyState.posts.back().flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
 }
 
-void OSXKeyStateTests::fakePollChar()
+void OSXKeyStateTests::nativeKeyTransaction_appliesAuthoritativeFlagsToEveryKey()
 {
   deskflow::KeyMap keyMap;
   EventQueue eventQueue;
-  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
-  keyState.updateKeyMap();
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
 
-  keyState.fakeKeyDown(A_CHAR_ID, 0, 1, "en");
-  QVERIFY(isKeyPressed(keyState, A_CHAR_BUTTON));
+  keyState.injectVirtualKey(kVK_Shift, true);
+  keyState.injectVirtualKey(kVK_ANSI_A, true);
+  QVERIFY((keyState.posts.back().flags & kCGEventFlagMaskShift) != 0);
 
-  keyState.fakeKeyUp(1);
-  QVERIFY(!isKeyPressed(keyState, A_CHAR_BUTTON));
+  keyState.injectVirtualKey(kVK_Shift, false);
+  keyState.injectVirtualKey(kVK_ANSI_A, false);
 
-  // HACK: delete the key in case it was typed into a text editor.
-  // we should really set focus to an invisible window.
-  keyState.fakeKeyDown(kKeyBackSpace, 0, 2, "en");
-  keyState.fakeKeyUp(2);
+  QCOMPARE(keyState.posts.back().virtualKey, static_cast<CGKeyCode>(kVK_ANSI_A));
+  QCOMPARE(keyState.posts.back().flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
 }
 
-void OSXKeyStateTests::fakePollCharWithModifier()
+void OSXKeyStateTests::nativeKeyTransaction_preservesRightModifierSide()
 {
   deskflow::KeyMap keyMap;
   EventQueue eventQueue;
-  OSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
-  keyState.updateKeyMap();
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
 
-  keyState.fakeKeyDown(A_CHAR_ID, KeyModifierShift, 1, "en");
-  QVERIFY(isKeyPressed(keyState, A_CHAR_BUTTON));
+  keyState.injectVirtualKey(kVK_RightShift, true);
 
-  keyState.fakeKeyUp(1);
-  QVERIFY(!isKeyPressed(keyState, A_CHAR_BUTTON));
-
-  // HACK: delete the key in case it was typed into a text editor.
-  // we should really set focus to an invisible window.
-  keyState.fakeKeyDown(kKeyBackSpace, 0, 2, "en");
-  keyState.fakeKeyUp(2);
+  QCOMPARE(keyState.posts.size(), std::size_t{1});
+  QCOMPARE(keyState.posts[0].virtualKey, static_cast<CGKeyCode>(kVK_RightShift));
+  QVERIFY((keyState.posts[0].flags & kCGEventFlagMaskShift) != 0);
+  QVERIFY((keyState.posts[0].flags & NX_DEVICERSHIFTKEYMASK) != 0);
+  QCOMPARE(keyState.posts[0].flags & NX_DEVICELSHIFTKEYMASK, static_cast<CGEventFlags>(0));
 }
 
-bool OSXKeyStateTests::isKeyPressed(const OSXKeyState &keyState, KeyButton button)
+void OSXKeyStateTests::nativeKeyTransaction_rollsBackModifierAfterPostFailure()
 {
-  // HACK: allow os to realize key state changes.
-  Arch::sleep(.2);
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  keyState.hidResult = KERN_FAILURE;
+  keyState.fallbackSucceeds = false;
 
-  IKeyState::KeyButtonSet pressed;
-  keyState.pollPressedKeys(pressed);
+  keyState.injectVirtualKey(kVK_Shift, true);
 
-  IKeyState::KeyButtonSet::const_iterator it;
-  for (it = pressed.begin(); it != pressed.end(); ++it) {
-    LOG_DEBUG("checking key %d", *it);
-    if (*it == button) {
-      return true;
-    }
-  }
-  return false;
+  QCOMPARE(keyState.posts.size(), std::size_t{2});
+  QVERIFY(keyState.posts[1].fallback);
+  QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(0));
 }
 
 QTEST_MAIN(OSXKeyStateTests)

@@ -754,6 +754,13 @@ void KeyState::updateKeyMap(deskflow::KeyMap *existing)
 
 void KeyState::updateKeyState()
 {
+  const bool hasSyntheticKeys =
+      std::any_of(std::begin(m_syntheticKeys), std::end(m_syntheticKeys), [](int32_t count) { return count > 0; });
+  if (hasSyntheticKeys) {
+    LOG_DEBUG("releasing synthetic keys before rebuilding platform key state");
+    fakeAllKeysUp();
+  }
+
   // reset our state
   memset(&m_keys, 0, sizeof(m_keys));
   memset(&m_syntheticKeys, 0, sizeof(m_syntheticKeys));
@@ -999,6 +1006,7 @@ void KeyState::fakeAllKeysUp()
   fakeKeys(keys, 1);
   memset(&m_serverKeys, 0, sizeof(m_serverKeys));
   m_activeModifiers.clear();
+  clearStaleModifiers();
   m_mask = pollActiveModifiers();
 }
 

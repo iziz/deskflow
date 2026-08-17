@@ -332,6 +332,25 @@ TEST(KeyStateTests, fakeAllKeysUp_keysWereDown_keysAreUp)
   ASSERT_FALSE(actual);
 }
 
+TEST(KeyStateTests, updateKeyState_syntheticKeyDown_releasesBeforePolling)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  s_stubKeyItem.m_button = 1;
+  s_stubKeyItem.m_client = 0;
+  ON_CALL(keyMap, mapKey(_, _, _, _, _, _, _, _)).WillByDefault(Invoke(stubMapKey));
+
+  EXPECT_CALL(keyState, fakeKey(_)).Times(2);
+  keyState.fakeKeyDown(1, 0, 1, "en");
+
+  keyState.updateKeyState();
+
+  ASSERT_FALSE(keyState.isKeyDown(1));
+  ASSERT_FALSE(keyState.fakeKeyUp(1));
+}
+
 void stubPollPressedKeys(IKeyState::KeyButtonSet &pressedKeys)
 {
   pressedKeys.insert(1);
@@ -342,15 +361,19 @@ void assertMaskIsOne(ForeachKeyCallback, void *userData)
   ASSERT_EQ(1, ((KeyState::AddActiveModifierContext *)userData)->m_mask);
 }
 
-const deskflow::KeyMap::KeyItem *
-stubMapKey(deskflow::KeyMap::Keystrokes &keys, KeyID, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &, KeyModifierMask, bool, const std::string &)
+const deskflow::KeyMap::KeyItem *stubMapKey(
+    deskflow::KeyMap::Keystrokes &keys, KeyID, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &,
+    KeyModifierMask, bool, const std::string &
+)
 {
   keys.push_back(s_stubKeystroke);
   return &s_stubKeyItem;
 }
 
-const deskflow::KeyMap::KeyItem *
-stubSyncToggleModifiers(deskflow::KeyMap::Keystrokes &keys, KeyID id, int32_t, deskflow::KeyMap::ModifierToKeys &, KeyModifierMask &currentState, KeyModifierMask desiredMask, bool, const std::string &)
+const deskflow::KeyMap::KeyItem *stubSyncToggleModifiers(
+    deskflow::KeyMap::Keystrokes &keys, KeyID id, int32_t, deskflow::KeyMap::ModifierToKeys &,
+    KeyModifierMask &currentState, KeyModifierMask desiredMask, bool, const std::string &
+)
 {
   if (id == kKeySetModifiers) {
     currentState |= desiredMask;

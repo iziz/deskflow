@@ -27,6 +27,10 @@ static const uint32_t s_controlVK = kVK_Control;
 static const uint32_t s_altVK = kVK_Option;
 static const uint32_t s_superVK = kVK_Command;
 static const uint32_t s_capsLockVK = kVK_CapsLock;
+static const uint32_t s_shiftRightVK = kVK_RightShift;
+static const uint32_t s_controlRightVK = kVK_RightControl;
+static const uint32_t s_altRightVK = kVK_RightOption;
+static const uint32_t s_superRightVK = kVK_RightCommand;
 static const uint32_t s_numLockVK = kVK_ANSI_KeypadClear; // 71
 
 static const uint32_t s_brightnessUp = 144;
@@ -99,18 +103,17 @@ static const KeyEntry s_controlKeys[] = {
     // to map to.  also the enter key with numlock on is a modifier but i
     // don't know which.
 
-    // modifier keys.  OS X doesn't seem to support right handed versions
-    // of modifier keys so we map them to the left handed versions.
+    // modifier keys
     {kKeyShift_L, s_shiftVK},
-    {kKeyShift_R, s_shiftVK}, // 60
+    {kKeyShift_R, s_shiftRightVK},
     {kKeyControl_L, s_controlVK},
-    {kKeyControl_R, s_controlVK}, // 62
+    {kKeyControl_R, s_controlRightVK},
     {kKeyAlt_L, s_altVK},
-    {kKeyAlt_R, s_altVK},
+    {kKeyAlt_R, s_altRightVK},
     {kKeySuper_L, s_superVK},
-    {kKeySuper_R, s_superVK}, // 61
+    {kKeySuper_R, s_superRightVK},
     {kKeyMeta_L, s_superVK},
-    {kKeyMeta_R, s_superVK}, // 61
+    {kKeyMeta_R, s_superRightVK},
 
     // toggle modifiers
     {kKeyNumLock, s_numLockVK},
@@ -130,6 +133,65 @@ static const KeyEntry s_controlKeys[] = {
 };
 
 namespace {
+
+using ModifierKeyMask = uint16_t;
+
+constexpr ModifierKeyMask kShiftLeftKey = 1u << 0u;
+constexpr ModifierKeyMask kShiftRightKey = 1u << 1u;
+constexpr ModifierKeyMask kControlLeftKey = 1u << 2u;
+constexpr ModifierKeyMask kControlRightKey = 1u << 3u;
+constexpr ModifierKeyMask kAltLeftKey = 1u << 4u;
+constexpr ModifierKeyMask kAltRightKey = 1u << 5u;
+constexpr ModifierKeyMask kSuperLeftKey = 1u << 6u;
+constexpr ModifierKeyMask kSuperRightKey = 1u << 7u;
+constexpr ModifierKeyMask kCapsLockKey = 1u << 8u;
+
+ModifierKeyMask modifierKeyBit(uint32_t virtualKey)
+{
+  switch (virtualKey) {
+  case s_shiftVK:
+    return kShiftLeftKey;
+  case s_shiftRightVK:
+    return kShiftRightKey;
+  case s_controlVK:
+    return kControlLeftKey;
+  case s_controlRightVK:
+    return kControlRightKey;
+  case s_altVK:
+    return kAltLeftKey;
+  case s_altRightVK:
+    return kAltRightKey;
+  case s_superVK:
+    return kSuperLeftKey;
+  case s_superRightVK:
+    return kSuperRightKey;
+  case s_capsLockVK:
+    return kCapsLockKey;
+  default:
+    return 0;
+  }
+}
+
+KeyModifierMask modifierMaskForKeys(ModifierKeyMask keys)
+{
+  KeyModifierMask mask = 0;
+  if ((keys & (kShiftLeftKey | kShiftRightKey)) != 0) {
+    mask |= KeyModifierShift;
+  }
+  if ((keys & (kControlLeftKey | kControlRightKey)) != 0) {
+    mask |= KeyModifierControl;
+  }
+  if ((keys & (kAltLeftKey | kAltRightKey)) != 0) {
+    mask |= KeyModifierAlt;
+  }
+  if ((keys & (kSuperLeftKey | kSuperRightKey)) != 0) {
+    mask |= KeyModifierSuper;
+  }
+  if ((keys & kCapsLockKey) != 0) {
+    mask |= KeyModifierCapsLock;
+  }
+  return mask;
+}
 
 io_connect_t getService(io_iterator_t iter)
 {
@@ -172,9 +234,7 @@ io_connect_t getEventDriver()
 
 bool isModifier(uint8_t virtualKey)
 {
-  static std::set<uint8_t> modifiers{s_shiftVK, s_superVK, s_altVK, s_controlVK, s_capsLockVK};
-
-  return (modifiers.find(virtualKey) != modifiers.end());
+  return modifierKeyBit(virtualKey) != 0;
 }
 
 } // namespace
@@ -205,11 +265,9 @@ OSXKeyState::~OSXKeyState()
 void OSXKeyState::init()
 {
   m_deadKeyState = 0;
-  m_shiftPressed = false;
-  m_controlPressed = false;
-  m_altPressed = false;
-  m_superPressed = false;
-  m_capsPressed = false;
+  m_physicalModifiers.store(0, std::memory_order_relaxed);
+  m_syntheticModifierKeys.store(0, std::memory_order_relaxed);
+  m_postedModifierKeys.store(0, std::memory_order_relaxed);
 
   // build virtual key map
   for (size_t i = 0; i < sizeof(s_controlKeys) / sizeof(s_controlKeys[0]); ++i) {
@@ -392,95 +450,82 @@ bool OSXKeyState::fakeMediaKey(KeyID id)
 
 CGEventFlags OSXKeyState::getModifierStateAsOSXFlags() const
 {
-  CGEventFlags modifiers = 0;
+  const auto modifiers = getShadowModifiers();
+  CGEventFlags flags = 0;
 
-  if (m_shiftPressed) {
-    modifiers |= kCGEventFlagMaskShift;
+  if ((modifiers & KeyModifierShift) != 0) {
+    flags |= kCGEventFlagMaskShift;
   }
 
-  if (m_controlPressed) {
-    modifiers |= kCGEventFlagMaskControl;
+  if ((modifiers & KeyModifierControl) != 0) {
+    flags |= kCGEventFlagMaskControl;
   }
 
-  if (m_altPressed) {
-    modifiers |= kCGEventFlagMaskAlternate;
+  if ((modifiers & KeyModifierAlt) != 0) {
+    flags |= kCGEventFlagMaskAlternate;
   }
 
-  if (m_superPressed) {
-    modifiers |= kCGEventFlagMaskCommand;
+  if ((modifiers & KeyModifierSuper) != 0) {
+    flags |= kCGEventFlagMaskCommand;
   }
 
-  if (m_capsPressed) {
-    modifiers |= kCGEventFlagMaskAlphaShift;
+  if ((modifiers & KeyModifierCapsLock) != 0) {
+    flags |= kCGEventFlagMaskAlphaShift;
   }
 
-  return modifiers;
+  return flags;
 }
 
 void OSXKeyState::clearStaleModifiers()
 {
-  const auto shadowMask = getShadowModifiers();
   const auto systemMask = pollActiveModifiers() & s_syncableModifiers;
-  if ((shadowMask & s_syncableModifiers) != systemMask) {
-    LOG_DEBUG("refreshing macOS modifier shadow: old=0x%04x system=0x%04x", shadowMask, systemMask);
+  const auto oldPhysicalMask = m_physicalModifiers.exchange(systemMask, std::memory_order_acq_rel);
+  const auto syntheticKeys = m_syntheticModifierKeys.load(std::memory_order_acquire);
+  const auto postedKeys = m_postedModifierKeys.load(std::memory_order_acquire);
+  const auto keysToRelease = static_cast<ModifierKeyMask>(syntheticKeys | postedKeys);
+
+  if (oldPhysicalMask != systemMask || keysToRelease != 0) {
+    LOG_DEBUG(
+        "reconciling macOS modifiers: physical=0x%04x system=0x%04x synthetic=0x%04x posted=0x%04x", oldPhysicalMask,
+        systemMask, syntheticKeys, postedKeys
+    );
   }
 
-  const auto staleSyntheticMask = shadowMask & ~systemMask & s_syncableModifiers;
-  if (staleSyntheticMask != 0) {
-    // Preserve physical modifiers in every synthetic release event.
-    setShadowModifiers(shadowMask | systemMask);
-  }
-
-  const auto releaseStaleModifier = [this, staleSyntheticMask](KeyModifierMask modifier, uint32_t virtualKey) {
-    if ((staleSyntheticMask & modifier) == 0) {
+  const auto releaseModifier = [this, keysToRelease](ModifierKeyMask key, uint32_t virtualKey) {
+    if ((keysToRelease & key) == 0) {
       return;
     }
 
-    LOG_DEBUG("releasing stale macOS synthetic modifier: mask=0x%04x", modifier);
-    fakeKey(Keystroke(mapVirtualKeyToKeyButton(virtualKey), false, false, 0));
+    LOG_DEBUG("releasing tracked macOS synthetic modifier: key=0x%04x virtualKey=0x%02x", key, virtualKey);
+    if (postVirtualKey(virtualKey, false)) {
+      m_postedModifierKeys.fetch_and(static_cast<ModifierKeyMask>(~key), std::memory_order_acq_rel);
+    }
   };
 
-  // Do not discard an active synthetic shadow before sending its matching
-  // release. Otherwise macOS can retain the HID modifier while Deskflow
-  // believes it is already clear.
-  releaseStaleModifier(KeyModifierShift, s_shiftVK);
-  releaseStaleModifier(KeyModifierControl, s_controlVK);
-  releaseStaleModifier(KeyModifierAlt, s_altVK);
-  releaseStaleModifier(KeyModifierSuper, s_superVK);
-  releaseStaleModifier(KeyModifierCapsLock, s_capsLockVK);
-
-  setShadowModifiers(systemMask);
+  // A successful key-up is intentionally repeated at lifecycle boundaries.
+  // IOHIDPostEvent reports queueing success, not consumption by the focused
+  // application, so the posted set remains independent from the active set.
+  releaseModifier(kShiftLeftKey, s_shiftVK);
+  releaseModifier(kShiftRightKey, s_shiftRightVK);
+  releaseModifier(kControlLeftKey, s_controlVK);
+  releaseModifier(kControlRightKey, s_controlRightVK);
+  releaseModifier(kAltLeftKey, s_altVK);
+  releaseModifier(kAltRightKey, s_altRightVK);
+  releaseModifier(kSuperLeftKey, s_superVK);
+  releaseModifier(kSuperRightKey, s_superRightVK);
+  releaseModifier(kCapsLockKey, s_capsLockVK);
 }
 
 KeyModifierMask OSXKeyState::getShadowModifiers() const
 {
-  KeyModifierMask mask = 0;
-  if (m_shiftPressed) {
-    mask |= KeyModifierShift;
-  }
-  if (m_controlPressed) {
-    mask |= KeyModifierControl;
-  }
-  if (m_altPressed) {
-    mask |= KeyModifierAlt;
-  }
-  if (m_superPressed) {
-    mask |= KeyModifierSuper;
-  }
-  if (m_capsPressed) {
-    mask |= KeyModifierCapsLock;
-  }
-
-  return mask;
+  const auto physical = m_physicalModifiers.load(std::memory_order_acquire);
+  const auto synthetic = m_syntheticModifierKeys.load(std::memory_order_acquire);
+  return physical | modifierMaskForKeys(synthetic);
 }
 
 void OSXKeyState::setShadowModifiers(KeyModifierMask mask)
 {
-  m_shiftPressed = (mask & KeyModifierShift) != 0;
-  m_controlPressed = (mask & KeyModifierControl) != 0;
-  m_altPressed = (mask & KeyModifierAlt) != 0;
-  m_superPressed = (mask & KeyModifierSuper) != 0;
-  m_capsPressed = (mask & KeyModifierCapsLock) != 0;
+  m_physicalModifiers.store(mask & s_syncableModifiers, std::memory_order_release);
 }
 
 KeyModifierMask OSXKeyState::pollActiveModifiers() const
@@ -653,22 +698,36 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
 
 CGEventFlags OSXKeyState::getDeviceDependedFlags() const
 {
+  const auto physical = m_physicalModifiers.load(std::memory_order_acquire);
+  const auto synthetic = m_syntheticModifierKeys.load(std::memory_order_acquire);
   CGEventFlags modifiers = 0;
 
-  if (m_shiftPressed) {
+  if ((physical & KeyModifierShift) != 0 || (synthetic & kShiftLeftKey) != 0) {
     modifiers |= NX_DEVICELSHIFTKEYMASK;
   }
+  if ((synthetic & kShiftRightKey) != 0) {
+    modifiers |= NX_DEVICERSHIFTKEYMASK;
+  }
 
-  if (m_controlPressed) {
+  if ((physical & KeyModifierControl) != 0 || (synthetic & kControlLeftKey) != 0) {
     modifiers |= NX_DEVICELCTLKEYMASK;
   }
-
-  if (m_altPressed) {
-    modifiers |= NX_DEVICELALTKEYMASK;
+  if ((synthetic & kControlRightKey) != 0) {
+    modifiers |= NX_DEVICERCTLKEYMASK;
   }
 
-  if (m_superPressed) {
+  if ((physical & KeyModifierAlt) != 0 || (synthetic & kAltLeftKey) != 0) {
+    modifiers |= NX_DEVICELALTKEYMASK;
+  }
+  if ((synthetic & kAltRightKey) != 0) {
+    modifiers |= NX_DEVICERALTKEYMASK;
+  }
+
+  if ((physical & KeyModifierSuper) != 0 || (synthetic & kSuperLeftKey) != 0) {
     modifiers |= NX_DEVICELCMDKEYMASK;
+  }
+  if ((synthetic & kSuperRightKey) != 0) {
+    modifiers |= NX_DEVICERCMDKEYMASK;
   }
 
   return modifiers;
@@ -680,7 +739,7 @@ CGEventFlags OSXKeyState::getKeyboardEventFlags() const
   // http://tinyurl.com/pxl742y
   CGEventFlags modifiers = getModifierStateAsOSXFlags();
 
-  if (!m_capsPressed) {
+  if ((getShadowModifiers() & KeyModifierCapsLock) == 0) {
     modifiers |= getDeviceDependedFlags();
   }
 
@@ -689,29 +748,20 @@ CGEventFlags OSXKeyState::getKeyboardEventFlags() const
 
 void OSXKeyState::setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown)
 {
-  switch (virtualKey) {
-  case s_shiftVK:
-    m_shiftPressed = keyDown;
-    break;
-  case s_controlVK:
-    m_controlPressed = keyDown;
-    break;
-  case s_altVK:
-    m_altPressed = keyDown;
-    break;
-  case s_superVK:
-    m_superPressed = keyDown;
-    break;
-  case s_capsLockVK:
-    m_capsPressed = keyDown;
-    break;
-  default:
+  const auto key = modifierKeyBit(virtualKey);
+  if (key == 0) {
     LOG_VERBOSE("the key is not a modifier");
-    break;
+    return;
+  }
+
+  if (keyDown) {
+    m_syntheticModifierKeys.fetch_or(key, std::memory_order_acq_rel);
+  } else {
+    m_syntheticModifierKeys.fetch_and(static_cast<ModifierKeyMask>(~key), std::memory_order_acq_rel);
   }
 }
 
-kern_return_t OSXKeyState::postHIDVirtualKey(uint8_t virtualKey, bool postDown)
+kern_return_t OSXKeyState::postHIDVirtualKey(uint8_t virtualKey, bool postDown, CGEventFlags flags)
 {
   NXEventData event;
   bzero(&event, sizeof(NXEventData));
@@ -723,27 +773,56 @@ kern_return_t OSXKeyState::postHIDVirtualKey(uint8_t virtualKey, bool postDown)
     // the default zero value is interpreted as the 'a' key by some input methods (e.g. Chinese).
     event.key.keyCode = virtualKey;
     if (isModifier(virtualKey)) {
-      result =
-          IOHIDPostEvent(driver, NX_FLAGSCHANGED, {0, 0}, &event, kNXEventDataVersion, getKeyboardEventFlags(), true);
+      result = IOHIDPostEvent(driver, NX_FLAGSCHANGED, {0, 0}, &event, kNXEventDataVersion, flags, true);
     } else {
       const auto eventType = postDown ? NX_KEYDOWN : NX_KEYUP;
-      result = IOHIDPostEvent(driver, eventType, {0, 0}, &event, kNXEventDataVersion, 0, false);
+      result = IOHIDPostEvent(driver, eventType, {0, 0}, &event, kNXEventDataVersion, flags, false);
     }
   }
 
   return result;
 }
 
-void OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown)
+bool OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown, CGEventFlags flags)
 {
   CGEventRef event = CGEventCreateKeyboardEvent(nullptr, virtualKey, keyDown);
   if (event) {
-    CGEventSetFlags(event, getKeyboardEventFlags());
+    CGEventSetFlags(event, flags);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
+    return true;
   } else {
     LOG_CRIT("unable to create keyboard event for keystroke");
+    return false;
   }
+}
+
+bool OSXKeyState::postVirtualKey(CGKeyCode virtualKey, bool keyDown)
+{
+  const auto previousSyntheticKeys = m_syntheticModifierKeys.load(std::memory_order_acquire);
+  const auto modifierKey = modifierKeyBit(virtualKey);
+  if (modifierKey != 0) {
+    setKeyboardModifiers(virtualKey, keyDown);
+  }
+
+  const auto flags = getKeyboardEventFlags();
+  const auto hidResult = postHIDVirtualKey(virtualKey, keyDown, flags);
+  bool posted = hidResult == KERN_SUCCESS;
+  if (!posted) {
+    LOG_WARN("failed to post macOS HID key event: virtualKey=0x%02x result=0x%x", virtualKey, hidResult);
+    posted = postKeyboardKey(virtualKey, keyDown, flags);
+  }
+
+  if (!posted && modifierKey != 0) {
+    m_syntheticModifierKeys.store(previousSyntheticKeys, std::memory_order_release);
+  }
+
+  LOG_VERBOSE(
+      "macOS native key transaction: virtualKey=0x%02x keyDown=%s flags=0x%llx posted=%s synthetic=0x%04x", virtualKey,
+      keyDown ? "down" : "up", static_cast<unsigned long long>(flags), posted ? "yes" : "no",
+      m_syntheticModifierKeys.load(std::memory_order_acquire)
+  );
+  return posted;
 }
 
 void OSXKeyState::fakeKey(const Keystroke &keystroke)
@@ -760,10 +839,8 @@ void OSXKeyState::fakeKey(const Keystroke &keystroke)
         client
     );
 
-    setKeyboardModifiers(virtualKey, keyDown);
-    if (postHIDVirtualKey(virtualKey, keyDown) != KERN_SUCCESS) {
-      LOG_WARN("fail to post hid event");
-      postKeyboardKey(virtualKey, keyDown);
+    if (postVirtualKey(virtualKey, keyDown) && isModifier(virtualKey)) {
+      m_postedModifierKeys.fetch_or(modifierKeyBit(virtualKey), std::memory_order_acq_rel);
     }
 
     break;
