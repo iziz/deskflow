@@ -704,6 +704,12 @@ void MSWindowsDesks::deskThread(const void *vdesk)
   desk->m_window = nullptr;
   desk->m_foregroundWindow = nullptr;
   if (desk->m_desk != nullptr && SetThreadDesktop(desk->m_desk) != 0) {
+    // Seed toggle modifiers while this thread is still using the fresh input
+    // state supplied by Windows for the active desktop. Once the message queue
+    // starts processing Deskflow's private messages, GetKeyState no longer
+    // follows toggle keys delivered to other foreground threads.
+    m_synchronizeToggleModifiers->run();
+
     // create a message queue
     PeekMessage(&msg, nullptr, 0, 0, PM_NOREMOVE);
 
@@ -738,11 +744,6 @@ void MSWindowsDesks::deskThread(const void *vdesk)
           MSWindowsHook::uninstallScreenSaver();
         }
       }
-
-      // GetKeyState reflects the calling thread's input queue. Synchronize the
-      // primary toggle shadow on this active desk thread while hooks are down,
-      // so no accepted key event can race ahead of the seed.
-      m_synchronizeToggleModifiers->run();
 
       if (m_useHooks) {
         if (m_screensaverNotify) {

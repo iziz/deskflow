@@ -52,7 +52,8 @@ public:
   only to check if the screensaver is active.  The \p updateKeys
   job is adopted and is called when the key state should be
   updated in a thread attached to the current desk. The
-  \p synchronizeToggleModifiers job is run before hooks are installed.
+  \p synchronizeToggleModifiers job is run once after a fresh desk thread is
+  attached to the active input desktop and before its message queue starts.
   */
   MSWindowsDesks(
       bool isPrimary, bool useHooks, const IScreenSaver *screensaver, IEventQueue *events, IJob *updateKeys,
