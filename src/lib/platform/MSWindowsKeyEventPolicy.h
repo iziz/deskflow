@@ -14,6 +14,72 @@ namespace deskflow::platform {
 inline constexpr KeyModifierMask kWindowsToggleModifierMask =
     KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
 
+enum WindowsNativeKeyState : uint32_t
+{
+  WindowsNativeKeyStateLeftShift = 1u << 0u,
+  WindowsNativeKeyStateRightShift = 1u << 1u,
+  WindowsNativeKeyStateLeftControl = 1u << 2u,
+  WindowsNativeKeyStateRightControl = 1u << 3u,
+  WindowsNativeKeyStateLeftAlt = 1u << 4u,
+  WindowsNativeKeyStateRightAlt = 1u << 5u,
+  WindowsNativeKeyStateLeftSuper = 1u << 6u,
+  WindowsNativeKeyStateRightSuper = 1u << 7u,
+  WindowsNativeKeyStateCapsLock = 1u << 8u,
+  WindowsNativeKeyStateNumLock = 1u << 9u,
+  WindowsNativeKeyStateScrollLock = 1u << 10u
+};
+
+inline uint32_t windowsNativeKeyDownFlag(UINT virtualKey)
+{
+  switch (virtualKey) {
+  case VK_LSHIFT:
+    return WindowsNativeKeyStateLeftShift;
+  case VK_RSHIFT:
+    return WindowsNativeKeyStateRightShift;
+  case VK_LCONTROL:
+    return WindowsNativeKeyStateLeftControl;
+  case VK_RCONTROL:
+    return WindowsNativeKeyStateRightControl;
+  case VK_LMENU:
+    return WindowsNativeKeyStateLeftAlt;
+  case VK_RMENU:
+    return WindowsNativeKeyStateRightAlt;
+  case VK_LWIN:
+    return WindowsNativeKeyStateLeftSuper;
+  case VK_RWIN:
+    return WindowsNativeKeyStateRightSuper;
+  default:
+    return 0;
+  }
+}
+
+inline KeyModifierMask windowsModifierMaskFromNativeKeyState(uint32_t nativeState)
+{
+  KeyModifierMask modifiers = 0;
+  if ((nativeState & (WindowsNativeKeyStateLeftShift | WindowsNativeKeyStateRightShift)) != 0u) {
+    modifiers |= KeyModifierShift;
+  }
+  if ((nativeState & (WindowsNativeKeyStateLeftControl | WindowsNativeKeyStateRightControl)) != 0u) {
+    modifiers |= KeyModifierControl;
+  }
+  if ((nativeState & (WindowsNativeKeyStateLeftAlt | WindowsNativeKeyStateRightAlt)) != 0u) {
+    modifiers |= KeyModifierAlt;
+  }
+  if ((nativeState & (WindowsNativeKeyStateLeftSuper | WindowsNativeKeyStateRightSuper)) != 0u) {
+    modifiers |= KeyModifierSuper;
+  }
+  if ((nativeState & WindowsNativeKeyStateCapsLock) != 0u) {
+    modifiers |= KeyModifierCapsLock;
+  }
+  if ((nativeState & WindowsNativeKeyStateNumLock) != 0u) {
+    modifiers |= KeyModifierNumLock;
+  }
+  if ((nativeState & WindowsNativeKeyStateScrollLock) != 0u) {
+    modifiers |= KeyModifierScrollLock;
+  }
+  return modifiers;
+}
+
 enum class WindowsHotKeyRoute
 {
   ModifierOnly,

@@ -70,8 +70,8 @@ public:
   */
   MSWindowsKeyEventTransition applyKeyEvent(KeyButton button, UINT virtualKey, bool down);
 
-  //! Reconcile a toggle key with an authoritative native state
-  void reconcileToggleKeyState(UINT virtualKey, bool enabled);
+  //! Reconcile modifier and toggle keys with an authoritative native state
+  void reconcileNativeKeyState(uint32_t nativeState);
 
   //! Set the active keyboard layout
   /*!

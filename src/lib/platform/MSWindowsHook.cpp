@@ -521,9 +521,31 @@ static LRESULT CALLBACK keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
 
 static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
 {
-  const auto postMouseMove = [](int32_t mouseX, int32_t mouseY) {
-    const bool scrollLockOn = (GetKeyState(VK_SCROLL) & 0x0001) != 0;
-    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_TOGGLE_STATE, scrollLockOn ? 1u : 0u, 0);
+  const auto currentNativeKeyState = []() {
+    uint32_t state = 0;
+    constexpr UINT heldKeys[] = {
+        VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
+    };
+    for (const auto virtualKey : heldKeys) {
+      if ((GetAsyncKeyState(static_cast<int>(virtualKey)) & 0x8000) != 0) {
+        state |= deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
+      }
+    }
+
+    if ((GetKeyState(VK_CAPITAL) & 0x0001) != 0) {
+      state |= deskflow::platform::WindowsNativeKeyStateCapsLock;
+    }
+    if ((GetKeyState(VK_NUMLOCK) & 0x0001) != 0) {
+      state |= deskflow::platform::WindowsNativeKeyStateNumLock;
+    }
+    if ((GetKeyState(VK_SCROLL) & 0x0001) != 0) {
+      state |= deskflow::platform::WindowsNativeKeyStateScrollLock;
+    }
+    return state;
+  };
+
+  const auto postMouseMove = [currentNativeKeyState](int32_t mouseX, int32_t mouseY) {
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_KEY_STATE, currentNativeKeyState(), 0);
     PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, mouseX, mouseY);
   };
 

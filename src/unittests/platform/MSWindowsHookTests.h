@@ -20,6 +20,10 @@ private Q_SLOTS:
   void toggleKeyTransitionSequence();
   void nativeToggleStateReconciliation();
   void inputDesktopToggleSynchronization();
+  void nativeKeyDownFlag_data();
+  void nativeKeyDownFlag();
+  void nativeModifierMask_data();
+  void nativeModifierMask();
   void windowsHotKeyRegistration_data();
   void windowsHotKeyRegistration();
   void relaySuppression_data();

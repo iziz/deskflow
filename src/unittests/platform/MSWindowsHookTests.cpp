@@ -108,6 +108,77 @@ void MSWindowsHookTests::inputDesktopToggleSynchronization()
   QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock | KeyModifierScrollLock));
 }
 
+void MSWindowsHookTests::nativeKeyDownFlag_data()
+{
+  using namespace deskflow::platform;
+
+  QTest::addColumn<quint64>("virtualKey");
+  QTest::addColumn<quint64>("expected");
+
+  QTest::newRow("left Shift") << quint64(VK_LSHIFT) << quint64(WindowsNativeKeyStateLeftShift);
+  QTest::newRow("right Shift") << quint64(VK_RSHIFT) << quint64(WindowsNativeKeyStateRightShift);
+  QTest::newRow("left Control") << quint64(VK_LCONTROL) << quint64(WindowsNativeKeyStateLeftControl);
+  QTest::newRow("right Control") << quint64(VK_RCONTROL) << quint64(WindowsNativeKeyStateRightControl);
+  QTest::newRow("left Alt") << quint64(VK_LMENU) << quint64(WindowsNativeKeyStateLeftAlt);
+  QTest::newRow("right Alt") << quint64(VK_RMENU) << quint64(WindowsNativeKeyStateRightAlt);
+  QTest::newRow("left Windows") << quint64(VK_LWIN) << quint64(WindowsNativeKeyStateLeftSuper);
+  QTest::newRow("right Windows") << quint64(VK_RWIN) << quint64(WindowsNativeKeyStateRightSuper);
+  QTest::newRow("regular key") << quint64('A') << quint64(0);
+}
+
+void MSWindowsHookTests::nativeKeyDownFlag()
+{
+  QFETCH(quint64, virtualKey);
+  QFETCH(quint64, expected);
+
+  QCOMPARE(
+      quint64(deskflow::platform::windowsNativeKeyDownFlag(static_cast<UINT>(virtualKey))), expected
+  );
+}
+
+void MSWindowsHookTests::nativeModifierMask_data()
+{
+  using namespace deskflow::platform;
+
+  QTest::addColumn<quint64>("nativeState");
+  QTest::addColumn<quint64>("expected");
+
+  QTest::newRow("left Shift") << quint64(WindowsNativeKeyStateLeftShift) << quint64(KeyModifierShift);
+  QTest::newRow("right Shift") << quint64(WindowsNativeKeyStateRightShift) << quint64(KeyModifierShift);
+  QTest::newRow("left Control") << quint64(WindowsNativeKeyStateLeftControl) << quint64(KeyModifierControl);
+  QTest::newRow("right Control") << quint64(WindowsNativeKeyStateRightControl) << quint64(KeyModifierControl);
+  QTest::newRow("left Alt") << quint64(WindowsNativeKeyStateLeftAlt) << quint64(KeyModifierAlt);
+  QTest::newRow("right Alt") << quint64(WindowsNativeKeyStateRightAlt) << quint64(KeyModifierAlt);
+  QTest::newRow("left Windows") << quint64(WindowsNativeKeyStateLeftSuper) << quint64(KeyModifierSuper);
+  QTest::newRow("right Windows") << quint64(WindowsNativeKeyStateRightSuper) << quint64(KeyModifierSuper);
+  QTest::newRow("Caps Lock") << quint64(WindowsNativeKeyStateCapsLock) << quint64(KeyModifierCapsLock);
+  QTest::newRow("Num Lock") << quint64(WindowsNativeKeyStateNumLock) << quint64(KeyModifierNumLock);
+  QTest::newRow("Scroll Lock") << quint64(WindowsNativeKeyStateScrollLock) << quint64(KeyModifierScrollLock);
+  QTest::newRow("none") << quint64(0) << quint64(0);
+  QTest::newRow("all")
+      << quint64(
+             WindowsNativeKeyStateLeftShift | WindowsNativeKeyStateRightShift | WindowsNativeKeyStateLeftControl |
+             WindowsNativeKeyStateRightControl | WindowsNativeKeyStateLeftAlt | WindowsNativeKeyStateRightAlt |
+             WindowsNativeKeyStateLeftSuper | WindowsNativeKeyStateRightSuper | WindowsNativeKeyStateCapsLock |
+             WindowsNativeKeyStateNumLock | WindowsNativeKeyStateScrollLock
+         )
+      << quint64(
+             KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper | KeyModifierCapsLock |
+             KeyModifierNumLock | KeyModifierScrollLock
+         );
+}
+
+void MSWindowsHookTests::nativeModifierMask()
+{
+  QFETCH(quint64, nativeState);
+  QFETCH(quint64, expected);
+
+  QCOMPARE(
+      quint64(deskflow::platform::windowsModifierMaskFromNativeKeyState(static_cast<uint32_t>(nativeState))),
+      expected
+  );
+}
+
 void MSWindowsHookTests::windowsHotKeyRegistration_data()
 {
   QTest::addColumn<quint64>("virtualKey");

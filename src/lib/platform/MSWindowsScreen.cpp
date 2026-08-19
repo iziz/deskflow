@@ -914,14 +914,16 @@ bool MSWindowsScreen::onPreDispatchPrimary(HWND, UINT message, WPARAM wParam, LP
   case DESKFLOW_MSG_MOUSE_MOVE:
     return onMouseMove(static_cast<int32_t>(wParam), static_cast<int32_t>(lParam));
 
-  case DESKFLOW_MSG_MOUSE_TOGGLE_STATE: {
-    const auto nativeState = wParam != 0u ? MotionInfo::ScrollLockState::On : MotionInfo::ScrollLockState::Off;
-    if (nativeState != m_scrollLockState) {
-      LOG_DEBUG(
-          "mouse-time native Scroll Lock state: %s",
-          nativeState == MotionInfo::ScrollLockState::On ? "on" : "off"
-      );
-      m_scrollLockState = nativeState;
+  case DESKFLOW_MSG_MOUSE_KEY_STATE: {
+    const auto nativeKeyState = static_cast<uint32_t>(wParam);
+    if (!m_hasNativeKeyState || nativeKeyState != m_nativeKeyState) {
+      LOG_DEBUG("mouse-time native Windows key state: 0x%04x", nativeKeyState);
+      m_nativeKeyState = nativeKeyState;
+      m_hasNativeKeyState = true;
+      m_scrollLockState =
+          (nativeKeyState & deskflow::platform::WindowsNativeKeyStateScrollLock) != 0u
+              ? MotionInfo::ScrollLockState::On
+              : MotionInfo::ScrollLockState::Off;
     }
   }
     return true;
@@ -1227,8 +1229,8 @@ bool MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //   example)
 bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
 {
-  if (m_scrollLockState != MotionInfo::ScrollLockState::Unsupported) {
-    m_keyState->reconcileToggleKeyState(VK_SCROLL, m_scrollLockState == MotionInfo::ScrollLockState::On);
+  if (m_hasNativeKeyState) {
+    m_keyState->reconcileNativeKeyState(m_nativeKeyState);
   }
 
   // compute motion delta (relative to the last known

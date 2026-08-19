@@ -769,23 +769,45 @@ MSWindowsKeyEventTransition MSWindowsKeyState::applyKeyEvent(KeyButton button, U
   return {modifiersBefore, modifiersAfter, wasDown, deskflow::platform::windowsHotKeyRoute(virtualKey)};
 }
 
-void MSWindowsKeyState::reconcileToggleKeyState(UINT virtualKey, bool enabled)
+void MSWindowsKeyState::reconcileNativeKeyState(uint32_t nativeState)
 {
   if (!m_isPrimary) {
     return;
   }
 
-  const auto nextToggleModifiers =
-      deskflow::platform::reconcileWindowsToggleKeyState(m_toggleModifiers, virtualKey, enabled);
-  if (nextToggleModifiers == m_toggleModifiers) {
+  constexpr UINT heldKeys[] = {
+      VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
+  };
+  bool changed = false;
+  for (const auto virtualKey : heldKeys) {
+    const auto button = virtualKeyToButton(virtualKey);
+    if (button == 0) {
+      continue;
+    }
+
+    const bool nativeDown =
+        (nativeState & deskflow::platform::windowsNativeKeyDownFlag(virtualKey)) != 0u;
+    if (isKeyDown(button) != nativeDown) {
+      setKeyDownState(button, nativeDown);
+      changed = true;
+    }
+  }
+
+  const auto nativeModifiers = deskflow::platform::windowsModifierMaskFromNativeKeyState(nativeState);
+  const auto nextToggleModifiers = deskflow::platform::synchronizeWindowsToggleKeyState(nativeModifiers);
+  if (nextToggleModifiers != m_toggleModifiers) {
+    m_toggleModifiers = nextToggleModifiers;
+    changed = true;
+  }
+
+  if (!changed) {
     return;
   }
 
-  m_toggleModifiers = nextToggleModifiers;
   setActiveModifiers(pollActiveModifiers());
   LOG_DEBUG(
-      "reconciled Windows primary toggle key from mouse input: vk=0x%02x native=%s modifiers=0x%04x", virtualKey,
-      enabled ? "on" : "off", m_toggleModifiers
+      "reconciled Windows primary key state from mouse input: native=0x%04x modifiers=0x%04x", nativeState,
+      getActiveModifiers()
   );
 }
 
