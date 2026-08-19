@@ -81,6 +81,20 @@ void MSWindowsHookTests::toggleKeyTransitionSequence()
   QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock));
 }
 
+void MSWindowsHookTests::nativeToggleStateReconciliation()
+{
+  KeyModifierMask modifiers = KeyModifierNumLock | KeyModifierScrollLock;
+
+  modifiers = deskflow::platform::advanceWindowsToggleKeyState(modifiers, VK_SCROLL, true, false);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock));
+
+  modifiers = deskflow::platform::reconcileWindowsToggleKeyState(modifiers, VK_SCROLL, true);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock | KeyModifierScrollLock));
+
+  modifiers = deskflow::platform::reconcileWindowsToggleKeyState(modifiers, VK_SCROLL, false);
+  QCOMPARE(modifiers, KeyModifierMask(KeyModifierNumLock));
+}
+
 void MSWindowsHookTests::inputDesktopToggleSynchronization()
 {
   const KeyModifierMask staleCoreThreadState = KeyModifierNumLock | KeyModifierScrollLock;

@@ -12,6 +12,7 @@ class ServerTests : public QObject
 private Q_SLOTS:
   void SwitchToScreenInfo_alloc_screen();
   void KeyboardBroadcastInfo_alloc_stateAndSceens();
+  void nativeScrollLockPolicy_preservesConfiguredPolarity();
   void clipboardPublicationAuthority_acceptsIssuedFocusAfterScreenSwitch();
   void clipboardPublicationAuthority_rejectsForgedFocusAndRetainsIssuedHistory();
   void clipboardPublicationAuthority_boundsIssuedHistory();

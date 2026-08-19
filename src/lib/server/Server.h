@@ -345,6 +345,7 @@ private:
   void handleButtonUpEvent(const Event &event);
   void handleMotionPrimaryEvent(const Event &event);
   void handleMotionSecondaryEvent(const Event &event);
+  void synchronizeScreenLockFromMotion(const IPlatformScreen::MotionInfo &info);
   void handleWheelEvent(const Event &event);
   void handleSwitchWaitTimeout();
   void handleClientDisconnected(BaseClientProxy *client);
@@ -505,6 +506,9 @@ private:
 
   // screen locking (former scroll lock)
   bool m_lockedToScreen = false;
+  bool m_scrollLockMotionSyncEnabled = false;
+  bool m_scrollLockPolarityInverted = false;
+  bool m_scrollLockPolarityInitialized = false;
 
   bool m_defaultLockToScreenState = false;
   bool m_disableLockToScreen = false;

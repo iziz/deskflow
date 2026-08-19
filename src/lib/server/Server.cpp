@@ -7,6 +7,7 @@
  */
 
 #include "server/Server.h"
+#include "server/ScreenLockStatePolicy.h"
 
 #include "base/FinalAction.h"
 #include "base/IEventQueue.h"
@@ -218,12 +219,18 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
   m_inputFilter->setPrimaryClient(m_primaryClient);
 
   if (!m_disableLockToScreen) {
-    if (m_primaryClient->getToggleMask() & KeyModifierScrollLock) {
+    const bool scrollLockOn = (m_primaryClient->getToggleMask() & KeyModifierScrollLock) != 0;
+    if (scrollLockOn) {
       LOG_INFO("scroll lock is on, locking cursor to screen");
       m_lockedToScreen = true;
     } else if (m_defaultLockToScreenState) {
       LOG_INFO("default screen lock is on, locking cursor to screen");
       m_lockedToScreen = true;
+    }
+
+    if (m_scrollLockMotionSyncEnabled) {
+      m_scrollLockPolarityInverted = m_lockedToScreen != scrollLockOn;
+      m_scrollLockPolarityInitialized = true;
     }
   }
 
@@ -300,7 +307,13 @@ bool Server::setConfig(const ServerConfig &config)
   // we will unfortunately generate a warning.  if the user has
   // configured a LockCursorToScreenAction then we don't add
   // ScrollLock as a hotkey.
-  if (!m_disableLockToScreen && !m_config->hasLockToScreenAction()) {
+  const bool scrollLockMotionSyncEnabled = !m_disableLockToScreen && !m_config->hasLockToScreenAction();
+  if (scrollLockMotionSyncEnabled != m_scrollLockMotionSyncEnabled) {
+    m_scrollLockPolarityInitialized = false;
+  }
+  m_scrollLockMotionSyncEnabled = scrollLockMotionSyncEnabled;
+
+  if (m_scrollLockMotionSyncEnabled) {
     IPlatformScreen::KeyInfo *key = IPlatformScreen::KeyInfo::alloc(kKeyScrollLock, 0, 0, 0);
     InputFilter::Rule rule(new InputFilter::KeystrokeCondition(m_events, key));
     rule.adoptAction(new InputFilter::LockCursorToScreenAction(m_events), true);
@@ -1755,13 +1768,50 @@ void Server::handleButtonUpEvent(const Event &event)
 void Server::handleMotionPrimaryEvent(const Event &event)
 {
   const auto *info = static_cast<IPlatformScreen::MotionInfo *>(event.getData());
+  synchronizeScreenLockFromMotion(*info);
   onMouseMovePrimary(info->m_x, info->m_y);
 }
 
 void Server::handleMotionSecondaryEvent(const Event &event)
 {
   const auto *info = static_cast<IPlatformScreen::MotionInfo *>(event.getData());
+  synchronizeScreenLockFromMotion(*info);
   onMouseMoveSecondary(info->m_x, info->m_y);
+}
+
+void Server::synchronizeScreenLockFromMotion(const IPlatformScreen::MotionInfo &info)
+{
+  if (!m_scrollLockMotionSyncEnabled) {
+    return;
+  }
+
+  using enum IPlatformScreen::MotionInfo::ScrollLockState;
+  if (info.m_scrollLockState == Unsupported) {
+    return;
+  }
+
+  const bool nativeScrollLockOn = info.m_scrollLockState == On;
+  if (!m_scrollLockPolarityInitialized) {
+    m_scrollLockPolarityInverted = m_lockedToScreen != nativeScrollLockOn;
+    m_scrollLockPolarityInitialized = true;
+  }
+
+  const auto synchronizedState =
+      deskflow::server::lockStateForNativeScrollLock(info.m_scrollLockState, m_scrollLockPolarityInverted);
+  if (!synchronizedState.has_value() || *synchronizedState == m_lockedToScreen) {
+    return;
+  }
+
+  m_lockedToScreen = *synchronizedState;
+  LOG_INFO(
+      "corrected cursor lock from mouse-time native Scroll Lock state: native=%s cursor=%s current screen",
+      nativeScrollLockOn ? "on" : "off", m_lockedToScreen ? "locked to" : "unlocked from"
+  );
+
+  m_primaryClient->reconfigure(getActivePrimarySides());
+  if (!isLockedToScreenServer()) {
+    stopRelativeMoves();
+  }
 }
 
 void Server::handleWheelEvent(const Event &event)

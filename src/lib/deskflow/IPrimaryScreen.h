@@ -41,11 +41,21 @@ public:
   class MotionInfo
   {
   public:
-    static MotionInfo *alloc(int32_t x, int32_t y);
+    enum class ScrollLockState : uint8_t
+    {
+      Unsupported,
+      Off,
+      On
+    };
+
+    static MotionInfo *alloc(
+        int32_t x, int32_t y, ScrollLockState scrollLockState = ScrollLockState::Unsupported
+    );
 
   public:
     int32_t m_x;
     int32_t m_y;
+    ScrollLockState m_scrollLockState;
   };
   //! Wheel motion event data
   class WheelInfo

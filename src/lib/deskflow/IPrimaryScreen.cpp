@@ -38,11 +38,14 @@ bool IPrimaryScreen::ButtonInfo::equal(const ButtonInfo *a, const ButtonInfo *b)
 // IPrimaryScreen::MotionInfo
 //
 
-IPrimaryScreen::MotionInfo *IPrimaryScreen::MotionInfo::alloc(int32_t x, int32_t y)
+IPrimaryScreen::MotionInfo *IPrimaryScreen::MotionInfo::alloc(
+    int32_t x, int32_t y, ScrollLockState scrollLockState
+)
 {
   auto *info = (MotionInfo *)malloc(sizeof(MotionInfo));
   info->m_x = x;
   info->m_y = y;
+  info->m_scrollLockState = scrollLockState;
   return info;
 }
 

@@ -521,6 +521,12 @@ static LRESULT CALLBACK keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
 
 static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
 {
+  const auto postMouseMove = [](int32_t mouseX, int32_t mouseY) {
+    const bool scrollLockOn = (GetKeyState(VK_SCROLL) & 0x0001) != 0;
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_TOGGLE_STATE, scrollLockOn ? 1u : 0u, 0);
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, mouseX, mouseY);
+  };
+
   switch (wParam) {
   case WM_LBUTTONDOWN:
   case WM_MBUTTONDOWN:
@@ -568,7 +574,7 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
   case WM_MOUSEMOVE:
     if (g_mode == kHOOK_RELAY_EVENTS) {
       // relay and eat event
-      PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, x, y);
+      postMouseMove(x, y);
       return true;
     } else if (g_mode == kHOOK_WATCH_JUMP_ZONE) {
       // low level hooks can report bogus mouse positions that are
@@ -613,7 +619,7 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
       }
 
       // relay the event
-      PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, x, y);
+      postMouseMove(x, y);
 
       // if inside and not bogus then eat the event
       return inside && !bogus;

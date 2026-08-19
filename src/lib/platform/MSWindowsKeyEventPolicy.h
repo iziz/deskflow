@@ -65,6 +65,18 @@ inline KeyModifierMask advanceWindowsToggleKeyState(
   return modifiers;
 }
 
+inline KeyModifierMask reconcileWindowsToggleKeyState(
+    KeyModifierMask modifiers, UINT virtualKey, bool enabled
+)
+{
+  const auto modifier = modifierForWindowsToggleKey(virtualKey);
+  if (enabled) {
+    return modifiers | modifier;
+  }
+
+  return modifiers & ~modifier;
+}
+
 inline KeyModifierMask synchronizeWindowsToggleKeyState(KeyModifierMask inputDesktopModifiers)
 {
   return inputDesktopModifiers & kWindowsToggleModifierMask;

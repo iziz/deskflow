@@ -914,6 +914,18 @@ bool MSWindowsScreen::onPreDispatchPrimary(HWND, UINT message, WPARAM wParam, LP
   case DESKFLOW_MSG_MOUSE_MOVE:
     return onMouseMove(static_cast<int32_t>(wParam), static_cast<int32_t>(lParam));
 
+  case DESKFLOW_MSG_MOUSE_TOGGLE_STATE: {
+    const auto nativeState = wParam != 0u ? MotionInfo::ScrollLockState::On : MotionInfo::ScrollLockState::Off;
+    if (nativeState != m_scrollLockState) {
+      LOG_DEBUG(
+          "mouse-time native Scroll Lock state: %s",
+          nativeState == MotionInfo::ScrollLockState::On ? "on" : "off"
+      );
+      m_scrollLockState = nativeState;
+    }
+  }
+    return true;
+
   case DESKFLOW_MSG_MOUSE_WHEEL:
     return onMouseWheel(static_cast<int32_t>(lParam), static_cast<int32_t>(wParam));
 
@@ -1215,6 +1227,10 @@ bool MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //   example)
 bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
 {
+  if (m_scrollLockState != MotionInfo::ScrollLockState::Unsupported) {
+    m_keyState->reconcileToggleKeyState(VK_SCROLL, m_scrollLockState == MotionInfo::ScrollLockState::On);
+  }
+
   // compute motion delta (relative to the last known
   // mouse position)
   int32_t x = mx - m_xCursor;
@@ -1241,7 +1257,9 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     }
 
     // motion on primary screen
-    sendEvent(EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor));
+    sendEvent(
+        EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor, m_scrollLockState)
+    );
   } else {
     // the motion is on the secondary screen, so we warp mouse back to
     // center on the server screen. if we don't do this, then the mouse
@@ -1261,7 +1279,7 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
       LOG_DEBUG("dropped bogus delta motion: %+d,%+d", x, y);
     } else {
       // send motion
-      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(x, y));
+      sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(x, y, m_scrollLockState));
     }
   }
 

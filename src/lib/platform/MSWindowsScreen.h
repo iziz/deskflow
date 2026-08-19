@@ -301,6 +301,7 @@ private:
   // used to discard queued messages that are no longer needed
   uint32_t m_mark = 0;
   uint32_t m_markReceived = 0;
+  MotionInfo::ScrollLockState m_scrollLockState = MotionInfo::ScrollLockState::Unsupported;
 
   // the main loop's thread id
   DWORD m_threadID;

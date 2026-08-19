@@ -10,6 +10,7 @@
 #include "server/ClipboardPublicationAuthority.h"
 #include "server/EdgeSwitchGeometry.h"
 #include "server/EdgeSwitchTypes.h"
+#include "server/ScreenLockStatePolicy.h"
 #include "server/Server.h"
 
 #include <array>
@@ -55,6 +56,18 @@ void ServerTests::KeyboardBroadcastInfo_alloc_stateAndSceens()
   QCOMPARE(info->m_state, Server::KeyboardBroadcastInfo::State::kOn);
   QCOMPARE(info->m_screens, "test");
   delete info;
+}
+
+void ServerTests::nativeScrollLockPolicy_preservesConfiguredPolarity()
+{
+  using enum IPrimaryScreen::MotionInfo::ScrollLockState;
+  using deskflow::server::lockStateForNativeScrollLock;
+
+  QVERIFY(lockStateForNativeScrollLock(On, false) == std::optional<bool>(true));
+  QVERIFY(lockStateForNativeScrollLock(Off, false) == std::optional<bool>(false));
+  QVERIFY(lockStateForNativeScrollLock(On, true) == std::optional<bool>(false));
+  QVERIFY(lockStateForNativeScrollLock(Off, true) == std::optional<bool>(true));
+  QVERIFY(lockStateForNativeScrollLock(Unsupported, false) == std::optional<bool>());
 }
 
 void ServerTests::clipboardPublicationAuthority_acceptsIssuedFocusAfterScreenSwitch()

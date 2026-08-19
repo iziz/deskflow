@@ -769,6 +769,26 @@ MSWindowsKeyEventTransition MSWindowsKeyState::applyKeyEvent(KeyButton button, U
   return {modifiersBefore, modifiersAfter, wasDown, deskflow::platform::windowsHotKeyRoute(virtualKey)};
 }
 
+void MSWindowsKeyState::reconcileToggleKeyState(UINT virtualKey, bool enabled)
+{
+  if (!m_isPrimary) {
+    return;
+  }
+
+  const auto nextToggleModifiers =
+      deskflow::platform::reconcileWindowsToggleKeyState(m_toggleModifiers, virtualKey, enabled);
+  if (nextToggleModifiers == m_toggleModifiers) {
+    return;
+  }
+
+  m_toggleModifiers = nextToggleModifiers;
+  setActiveModifiers(pollActiveModifiers());
+  LOG_DEBUG(
+      "reconciled Windows primary toggle key from mouse input: vk=0x%02x native=%s modifiers=0x%04x", virtualKey,
+      enabled ? "on" : "off", m_toggleModifiers
+  );
+}
+
 void MSWindowsKeyState::sendKeyEvent(
     void *target, bool press, bool isAutoRepeat, KeyID key, KeyModifierMask mask, int32_t count, KeyButton button
 )

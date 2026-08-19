@@ -54,6 +54,7 @@ add_library(server STATIC
   PrimaryClient.h
   Server.cpp
   Server.h
+  ScreenLockStatePolicy.h
 )
 
 target_link_libraries(server PUBLIC common)
