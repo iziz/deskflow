@@ -136,6 +136,91 @@ void MSWindowsHookTests::nativeKeyDownFlag()
   );
 }
 
+void MSWindowsHookTests::hookHeldKeyTransition_data()
+{
+  using namespace deskflow::platform;
+
+  QTest::addColumn<quint64>("virtualKey");
+  QTest::addColumn<quint64>("expectedDown");
+  QTest::addColumn<quint64>("expectedUp");
+
+  constexpr uint32_t allHeld =
+      WindowsNativeKeyStateLeftShift | WindowsNativeKeyStateRightShift | WindowsNativeKeyStateLeftControl |
+      WindowsNativeKeyStateRightControl | WindowsNativeKeyStateLeftAlt | WindowsNativeKeyStateRightAlt |
+      WindowsNativeKeyStateLeftSuper | WindowsNativeKeyStateRightSuper;
+
+  QTest::newRow("left Shift")
+      << quint64(VK_LSHIFT) << quint64(WindowsNativeKeyStateLeftShift)
+      << quint64(allHeld & ~WindowsNativeKeyStateLeftShift);
+  QTest::newRow("right Shift")
+      << quint64(VK_RSHIFT) << quint64(WindowsNativeKeyStateRightShift)
+      << quint64(allHeld & ~WindowsNativeKeyStateRightShift);
+  QTest::newRow("left Control")
+      << quint64(VK_LCONTROL) << quint64(WindowsNativeKeyStateLeftControl)
+      << quint64(allHeld & ~WindowsNativeKeyStateLeftControl);
+  QTest::newRow("right Control")
+      << quint64(VK_RCONTROL) << quint64(WindowsNativeKeyStateRightControl)
+      << quint64(allHeld & ~WindowsNativeKeyStateRightControl);
+  QTest::newRow("left Alt")
+      << quint64(VK_LMENU) << quint64(WindowsNativeKeyStateLeftAlt)
+      << quint64(allHeld & ~WindowsNativeKeyStateLeftAlt);
+  QTest::newRow("right Alt")
+      << quint64(VK_RMENU) << quint64(WindowsNativeKeyStateRightAlt)
+      << quint64(allHeld & ~WindowsNativeKeyStateRightAlt);
+  QTest::newRow("left Windows")
+      << quint64(VK_LWIN) << quint64(WindowsNativeKeyStateLeftSuper)
+      << quint64(allHeld & ~WindowsNativeKeyStateLeftSuper);
+  QTest::newRow("right Windows")
+      << quint64(VK_RWIN) << quint64(WindowsNativeKeyStateRightSuper)
+      << quint64(allHeld & ~WindowsNativeKeyStateRightSuper);
+  QTest::newRow("regular key") << quint64('A') << quint64(0) << quint64(allHeld);
+}
+
+void MSWindowsHookTests::hookHeldKeyTransition()
+{
+  using namespace deskflow::platform;
+
+  QFETCH(quint64, virtualKey);
+  QFETCH(quint64, expectedDown);
+  QFETCH(quint64, expectedUp);
+
+  constexpr uint32_t allHeld =
+      WindowsNativeKeyStateLeftShift | WindowsNativeKeyStateRightShift | WindowsNativeKeyStateLeftControl |
+      WindowsNativeKeyStateRightControl | WindowsNativeKeyStateLeftAlt | WindowsNativeKeyStateRightAlt |
+      WindowsNativeKeyStateLeftSuper | WindowsNativeKeyStateRightSuper;
+
+  QCOMPARE(
+      quint64(advanceWindowsHookHeldKeyState(0, static_cast<UINT>(virtualKey), true)), expectedDown
+  );
+  QCOMPARE(
+      quint64(advanceWindowsHookHeldKeyState(allHeld, static_cast<UINT>(virtualKey), false)), expectedUp
+  );
+}
+
+void MSWindowsHookTests::hookHeldKeySequence()
+{
+  using namespace deskflow::platform;
+
+  uint32_t nativeState = 0;
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LSHIFT, true);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LCONTROL, true);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_RMENU, true);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LWIN, true);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, 'C', true);
+
+  QCOMPARE(
+      windowsModifierMaskFromNativeKeyState(nativeState),
+      KeyModifierMask(KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper)
+  );
+
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LSHIFT, false);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LCONTROL, false);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_RMENU, false);
+  nativeState = advanceWindowsHookHeldKeyState(nativeState, VK_LWIN, false);
+
+  QCOMPARE(windowsModifierMaskFromNativeKeyState(nativeState), KeyModifierMask(0));
+}
+
 void MSWindowsHookTests::nativeModifierMask_data()
 {
   using namespace deskflow::platform;

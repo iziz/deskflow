@@ -53,6 +53,16 @@ inline uint32_t windowsNativeKeyDownFlag(UINT virtualKey)
   }
 }
 
+inline uint32_t advanceWindowsHookHeldKeyState(uint32_t nativeState, UINT virtualKey, bool keyDown)
+{
+  const auto flag = windowsNativeKeyDownFlag(virtualKey);
+  if (keyDown) {
+    return nativeState | flag;
+  }
+
+  return nativeState & ~flag;
+}
+
 inline KeyModifierMask windowsModifierMaskFromNativeKeyState(uint32_t nativeState)
 {
   KeyModifierMask modifiers = 0;

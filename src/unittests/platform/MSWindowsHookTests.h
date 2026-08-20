@@ -22,6 +22,9 @@ private Q_SLOTS:
   void inputDesktopToggleSynchronization();
   void nativeKeyDownFlag_data();
   void nativeKeyDownFlag();
+  void hookHeldKeyTransition_data();
+  void hookHeldKeyTransition();
+  void hookHeldKeySequence();
   void nativeModifierMask_data();
   void nativeModifierMask();
   void windowsHotKeyRegistration_data();

@@ -37,6 +37,9 @@ static WPARAM g_deadRelease = 0;
 static LPARAM g_deadLParam = 0;
 static BYTE g_deadKeyState[256] = {0};
 static BYTE g_keyState[256] = {0};
+// Relay-mode key events are suppressed before Windows updates its asynchronous
+// state. Preserve held modifiers from the accepted hook event stream instead.
+static uint32_t g_hookHeldKeyState = 0;
 static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
@@ -131,6 +134,7 @@ int MSWindowsHook::init(DWORD threadID)
   g_hasMouseButtonModeCutoff = false;
   g_staleMouseButtonAction = deskflow::platform::PreModeMouseEventAction::PassThrough;
   g_reportedPreModeMouseInput = false;
+  g_hookHeldKeyState = 0;
 
   return 1;
 }
@@ -294,6 +298,9 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
     PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, 0xfe000000u | wParam, lParam);
     return false;
   }
+
+  g_hookHeldKeyState =
+      deskflow::platform::advanceWindowsHookHeldKeyState(g_hookHeldKeyState, static_cast<UINT>(vkCode), !kf_up);
 
   // VK_RSHIFT may be sent with an extended scan code but right shift
   // is not an extended key so we reset that bit.
@@ -522,15 +529,7 @@ static LRESULT CALLBACK keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
 static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
 {
   const auto currentNativeKeyState = []() {
-    uint32_t state = 0;
-    constexpr UINT heldKeys[] = {
-        VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
-    };
-    for (const auto virtualKey : heldKeys) {
-      if ((GetAsyncKeyState(static_cast<int>(virtualKey)) & 0x8000) != 0) {
-        state |= deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
-      }
-    }
+    uint32_t state = g_hookHeldKeyState;
 
     if ((GetKeyState(VK_CAPITAL) & 0x0001) != 0) {
       state |= deskflow::platform::WindowsNativeKeyStateCapsLock;
