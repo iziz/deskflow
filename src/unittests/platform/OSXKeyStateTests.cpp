@@ -281,6 +281,27 @@ void OSXKeyStateTests::syncModifiersFromOSX_ignoresNumericPadFlag()
   QVERIFY(eventQueue.keyEvents.empty());
 }
 
+void OSXKeyStateTests::syncToggleModifiers_ignoresRemoteNumLock()
+{
+  deskflow::KeyMap keyMap;
+  deskflow::KeyMap::KeyItem numLock;
+  numLock.m_id = kKeyNumLock;
+  numLock.m_group = 0;
+  numLock.m_button = static_cast<KeyButton>(kVK_ANSI_KeypadClear + 1);
+  deskflow::KeyMap::initModifierKey(numLock);
+  keyMap.addKeyEntry(numLock);
+  keyMap.addHalfDuplexButton(numLock.m_button);
+  keyMap.finish();
+
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  QVERIFY(keyState.syncToggleModifiers(KeyModifierNumLock));
+
+  QCOMPARE(keyState.getActiveModifiers(), static_cast<KeyModifierMask>(0));
+  QVERIFY(keyState.posts.empty());
+}
+
 void OSXKeyStateTests::syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged()
 {
   deskflow::KeyMap keyMap;

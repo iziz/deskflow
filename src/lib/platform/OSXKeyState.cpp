@@ -448,6 +448,13 @@ bool OSXKeyState::fakeMediaKey(KeyID id)
   return fakeNativeMediaKey(id);
 }
 
+bool OSXKeyState::syncToggleModifiers(KeyModifierMask mask)
+{
+  // macOS has no persistent Num Lock or Scroll Lock state to synchronize.
+  // NumericPad marks individual keypad events and Keypad Clear must not be held.
+  return KeyState::syncToggleModifiers(mask & KeyModifierCapsLock);
+}
+
 CGEventFlags OSXKeyState::getModifierStateAsOSXFlags() const
 {
   const auto modifiers = getShadowModifiers();

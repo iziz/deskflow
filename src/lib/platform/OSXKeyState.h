@@ -89,6 +89,7 @@ public:
   // IKeyState overrides
   bool fakeCtrlAltDel() override;
   bool fakeMediaKey(KeyID id) override;
+  bool syncToggleModifiers(KeyModifierMask mask) override;
   void clearStaleModifiers() override;
   KeyModifierMask pollActiveModifiers() const override;
   int32_t pollActiveGroup() const override;
