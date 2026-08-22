@@ -16,13 +16,13 @@
   change has been committed and pushed.
 - After any Deskflow code change, build and replace the binaries on all active
   validation machines:
-  - This macOS computer: build `macos-release`, install to
+  - This macOS computer (`ruru.mac`, `192.168.0.6`): build `macos-release`, install to
     `/Applications/Deskflow.app`, and restart the app.
-  - Windows 11 server PC: sync/build in `Z:\@Development\deskflow`, generate the
+  - Windows 11 server PC (`ishtar.win`): sync/build in `Z:\@Development\deskflow`, generate the
     Release MSI, and replace the installed/running binaries.
-  - Windows 11 client PC (`ZEN-WINDOWS7`, `192.168.0.4`): sync/build and replace
-    the installed/running binaries after its account, workspace, and remote
-    management access are recorded.
+  - Windows 11 client PC (`ruru.win`, `ZEN-WINDOWS7`, `192.168.0.4`, SSH port
+    `23`): sync/build in `D:\@Development\deskflow`, install the Release MSI
+    generated on `ishtar.win`, and restart the service/core processes.
 - If any required validation machine is not reachable or not yet configured,
   report the block explicitly and do not treat the code change as fully
   complete.
@@ -30,7 +30,7 @@
 ## Windows Build Server
 
 - The Windows 11 build server is `192.168.0.5`.
-- Use the SSH alias `deskflow-server` for routine access to the Windows build server.
+- Use the SSH alias `ishtar.win` for routine access to the Windows build server.
 - The Windows workspace path is `Z:\@Development\deskflow`.
 - Any Deskflow code changes made in this repository must be synced to the Windows workspace and built there before the work is considered complete.
 - Before running a freshly built Windows binary, stop any existing Deskflow processes on the Windows host.
@@ -49,5 +49,16 @@
 
 ## Windows Client
 
-- The Windows 11 client is `ZEN-WINDOWS7` at `192.168.0.4`.
-- The SSH account, workspace path, and remote management method are not yet configured.
+- The Windows 11 client is `ruru.win` (`ZEN-WINDOWS7`) at `192.168.0.4`; its
+  SSH service listens on port `23`.
+- Use SSH account `rurugrabssh`; key-based access from `ruru.mac` and
+  `ishtar.win` is verified.
+- The workspace path is `D:\@Development\deskflow`.
+- Synchronize source, dependencies, build tools, and installers inbound from
+  `ruru.mac` or `ishtar.win`; do not configure outbound access from `ruru.win`.
+- Build with the repository `dev` wrapper. When Visual Studio's bundled
+  CMake/Ninja component is absent, use the inbound tool copy at
+  `D:\@Development\tools\CMake` on `PATH`.
+- Replace the installed binaries with the Release MSI generated on
+  `ishtar.win`, then restart and verify the Deskflow service/core processes.
+- See `docs/dev/windows_client.md` for the maintained procedure.

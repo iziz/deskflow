@@ -19,12 +19,11 @@ do not describe the code change as fully complete.
 
 | Target | Role | Host | Workspace | Required action |
 | --- | --- | --- | --- | --- |
-| Local macOS | Local validation | This computer | `/Volumes/AI.DEV/@Dev/deskflow` | Build `macos-release`, install `/Applications/Deskflow.app`, restart Deskflow |
-| Windows 11 server PC | Server validation | `deskflow-server` (`192.168.0.5`) | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
-| Windows 11 client PC | Client validation | `ZEN-WINDOWS7` (`192.168.0.4`) | Pending | Configure remote access, then sync, build, and replace binaries |
+| Local macOS | Local validation | `ruru.mac` (`192.168.0.6`) | `/Volumes/AI.DEV/@Dev/deskflow` | Build `macos-release`, install `/Applications/Deskflow.app`, restart Deskflow |
+| Windows 11 server PC | Server validation | `ishtar.win` (`RURUBROS`, `192.168.0.5`) | `Z:\@Development\deskflow` | Sync, build, generate Release MSI, replace binaries, launch GUI |
+| Windows 11 client PC | Client validation | `ruru.win` (`ZEN-WINDOWS7`, `192.168.0.4`, SSH user `rurugrabssh`, port `23`) | `D:\@Development\deskflow` | Inbound sync, build, install the Release MSI from `ishtar.win`, restart Deskflow |
 
-Update this table and `AGENTS.md` as soon as the Windows client PC connection
-details are known.
+The Windows client procedure is maintained in `docs/dev/windows_client.md`.
 
 ## macOS Build And Replacement
 
@@ -61,7 +60,7 @@ The Windows 11 server PC is documented in
 Minimum required steps:
 
 ```sh
-ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh ishtar.win 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 Then generate the MSI from the Windows Release preset:
@@ -91,9 +90,12 @@ The Windows 11 client PC must follow the same principles as the server PC:
 - Stop existing Deskflow processes before replacing binaries.
 - Restart Deskflow after replacement.
 
-The host is `ZEN-WINDOWS7` (`192.168.0.4`). The account, workspace, remote
-management method, and replacement command are pending and must be recorded
-before this step can be automated.
+The host is `ruru.win` (`ZEN-WINDOWS7`, `192.168.0.4`) and its SSH service
+listens on port `23` for account `rurugrabssh`. Key-based access from
+`ruru.mac` and `ishtar.win` is verified. Its workspace is
+`D:\@Development\deskflow`. Follow `docs/dev/windows_client.md` for inbound
+sync, local build, MSI replacement, and process verification. Do not configure
+outbound access from `ruru.win` to the other local machines.
 
 ## Git Requirements
 

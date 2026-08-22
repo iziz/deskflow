@@ -21,6 +21,7 @@ target_sources(dev-docs PRIVATE
   post_code_change_workflow.md
   protocol_reference.md
   windows_build_server.md
+  windows_client.md
 )
 
 # missing install target is intended generate a local copy

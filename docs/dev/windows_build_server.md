@@ -6,7 +6,7 @@ creation.
 ## Host
 
 - Host: `192.168.0.5`
-- SSH alias: `deskflow-server`
+- SSH alias: `ishtar.win`
 - Workspace: `Z:\@Development\deskflow`
 - Usual Windows account: `zenis`
 
@@ -26,7 +26,7 @@ creation.
 The preferred remote command path is OpenSSH:
 
 ```sh
-ssh deskflow-server
+ssh ishtar.win
 ```
 
 If the SSH alias, host, or Windows username changes, update this document and
@@ -44,7 +44,7 @@ Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue
 From macOS through SSH:
 
 ```sh
-ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue | Stop-Process -Force"'
+ssh ishtar.win 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process Deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue | Stop-Process -Force"'
 ```
 
 ## Sync Verification
@@ -79,7 +79,7 @@ dev.cmd dev
 From macOS through SSH:
 
 ```sh
-ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh ishtar.win 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 ## Installer/Package
@@ -174,7 +174,7 @@ session.
 The current verified flow from macOS is:
 
 ```sh
-ssh deskflow-server 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
+ssh ishtar.win 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath ''Z:\@Development\deskflow''; .\dev.ps1 dev"'
 ```
 
 Then, from a PowerShell SSH session:
