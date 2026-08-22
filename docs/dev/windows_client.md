@@ -32,18 +32,20 @@ before building.
 
 ## Build Tools
 
-The host has Visual Studio 2022 Community with the x64 MSVC toolchain. Its
-Visual Studio installation does not include the bundled CMake/Ninja component,
-so keep the verified inbound tool copy at:
+The host has Visual Studio 2022 Community with the x64 MSVC toolchain and the
+Windows 11 SDK 10.0.26100 component. Its Visual Studio installation does not
+include the bundled CMake/Ninja or Git components, so keep the verified inbound
+tool copies at:
 
 ```text
 D:\@Development\tools\CMake
+D:\@Development\tools\Git
 ```
 
 Add its executable directories to `PATH` for each remote build session:
 
 ```powershell
-$env:PATH = 'D:\@Development\tools\CMake\CMake\bin;D:\@Development\tools\CMake\Ninja;' + $env:PATH
+$env:PATH = 'D:\@Development\tools\Git\cmd;D:\@Development\tools\CMake\CMake\bin;D:\@Development\tools\CMake\Ninja;' + $env:PATH
 ```
 
 ## Development Build
@@ -52,8 +54,9 @@ Use the repository wrapper so the Visual Studio x64 environment is applied
 consistently:
 
 ```powershell
-$env:PATH = 'D:\@Development\tools\CMake\CMake\bin;D:\@Development\tools\CMake\Ninja;' + $env:PATH
+$env:PATH = 'D:\@Development\tools\Git\cmd;D:\@Development\tools\CMake\CMake\bin;D:\@Development\tools\CMake\Ninja;' + $env:PATH
 Set-Location -LiteralPath 'D:\@Development\deskflow'
+.\dev.ps1 configure
 .\dev.ps1 dev
 ```
 

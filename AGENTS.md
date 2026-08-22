@@ -57,8 +57,10 @@
 - Synchronize source, dependencies, build tools, and installers inbound from
   `ruru.mac` or `ishtar.win`; do not configure outbound access from `ruru.win`.
 - Build with the repository `dev` wrapper. When Visual Studio's bundled
-  CMake/Ninja component is absent, use the inbound tool copy at
-  `D:\@Development\tools\CMake` on `PATH`.
+  CMake/Ninja and Git components are absent, use the inbound tool copies at
+  `D:\@Development\tools\CMake` and `D:\@Development\tools\Git` on `PATH`.
+- The verified compiler environment is Visual Studio 2022 Community with the
+  Windows 11 SDK 10.0.26100 component.
 - Replace the installed binaries with the Release MSI generated on
   `ishtar.win`, then restart and verify the Deskflow service/core processes.
 - See `docs/dev/windows_client.md` for the maintained procedure.
