@@ -68,18 +68,19 @@ Generate the Release MSI on `ishtar.win` according to
 `docs/dev/windows_build_server.md`, then transfer it inbound to:
 
 ```text
-D:\@Development\deskflow\artifacts
+D:\@Development
 ```
 
 Stop the installed service and processes before running the installer:
 
 ```powershell
-$msi = 'D:\@Development\deskflow\artifacts\deskflow-<version>-win-x64.msi'
+$msi = 'D:\@Development\deskflow-<version>-win-x64.msi'
 Stop-Service -Name Deskflow -Force -ErrorAction SilentlyContinue
 Get-Process deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue |
   Stop-Process -Force
 Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait
 Start-Service -Name Deskflow
+Remove-Item -LiteralPath $msi -Force
 ```
 
 ## Verification
