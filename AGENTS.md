@@ -22,7 +22,8 @@
     Release MSI, and replace the installed/running binaries.
   - Windows 11 client PC (`ruru.win`, `ZEN-WINDOWS7`, `192.168.0.4`, SSH port
     `23`): sync/build in `D:\@Development\deskflow`, install the Release MSI
-    generated on `ishtar.win`, and restart the service/core processes.
+    generated on `ishtar.win`, verify the GUI application separately, and
+    restart the service/core processes.
 - If any required validation machine is not reachable or not yet configured,
   report the block explicitly and do not treat the code change as fully
   complete.
@@ -62,5 +63,9 @@
 - The verified compiler environment is Visual Studio 2022 Community with the
   Windows 11 SDK 10.0.26100 component.
 - Replace the installed binaries with the Release MSI generated on
-  `ishtar.win`, then restart and verify the Deskflow service/core processes.
+  `ishtar.win`. Verify the installed GUI binary and its Startup shortcut
+  separately from the Deskflow service/core processes.
+- The `ruru.win` Startup shortcut must target
+  `C:\Program Files\Deskflow\deskflow.exe`; do not retain the removed
+  `D:\@Programs\deskflow\deskflow.exe` target.
 - See `docs/dev/windows_client.md` for the maintained procedure.

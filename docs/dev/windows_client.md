@@ -85,8 +85,9 @@ Remove-Item -LiteralPath $msi -Force
 
 ## Verification
 
-Verify the installed registry version, binary version, service state, and
-running core/daemon paths:
+Verify the GUI application and the service/core runtime as separate surfaces.
+The installed registry version and all three binary versions and hashes must
+match the Release MSI:
 
 ```powershell
 Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -94,12 +95,50 @@ Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
   Where-Object DisplayName -Like '*Deskflow*' |
   Select-Object DisplayName,DisplayVersion,InstallLocation
 
+(Get-Item 'C:\Program Files\Deskflow\deskflow.exe').VersionInfo.FileVersion
+(Get-Item 'C:\Program Files\Deskflow\deskflow-core.exe').VersionInfo.FileVersion
+(Get-Item 'C:\Program Files\Deskflow\deskflow-daemon.exe').VersionInfo.FileVersion
+Get-FileHash -Algorithm SHA256 'C:\Program Files\Deskflow\deskflow.exe',
+  'C:\Program Files\Deskflow\deskflow-core.exe',
+  'C:\Program Files\Deskflow\deskflow-daemon.exe'
+```
+
+Verify the GUI Startup shortcut independently. Resolve the shortcut by its
+target name instead of relying on its localized filename:
+
+```powershell
+$account = (Get-CimInstance Win32_ComputerSystem).UserName.Split('\')[-1]
+$startup = Join-Path (Join-Path 'C:\Users' $account) `
+  'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+$shortcutFile = Get-ChildItem -LiteralPath $startup -Filter '*.lnk' -File |
+  Where-Object Name -Like '*deskflow*' |
+  Select-Object -First 1
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutFile.FullName)
+[pscustomobject]@{
+  Path = $shortcutFile.FullName
+  Target = $shortcut.TargetPath
+  WorkingDirectory = $shortcut.WorkingDirectory
+  TargetExists = (Test-Path -LiteralPath $shortcut.TargetPath)
+}
+```
+
+The target must be `C:\Program Files\Deskflow\deskflow.exe`. The former
+`D:\@Programs\deskflow\deskflow.exe` path no longer exists. If the GUI is
+expected to be active in the current interactive session, confirm that
+`deskflow.exe` is running in that session; an installed binary alone is not
+runtime evidence.
+
+Verify the service, daemon, client core, and active server connection:
+
+```powershell
 Get-Service -Name Deskflow
 Get-Process deskflow,deskflow-core,deskflow-daemon -ErrorAction SilentlyContinue |
   Select-Object ProcessName,Id,SessionId,Path,StartTime
-
-(Get-Item 'C:\Program Files\Deskflow\deskflow-core.exe').VersionInfo.FileVersion
+Get-NetTCPConnection -RemoteAddress 192.168.0.5 -RemotePort 24801 |
+  Select-Object State,LocalAddress,LocalPort,RemoteAddress,RemotePort,OwningProcess
 ```
 
 Do not treat the client update as complete unless the local build succeeds and
-the installed service/core processes are running from `C:\Program Files\Deskflow`.
+the GUI installation and Startup target are verified independently from the
+service/core processes running from `C:\Program Files\Deskflow`.
