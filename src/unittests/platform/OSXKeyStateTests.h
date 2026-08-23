@@ -21,10 +21,14 @@ private Q_SLOTS:
   void syncModifiersFromOSX_releasesStaleSuper();
   void syncModifiersFromOSX_ignoresNumericPadFlag();
   void syncToggleModifiers_ignoresRemoteNumLock();
+  void pollActiveModifiers_clientIgnoresAggregateNonToggleModifiers();
+  void syncToggleModifiers_clientReleasesModifierAbsentFromSourceKeyboard();
   void syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged();
   void clearStaleModifiers_refreshesShadowFromSystemState();
   void clearStaleModifiers_releasesSyntheticModifiersMissingFromSystemState();
   void clearStaleModifiers_releasesPreviouslyPostedModifierAfterMatchingUp();
+  void clearStaleModifiers_doesNotAdoptPendingSyntheticModifierAsPhysical();
+  void clearStaleModifiers_doesNotFilterPhysicalCapsLockAsPendingRelease();
   void nativeKeyTransaction_appliesAuthoritativeFlagsToEveryKey();
   void nativeKeyTransaction_preservesRightModifierSide();
   void nativeKeyTransaction_rollsBackModifierAfterPostFailure();

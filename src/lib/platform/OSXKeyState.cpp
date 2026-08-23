@@ -40,8 +40,9 @@ static const uint32_t s_launchpadVK = 131;
 
 static const uint32_t s_osxNumLock = 1 << 16;
 // kCGEventFlagMaskNumericPad marks keypad events, so NumLock is not synchronized from per-key flags.
-static const KeyModifierMask s_syncableModifiers =
-    KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper | KeyModifierCapsLock;
+static const KeyModifierMask s_nonToggleModifiers =
+    KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper;
+static const KeyModifierMask s_syncableModifiers = s_nonToggleModifiers | KeyModifierCapsLock;
 
 struct KeyEntry
 {
@@ -243,16 +244,19 @@ bool isModifier(uint8_t virtualKey)
 // OSXKeyState
 //
 
-OSXKeyState::OSXKeyState(IEventQueue *events, std::vector<std::string> layouts, bool isLangSyncEnabled)
-    : KeyState(events, std::move(layouts), isLangSyncEnabled)
+OSXKeyState::OSXKeyState(
+    IEventQueue *events, std::vector<std::string> layouts, bool isLangSyncEnabled, bool isPrimary
+)
+    : KeyState(events, std::move(layouts), isLangSyncEnabled), m_isPrimary(isPrimary)
 {
   init();
 }
 
 OSXKeyState::OSXKeyState(
-    IEventQueue *events, deskflow::KeyMap &keyMap, std::vector<std::string> layouts, bool isLangSyncEnabled
+    IEventQueue *events, deskflow::KeyMap &keyMap, std::vector<std::string> layouts, bool isLangSyncEnabled,
+    bool isPrimary
 )
-    : KeyState(events, keyMap, std::move(layouts), isLangSyncEnabled)
+    : KeyState(events, keyMap, std::move(layouts), isLangSyncEnabled), m_isPrimary(isPrimary)
 {
   init();
 }
@@ -268,6 +272,7 @@ void OSXKeyState::init()
   m_physicalModifiers.store(0, std::memory_order_relaxed);
   m_syntheticModifierKeys.store(0, std::memory_order_relaxed);
   m_postedModifierKeys.store(0, std::memory_order_relaxed);
+  m_pendingModifierReleases.store(0, std::memory_order_relaxed);
 
   // build virtual key map
   for (size_t i = 0; i < sizeof(s_controlKeys) / sizeof(s_controlKeys[0]); ++i) {
@@ -450,6 +455,36 @@ bool OSXKeyState::fakeMediaKey(KeyID id)
 
 bool OSXKeyState::syncToggleModifiers(KeyModifierMask mask)
 {
+  if (!m_isPrimary) {
+    // The server keyboard is authoritative while this screen is controlled
+    // remotely. Carbon reports an aggregate state that also includes our own
+    // injected events, so modifiers absent from the source mask must be
+    // released instead of being adopted as local physical state.
+    const auto sourceMask = mask & s_nonToggleModifiers;
+    const auto orphanedMask = pollSystemModifiers() & ~sourceMask & s_nonToggleModifiers;
+    const auto releaseOrphan =
+        [this, orphanedMask](KeyModifierMask modifier, uint32_t leftVirtualKey, uint32_t rightVirtualKey) {
+      if ((orphanedMask & modifier) == 0) {
+        return true;
+      }
+
+      LOG_DEBUG(
+          "releasing orphaned macOS client modifier absent from source keyboard: mask=0x%04x virtualKeys=0x%02x,0x%02x",
+          modifier, leftVirtualKey, rightVirtualKey
+      );
+      const auto leftReleased = postVirtualKey(leftVirtualKey, false);
+      const auto rightReleased = postVirtualKey(rightVirtualKey, false);
+      return leftReleased && rightReleased;
+    };
+
+    if (!releaseOrphan(KeyModifierShift, s_shiftVK, s_shiftRightVK) ||
+        !releaseOrphan(KeyModifierControl, s_controlVK, s_controlRightVK) ||
+        !releaseOrphan(KeyModifierAlt, s_altVK, s_altRightVK) ||
+        !releaseOrphan(KeyModifierSuper, s_superVK, s_superRightVK)) {
+      return false;
+    }
+  }
+
   // macOS has no persistent Num Lock or Scroll Lock state to synchronize.
   // NumericPad marks individual keypad events and Keypad Clear must not be held.
   return KeyState::syncToggleModifiers(mask & KeyModifierCapsLock);
@@ -485,11 +520,19 @@ CGEventFlags OSXKeyState::getModifierStateAsOSXFlags() const
 
 void OSXKeyState::clearStaleModifiers()
 {
-  const auto systemMask = pollActiveModifiers() & s_syncableModifiers;
-  const auto oldPhysicalMask = m_physicalModifiers.exchange(systemMask, std::memory_order_acq_rel);
   const auto syntheticKeys = m_syntheticModifierKeys.load(std::memory_order_acquire);
   const auto postedKeys = m_postedModifierKeys.load(std::memory_order_acquire);
   const auto keysToRelease = static_cast<ModifierKeyMask>(syntheticKeys | postedKeys);
+  if (m_isPrimary) {
+    const auto pendingMask = modifierMaskForKeys(keysToRelease) & s_nonToggleModifiers;
+    m_pendingModifierReleases.fetch_or(pendingMask, std::memory_order_acq_rel);
+  }
+
+  // Poll only after marking tracked synthetic modifiers as pending release.
+  // A delayed native key-up can otherwise be reported as physical input and
+  // copied back into every cleanup event, leaving the modifier held forever.
+  const auto systemMask = m_isPrimary ? pollActiveModifiers() & s_syncableModifiers : 0;
+  const auto oldPhysicalMask = m_physicalModifiers.exchange(systemMask, std::memory_order_acq_rel);
 
   if (oldPhysicalMask != systemMask || keysToRelease != 0) {
     LOG_DEBUG(
@@ -532,10 +575,36 @@ KeyModifierMask OSXKeyState::getShadowModifiers() const
 
 void OSXKeyState::setShadowModifiers(KeyModifierMask mask)
 {
-  m_physicalModifiers.store(mask & s_syncableModifiers, std::memory_order_release);
+  m_physicalModifiers.store(m_isPrimary ? mask & s_syncableModifiers : 0, std::memory_order_release);
 }
 
 KeyModifierMask OSXKeyState::pollActiveModifiers() const
+{
+  if (!m_isPrimary) {
+    const auto syntheticMask = modifierMaskForKeys(m_syntheticModifierKeys.load(std::memory_order_acquire));
+    const auto localToggleMask = pollSystemModifiers() & KeyModifierCapsLock;
+    return (syntheticMask & s_nonToggleModifiers) | localToggleMask;
+  }
+
+  const auto systemMask = pollSystemModifiers();
+  auto pendingMask = m_pendingModifierReleases.load(std::memory_order_acquire);
+  const auto confirmedReleased = pendingMask & ~systemMask;
+  if (confirmedReleased != 0) {
+    m_pendingModifierReleases.fetch_and(~confirmedReleased, std::memory_order_acq_rel);
+    pendingMask &= ~confirmedReleased;
+    LOG_DEBUG("confirmed macOS synthetic modifier release: mask=0x%04x", confirmedReleased);
+  }
+
+  const auto filteredMask = systemMask & ~pendingMask;
+  if (filteredMask != systemMask) {
+    LOG_DEBUG(
+        "ignored pending macOS synthetic modifier state: system=0x%04x pending=0x%04x", systemMask, pendingMask
+    );
+  }
+  return filteredMask;
+}
+
+KeyModifierMask OSXKeyState::pollSystemModifiers() const
 {
   // falsely assumed that the mask returned by GetCurrentKeyModifiers()
   // was the same as a CGEventFlags (which is what mapModifiersFromOSX

@@ -119,7 +119,7 @@ public:
     m_polledModifiers = mask;
   }
 
-  KeyModifierMask pollActiveModifiers() const override
+  KeyModifierMask pollSystemModifiers() const override
   {
     return m_polledModifiers;
   }
@@ -151,7 +151,7 @@ public:
     m_polledModifiers = mask;
   }
 
-  KeyModifierMask pollActiveModifiers() const override
+  KeyModifierMask pollSystemModifiers() const override
   {
     return m_polledModifiers;
   }
@@ -302,6 +302,35 @@ void OSXKeyStateTests::syncToggleModifiers_ignoresRemoteNumLock()
   QVERIFY(keyState.posts.empty());
 }
 
+void OSXKeyStateTests::pollActiveModifiers_clientIgnoresAggregateNonToggleModifiers()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true, false);
+  keyState.setPolledModifiersForTest(KeyModifierShift | KeyModifierControl | KeyModifierCapsLock);
+
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(KeyModifierCapsLock));
+}
+
+void OSXKeyStateTests::syncToggleModifiers_clientReleasesModifierAbsentFromSourceKeyboard()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true, false);
+  keyState.setPolledModifiersForTest(KeyModifierShift);
+
+  QVERIFY(keyState.syncToggleModifiers(0));
+
+  QCOMPARE(keyState.posts.size(), std::size_t{2});
+  QCOMPARE(keyState.posts[0].virtualKey, static_cast<CGKeyCode>(kVK_Shift));
+  QVERIFY(!keyState.posts[0].keyDown);
+  QCOMPARE(keyState.posts[0].flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
+  QCOMPARE(keyState.posts[1].virtualKey, static_cast<CGKeyCode>(kVK_RightShift));
+  QVERIFY(!keyState.posts[1].keyDown);
+  QCOMPARE(keyState.posts[1].flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(0));
+}
+
 void OSXKeyStateTests::syncModifiersFromOSX_clearsStaleShadowWhenMaskUnchanged()
 {
   deskflow::KeyMap keyMap;
@@ -371,6 +400,46 @@ void OSXKeyStateTests::clearStaleModifiers_releasesPreviouslyPostedModifierAfter
   QCOMPARE(keyState.posts.back().virtualKey, static_cast<CGKeyCode>(kVK_Shift));
   QVERIFY(!keyState.posts.back().keyDown);
   QCOMPARE(keyState.posts.back().flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
+}
+
+void OSXKeyStateTests::clearStaleModifiers_doesNotAdoptPendingSyntheticModifierAsPhysical()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  keyState.injectVirtualKey(kVK_Shift, true);
+  keyState.injectVirtualKey(kVK_Shift, false);
+  keyState.setPolledModifiersForTest(KeyModifierShift);
+  keyState.posts.clear();
+
+  keyState.clearStaleModifiers();
+
+  QCOMPARE(keyState.posts.size(), std::size_t{1});
+  QCOMPARE(keyState.posts.back().virtualKey, static_cast<CGKeyCode>(kVK_Shift));
+  QVERIFY(!keyState.posts.back().keyDown);
+  QCOMPARE(keyState.posts.back().flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
+  QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(0));
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(0));
+
+  keyState.setPolledModifiersForTest(0);
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(0));
+  keyState.setPolledModifiersForTest(KeyModifierShift);
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(KeyModifierShift));
+}
+
+void OSXKeyStateTests::clearStaleModifiers_doesNotFilterPhysicalCapsLockAsPendingRelease()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  keyState.injectVirtualKey(kVK_CapsLock, true);
+  keyState.setPolledModifiersForTest(KeyModifierCapsLock);
+
+  keyState.clearStaleModifiers();
+
+  QCOMPARE(keyState.pollActiveModifiers(), static_cast<KeyModifierMask>(KeyModifierCapsLock));
 }
 
 void OSXKeyStateTests::nativeKeyTransaction_appliesAuthoritativeFlagsToEveryKey()

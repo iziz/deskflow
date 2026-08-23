@@ -28,8 +28,11 @@ class OSXKeyState : public KeyState
 public:
   using KeyIDs = std::vector<KeyID>;
 
-  OSXKeyState(IEventQueue *events, std::vector<std::string> layouts, bool isLangSyncEnabled);
-  OSXKeyState(IEventQueue *events, deskflow::KeyMap &keyMap, std::vector<std::string> layouts, bool isLangSyncEnabled);
+  OSXKeyState(IEventQueue *events, std::vector<std::string> layouts, bool isLangSyncEnabled, bool isPrimary = true);
+  OSXKeyState(
+      IEventQueue *events, deskflow::KeyMap &keyMap, std::vector<std::string> layouts, bool isLangSyncEnabled,
+      bool isPrimary = true
+  );
   ~OSXKeyState() override;
 
   //! @name modifiers
@@ -103,6 +106,7 @@ protected:
   void fakeKey(const Keystroke &keystroke) override;
 
   void setShadowModifiers(KeyModifierMask mask);
+  virtual KeyModifierMask pollSystemModifiers() const;
 
 private:
   class KeyResource;
@@ -186,10 +190,12 @@ private:
   // Updated from the distributed TIS notification on the main thread and read from the core thread.
   std::atomic<int32_t> m_activeGroup{0};
   bool m_inputSourceObserverRegistered{false};
+  const bool m_isPrimary;
   // Local physical state and Deskflow-injected state have different
   // lifecycles. Keep them separate so polling or event-tap refreshes cannot
   // silently discard a synthetic key that still needs a native key-up.
   std::atomic<KeyModifierMask> m_physicalModifiers{0};
   std::atomic<uint16_t> m_syntheticModifierKeys{0};
   std::atomic<uint16_t> m_postedModifierKeys{0};
+  mutable std::atomic<KeyModifierMask> m_pendingModifierReleases{0};
 };
