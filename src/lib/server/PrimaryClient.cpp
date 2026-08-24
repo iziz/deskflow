@@ -79,6 +79,16 @@ bool PrimaryClient::getClipboard(ClipboardID id, IClipboard *clipboard) const
   return m_screen->getClipboard(id, clipboard);
 }
 
+uint32_t PrimaryClient::clipboardSequence(ClipboardID id) const
+{
+  return m_screen->clipboardSequence(id);
+}
+
+ClipboardID PrimaryClient::clipboardSequenceGroup(ClipboardID id) const
+{
+  return m_screen->clipboardSequenceGroup(id);
+}
+
 void PrimaryClient::getShape(int32_t &x, int32_t &y, int32_t &width, int32_t &height) const
 {
   m_screen->getShape(x, y, width, height);

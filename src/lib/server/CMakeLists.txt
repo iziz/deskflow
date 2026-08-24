@@ -42,6 +42,8 @@ add_library(server STATIC
   ClientProxyUnknown.h
   ClipboardPublicationAuthority.cpp
   ClipboardPublicationAuthority.h
+  ClipboardSnapshotCache.cpp
+  ClipboardSnapshotCache.h
   Config.cpp
   Config.h
   EdgeSwitchGeometry.cpp

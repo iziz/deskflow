@@ -405,6 +405,11 @@ uint32_t Screen::clipboardSequence(ClipboardID id) const
   return m_screen->clipboardSequence(id);
 }
 
+ClipboardID Screen::clipboardSequenceGroup(ClipboardID id) const
+{
+  return m_screen->clipboardSequenceGroup(id);
+}
+
 void Screen::getShape(int32_t &x, int32_t &y, int32_t &w, int32_t &h) const
 {
   m_screen->getShape(x, y, w, h);

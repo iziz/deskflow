@@ -20,6 +20,8 @@ private Q_SLOTS:
   void clipboardPublicationAuthority_detectsIdempotentRetry();
   void pendingClipboardPublication_resolvesOnlyMatchingCommit();
   void pendingClipboardPublication_cancellationPreventsLateCommit();
+  void clipboardSnapshotCache_reusesSharedNativeGeneration();
+  void clipboardSnapshotCache_separatesGenerationAndNativeClipboard();
   void edgeSwitchProbe_preservesHorizontalOvershoot();
   void edgeSwitchProbe_preservesVerticalOvershoot();
   void edgeSwitchDestination_insetsReturnEdge();

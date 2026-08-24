@@ -8,6 +8,7 @@
 #include "ServerTests.h"
 
 #include "server/ClipboardPublicationAuthority.h"
+#include "server/ClipboardSnapshotCache.h"
 #include "server/EdgeSwitchGeometry.h"
 #include "server/EdgeSwitchTypes.h"
 #include "server/ScreenLockStatePolicy.h"
@@ -21,6 +22,7 @@ using deskflow::server::classifyEdgeSwitchRouting;
 using deskflow::server::classifyNeighborLookup;
 using deskflow::server::classifySwitchPolicy;
 using deskflow::server::ClipboardPublicationAuthority;
+using deskflow::server::ClipboardSnapshotCache;
 using deskflow::server::EdgeLookupFacts;
 using deskflow::server::EdgeLookupKind;
 using deskflow::server::EdgeSwitchBounds;
@@ -166,6 +168,37 @@ void ServerTests::pendingClipboardPublication_cancellationPreventsLateCommit()
   publication.cancel(17);
   QVERIFY(!publication.resolve(kClipboardClipboard, 381).has_value());
   QVERIFY(publication.begin(kClipboardClipboard, 382, 18));
+}
+
+void ServerTests::clipboardSnapshotCache_reusesSharedNativeGeneration()
+{
+  ClipboardSnapshotCache cache;
+
+  const auto captured = cache.store(kClipboardClipboard, 81, "bitmap");
+  const auto reused = cache.find(kClipboardClipboard, 81);
+
+  QVERIFY(captured);
+  QVERIFY(reused);
+  QVERIFY(captured == reused);
+  QCOMPARE(*reused, "bitmap");
+
+  cache.erase(kClipboardClipboard, 80);
+  QVERIFY(cache.find(kClipboardClipboard, 81));
+  cache.erase(kClipboardClipboard, 81);
+  QVERIFY(!cache.find(kClipboardClipboard, 81));
+}
+
+void ServerTests::clipboardSnapshotCache_separatesGenerationAndNativeClipboard()
+{
+  ClipboardSnapshotCache cache;
+
+  cache.store(kClipboardClipboard, 81, "clipboard");
+  cache.store(kClipboardSelection, 81, "selection");
+
+  QVERIFY(!cache.find(kClipboardClipboard, 0));
+  QVERIFY(!cache.find(kClipboardClipboard, 82));
+  QCOMPARE(*cache.find(kClipboardClipboard, 81), "clipboard");
+  QCOMPARE(*cache.find(kClipboardSelection, 81), "selection");
 }
 
 void ServerTests::edgeSwitchProbe_preservesHorizontalOvershoot()

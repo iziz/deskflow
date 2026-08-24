@@ -566,16 +566,9 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
       return;
     }
 
-    // update the primary client's clipboards if we're leaving the
-    // primary screen.
-    if (m_active == m_primaryClient && m_enableClipboard) {
-      for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-        const ClipboardInfo &clipboard = m_clipboards[id];
-        if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
-          onClipboardChanged(m_primaryClient, id, clipboard.m_sourceSequence);
-        }
-      }
-    }
+    // Screen::leave() has already polled for missed clipboard changes and
+    // queued ownership events. Native clipboard capture must stay out of this
+    // input transition so focus cutover is not delayed by large payloads.
 
 #if defined(__APPLE__)
     if (dst != m_primaryClient) {
@@ -1673,6 +1666,16 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   }
 
   ClipboardInfo &clipboard = m_clipboards[info->m_id];
+  if (grabber == m_primaryClient) {
+    const auto nativeSequence = grabber->clipboardSequence(info->m_id);
+    if (nativeSequence != 0 && nativeSequence == clipboard.m_nativeSequence) {
+      LOG_DEBUG(
+          "ignored duplicate native clipboard generation from screen \"%s\" for clipboard %d generation=%u",
+          grabberName.c_str(), info->m_id, nativeSequence
+      );
+      return;
+    }
+  }
   if (grabber != m_primaryClient && isClipboardSequenceOlder(info->m_sequenceNumber, clipboard.m_sourceSequence)) {
     LOG_DEBUG("ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id);
     return;
@@ -2049,22 +2052,58 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     }
   });
 
+  const bool isPrimaryClipboard = sender == m_primaryClient;
+  auto nativeSequence = isPrimaryClipboard ? sender->clipboardSequence(id) : 0;
+  const auto nativeClipboard = isPrimaryClipboard ? sender->clipboardSequenceGroup(id) : id;
+  auto snapshot = isPrimaryClipboard ? m_primaryClipboardSnapshots.find(nativeClipboard, nativeSequence)
+                                     : ClipboardSnapshotCache::Data{};
+
   Clipboard candidate;
-  if (!sender->getClipboard(id, &candidate)) {
-    LOG_INFO(
-        "ignored screen \"%s\" update of clipboard %d because clipboard data is unavailable", getName(sender).c_str(),
-        id
+  bool candidateAvailable = false;
+  if (!snapshot) {
+    if (!sender->getClipboard(id, &candidate)) {
+      LOG_INFO(
+          "ignored screen \"%s\" update of clipboard %d because clipboard data is unavailable", getName(sender).c_str(),
+          id
+      );
+      return;
+    }
+    candidateAvailable = true;
+    auto data = candidate.marshall();
+    if (isPrimaryClipboard && nativeSequence != 0) {
+      const auto completedSequence = sender->clipboardSequence(id);
+      if (completedSequence != nativeSequence) {
+        LOG_DEBUG(
+            "native clipboard changed during capture for screen \"%s\" clipboard %d generation=%u current=%u",
+            getName(sender).c_str(), id, nativeSequence, completedSequence
+        );
+        nativeSequence = 0;
+      }
+    }
+    snapshot = isPrimaryClipboard ? m_primaryClipboardSnapshots.store(nativeClipboard, nativeSequence, std::move(data))
+                                  : std::make_shared<const std::string>(std::move(data));
+  } else {
+    LOG_DEBUG(
+        "reused native clipboard snapshot for screen \"%s\" clipboard %d generation=%u", getName(sender).c_str(), id,
+        nativeSequence
     );
-    return;
   }
-  std::string data = candidate.marshall();
+
+  const auto &data = *snapshot;
+  const auto commitNativeSequence = [this, id, isPrimaryClipboard, nativeClipboard, nativeSequence]() {
+    if (isPrimaryClipboard) {
+      commitPrimaryClipboardSequence(id, nativeClipboard, nativeSequence);
+    }
+  };
   if (data.size() <= sizeof(uint32_t)) {
+    commitNativeSequence();
     LOG_INFO(
         "ignored screen \"%s\" update of clipboard %d because it has no supported formats", getName(sender).c_str(), id
     );
     return;
   }
   if (data.size() > m_maximumClipboardSize * 1024) {
+    commitNativeSequence();
     LOG_WARN("not sending clipboard data, exceeds limit: %i KB", m_maximumClipboardSize);
     return;
   }
@@ -2077,6 +2116,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   if (data == clipboard.m_clipboardData) {
     const bool revisionChanged = clipboard.m_revision != clipboard.m_committedRevision;
     clipboard.m_committedRevision = clipboard.m_revision;
+    commitNativeSequence();
     LOG_DEBUG("ignored screen \"%s\" update of clipboard %d (unchanged)", clipboard.m_clipboardOwner.c_str(), id);
     if (revisionChanged) {
       broadcastClipboard(id, sender);
@@ -2088,11 +2128,33 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   LOG_INFO(
       "screen \"%s\" updated clipboard %d, revision=%u", clipboard.m_clipboardOwner.c_str(), id, clipboard.m_revision
   );
+  if (!candidateAvailable && !candidate.unmarshall(data, 0)) {
+    LOG_WARN("failed to reconstruct cached clipboard %d for screen \"%s\"", id, getName(sender).c_str());
+    return;
+  }
   Clipboard::copy(&clipboard.m_clipboard, &candidate);
   clipboard.m_clipboardData = data;
   clipboard.m_committedRevision = clipboard.m_revision;
+  commitNativeSequence();
 
   broadcastClipboard(id, sender);
+}
+
+void Server::commitPrimaryClipboardSequence(ClipboardID id, ClipboardID nativeClipboard, uint32_t nativeSequence)
+{
+  if (id >= kClipboardEnd || nativeClipboard >= kClipboardEnd || nativeSequence == 0) {
+    return;
+  }
+
+  m_clipboards[id].m_nativeSequence = nativeSequence;
+  for (ClipboardID logicalClipboard = 0; logicalClipboard < kClipboardEnd; ++logicalClipboard) {
+    if (m_primaryClient->clipboardSequenceGroup(logicalClipboard) == nativeClipboard &&
+        m_clipboards[logicalClipboard].m_nativeSequence != nativeSequence) {
+      return;
+    }
+  }
+
+  m_primaryClipboardSnapshots.erase(nativeClipboard, nativeSequence);
 }
 
 void Server::onAtomicClipboardPublished(BaseClientProxy *sender, ClipboardID id, uint32_t sequence)

@@ -16,6 +16,7 @@
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "server/ClipboardPublicationAuthority.h"
+#include "server/ClipboardSnapshotCache.h"
 #include "server/Config.h"
 #include "server/EdgeSwitchTypes.h"
 
@@ -391,6 +392,7 @@ private:
   // force the cursor off of \p client
   void forceLeaveClient(const BaseClientProxy *client, const char *reason);
   void broadcastClipboard(ClipboardID id, const BaseClientProxy *sender);
+  void commitPrimaryClipboardSequence(ClipboardID id, ClipboardID nativeClipboard, uint32_t nativeSequence);
   uint32_t nextClipboardRevision();
 
 private:
@@ -406,6 +408,7 @@ private:
     uint32_t m_sourceSequence = 0;
     uint32_t m_revision = 0;
     uint32_t m_committedRevision = 0;
+    uint32_t m_nativeSequence = 0;
   };
   // Order suggested by clang
 
@@ -455,6 +458,7 @@ private:
 
   // clipboard cache
   ClipboardInfo m_clipboards[kClipboardEnd];
+  deskflow::server::ClipboardSnapshotCache m_primaryClipboardSnapshots;
   deskflow::server::ClipboardPublicationAuthority m_clipboardPublicationAuthority;
 
   // used in hello message sent to the client

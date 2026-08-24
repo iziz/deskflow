@@ -51,6 +51,16 @@ public:
     return 0;
   }
 
+  /**
+   * Return the native clipboard backing the logical clipboard ID. Logical IDs
+   * may share a group only when the same non-zero sequence identifies the same
+   * native snapshot.
+   */
+  virtual ClipboardID clipboardSequenceGroup(ClipboardID id) const
+  {
+    return id;
+  }
+
   //! Get screen shape
   /*!
   Return the position of the upper-left corner of the screen in \c x and
