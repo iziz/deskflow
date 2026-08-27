@@ -1071,9 +1071,15 @@ bool MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
   const KeyModifierMask oldState = transition.modifiersBefore;
   const KeyModifierMask state = transition.modifiersAfter;
 
-  if (!down && m_isPrimary && !m_isOnScreen) {
+  if (m_isPrimary && !m_isOnScreen) {
     PrimaryKeyDownList::iterator find = std::find(m_primaryKeyDownList.begin(), m_primaryKeyDownList.end(), button);
-    if (find != m_primaryKeyDownList.end()) {
+    const auto restoreRoute = deskflow::platform::windowsPrimaryKeyRestoreRoute(
+        m_isOnScreen, down, transition.wasDown, find != m_primaryKeyDownList.end()
+    );
+    if (restoreRoute == deskflow::platform::WindowsPrimaryKeyRestoreRoute::ForgetStaleRestore) {
+      LOG_DEBUG("forgot stale pre-switch key restore after fresh remote press: button=%d", button);
+      m_primaryKeyDownList.erase(find);
+    } else if (restoreRoute == deskflow::platform::WindowsPrimaryKeyRestoreRoute::RestoreLocally) {
       LOG_VERBOSE("release key button %d on primary", *find);
       fakeLocalKey(*find, false);
       m_primaryKeyDownList.erase(find);

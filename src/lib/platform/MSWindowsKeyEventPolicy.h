@@ -96,6 +96,35 @@ enum class WindowsHotKeyRoute
   VirtualKey
 };
 
+enum class WindowsPrimaryKeyRestoreRoute
+{
+  Relay,
+  ForgetStaleRestore,
+  RestoreLocally
+};
+
+inline WindowsPrimaryKeyRestoreRoute windowsPrimaryKeyRestoreRoute(
+    bool isOnScreen, bool keyDown, bool wasDown, bool trackedForLocalRestore
+)
+{
+  if (isOnScreen || !trackedForLocalRestore) {
+    return WindowsPrimaryKeyRestoreRoute::Relay;
+  }
+
+  if (!keyDown) {
+    return WindowsPrimaryKeyRestoreRoute::RestoreLocally;
+  }
+
+  // A fresh press cannot belong to the key that was held before the screen
+  // switch. Drop that stale restore marker so the matching release is relayed
+  // to the remote screen.
+  if (!wasDown) {
+    return WindowsPrimaryKeyRestoreRoute::ForgetStaleRestore;
+  }
+
+  return WindowsPrimaryKeyRestoreRoute::Relay;
+}
+
 inline bool isWindowsToggleKey(UINT virtualKey)
 {
   switch (virtualKey) {

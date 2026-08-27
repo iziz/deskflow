@@ -17,6 +17,9 @@ private Q_SLOTS:
   void advanceToggleKeyState();
   void virtualKeyHotKeyRouting_data();
   void virtualKeyHotKeyRouting();
+  void primaryKeyRestoreRouting_data();
+  void primaryKeyRestoreRouting();
+  void primaryKeyRestoreFreshPressSequence();
   void toggleKeyTransitionSequence();
   void nativeToggleStateReconciliation();
   void inputDesktopToggleSynchronization();

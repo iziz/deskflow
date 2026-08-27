@@ -64,6 +64,58 @@ void MSWindowsHookTests::virtualKeyHotKeyRouting()
   );
 }
 
+void MSWindowsHookTests::primaryKeyRestoreRouting_data()
+{
+  using enum deskflow::platform::WindowsPrimaryKeyRestoreRoute;
+
+  QTest::addColumn<bool>("isOnScreen");
+  QTest::addColumn<bool>("keyDown");
+  QTest::addColumn<bool>("wasDown");
+  QTest::addColumn<bool>("trackedForLocalRestore");
+  QTest::addColumn<int>("expected");
+
+  QTest::newRow("fresh remote press replaces stale restore")
+      << false << true << false << true << static_cast<int>(ForgetStaleRestore);
+  QTest::newRow("remote repeat keeps pre-switch restore") << false << true << true << true << static_cast<int>(Relay);
+  QTest::newRow("pre-switch release restores locally")
+      << false << false << true << true << static_cast<int>(RestoreLocally);
+  QTest::newRow("reconciled pre-switch release restores locally")
+      << false << false << false << true << static_cast<int>(RestoreLocally);
+  QTest::newRow("untracked remote press relays") << false << true << false << false << static_cast<int>(Relay);
+  QTest::newRow("on-screen release relays") << true << false << true << true << static_cast<int>(Relay);
+}
+
+void MSWindowsHookTests::primaryKeyRestoreRouting()
+{
+  QFETCH(bool, isOnScreen);
+  QFETCH(bool, keyDown);
+  QFETCH(bool, wasDown);
+  QFETCH(bool, trackedForLocalRestore);
+  QFETCH(int, expected);
+
+  QCOMPARE(
+      static_cast<int>(deskflow::platform::windowsPrimaryKeyRestoreRoute(
+          isOnScreen, keyDown, wasDown, trackedForLocalRestore
+      )),
+      expected
+  );
+}
+
+void MSWindowsHookTests::primaryKeyRestoreFreshPressSequence()
+{
+  using enum deskflow::platform::WindowsPrimaryKeyRestoreRoute;
+
+  bool trackedForLocalRestore = true;
+  const auto freshControlDown =
+      deskflow::platform::windowsPrimaryKeyRestoreRoute(false, true, false, trackedForLocalRestore);
+  QCOMPARE(freshControlDown, ForgetStaleRestore);
+
+  trackedForLocalRestore = false;
+  const auto matchingControlUp =
+      deskflow::platform::windowsPrimaryKeyRestoreRoute(false, false, true, trackedForLocalRestore);
+  QCOMPARE(matchingControlUp, Relay);
+}
+
 void MSWindowsHookTests::toggleKeyTransitionSequence()
 {
   KeyModifierMask modifiers = KeyModifierNumLock;
