@@ -695,14 +695,11 @@ void KeyState::setKeyDownState(KeyButton button, bool down)
     return;
   }
 
-  // update key state
-  if (down) {
-    m_keys[button] = 1;
-    m_syntheticKeys[button] = 1;
-  } else {
-    m_keys[button] = 0;
-    m_syntheticKeys[button] = 0;
-  }
+  // Physical platform events update the aggregate state only. Synthetic
+  // ownership is tracked by fakeKeyDown(), fakeKeyUp(), and modifier mapping;
+  // mixing the two causes physical keys to be released locally during a state
+  // rebuild while the user is still holding them.
+  m_keys[button] = down ? 1 : 0;
 }
 
 void KeyState::setActiveModifiers(KeyModifierMask modifiers)

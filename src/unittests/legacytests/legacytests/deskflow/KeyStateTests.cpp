@@ -351,6 +351,91 @@ TEST(KeyStateTests, updateKeyState_syntheticKeyDown_releasesBeforePolling)
   ASSERT_FALSE(keyState.fakeKeyUp(1));
 }
 
+TEST(KeyStateTests, fakeAllKeysUp_physicalModifierAndRegularKey_doesNotSynthesizeReleases)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  keyState.onKey(0x1d, true, KeyModifierControl);
+  keyState.onKey(0x2e, true, KeyModifierControl);
+
+  EXPECT_CALL(keyState, fakeKey(_)).Times(0);
+
+  keyState.fakeAllKeysUp();
+}
+
+TEST(KeyStateTests, updateKeyState_physicalLeftAndRightModifiers_doesNotSynthesizeReleases)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  keyState.onKey(0x02a, true, KeyModifierShift);
+  keyState.onKey(0x036, true, KeyModifierShift);
+  keyState.onKey(0x01d, true, KeyModifierShift | KeyModifierControl);
+  keyState.onKey(0x11d, true, KeyModifierShift | KeyModifierControl);
+  keyState.onKey(0x038, true, KeyModifierShift | KeyModifierControl | KeyModifierAlt);
+  keyState.onKey(0x138, true, KeyModifierShift | KeyModifierControl | KeyModifierAlt);
+  keyState.onKey(0x15b, true, KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper);
+  keyState.onKey(0x15c, true, KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper);
+
+  EXPECT_CALL(keyState, fakeKey(_)).Times(0);
+
+  keyState.updateKeyState();
+}
+
+TEST(KeyStateTests, updateKeyState_mixedPhysicalChordAndSyntheticKey_releasesOnlySyntheticKey)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  s_stubKeystroke.m_type = deskflow::KeyMap::Keystroke::KeyType::Button;
+  s_stubKeystroke.m_data.m_button.m_button = 1;
+  s_stubKeyItem.m_button = 1;
+  s_stubKeyItem.m_client = 0;
+  ON_CALL(keyMap, mapKey(_, _, _, _, _, _, _, _)).WillByDefault(Invoke(stubMapKey));
+  ON_CALL(keyState, pollPressedKeys(_)).WillByDefault(Invoke([](IKeyState::KeyButtonSet &pressedKeys) {
+    pressedKeys.insert(0x1d);
+    pressedKeys.insert(0x2e);
+  }));
+
+  EXPECT_CALL(keyState, fakeKey(_)).Times(2);
+
+  keyState.fakeKeyDown(1, 0, 1, "en");
+  keyState.onKey(0x1d, true, KeyModifierControl);
+  keyState.onKey(0x2e, true, KeyModifierControl);
+  keyState.updateKeyState();
+
+  ASSERT_FALSE(keyState.isKeyDown(1));
+  ASSERT_TRUE(keyState.isKeyDown(0x1d));
+  ASSERT_TRUE(keyState.isKeyDown(0x2e));
+
+  keyState.onKey(0x1d, false, 0);
+  keyState.onKey(0x2e, false, 0);
+
+  ASSERT_FALSE(keyState.isKeyDown(0x1d));
+  ASSERT_FALSE(keyState.isKeyDown(0x2e));
+}
+
+TEST(KeyStateTests, updateKeyState_physicalControlWithToggleModifiers_preservesPolledToggleState)
+{
+  NiceMock<MockKeyMap> keyMap;
+  MockEventQueue eventQueue;
+  KeyStateImpl keyState(eventQueue, keyMap);
+
+  constexpr auto toggleModifiers = KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+  ON_CALL(keyState, pollActiveModifiers()).WillByDefault(Return(toggleModifiers));
+  keyState.onKey(0x1d, true, toggleModifiers | KeyModifierControl);
+
+  EXPECT_CALL(keyState, fakeKey(_)).Times(0);
+
+  keyState.updateKeyState();
+
+  ASSERT_EQ(toggleModifiers, keyState.getActiveModifiers());
+}
+
 void stubPollPressedKeys(IKeyState::KeyButtonSet &pressedKeys)
 {
   pressedKeys.insert(1);
