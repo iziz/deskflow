@@ -12,7 +12,10 @@
 
 #include <ApplicationServices/ApplicationServices.h>
 #include <IOKit/hidsystem/IOLLEvent.h>
+#include <array>
 #include <cstddef>
+#include <random>
+#include <set>
 #include <vector>
 
 #define A_CHAR_BUTTON 001
@@ -178,6 +181,41 @@ private:
 
 constexpr KeyModifierMask kTrackedOSXShadowModifiers =
     KeyModifierShift | KeyModifierControl | KeyModifierAlt | KeyModifierSuper | KeyModifierCapsLock;
+
+struct OSXModifierSpec
+{
+  const char *name;
+  CGKeyCode virtualKey;
+  CGEventFlags aggregateFlag;
+  CGEventFlags sideFlag;
+};
+
+constexpr std::array<OSXModifierSpec, 8> kOSXModifierSpecs{{
+    {"left Shift", kVK_Shift, kCGEventFlagMaskShift, NX_DEVICELSHIFTKEYMASK},
+    {"right Shift", kVK_RightShift, kCGEventFlagMaskShift, NX_DEVICERSHIFTKEYMASK},
+    {"left Control", kVK_Control, kCGEventFlagMaskControl, NX_DEVICELCTLKEYMASK},
+    {"right Control", kVK_RightControl, kCGEventFlagMaskControl, NX_DEVICERCTLKEYMASK},
+    {"left Alt", kVK_Option, kCGEventFlagMaskAlternate, NX_DEVICELALTKEYMASK},
+    {"right Alt", kVK_RightOption, kCGEventFlagMaskAlternate, NX_DEVICERALTKEYMASK},
+    {"left Command", kVK_Command, kCGEventFlagMaskCommand, NX_DEVICELCMDKEYMASK},
+    {"right Command", kVK_RightCommand, kCGEventFlagMaskCommand, NX_DEVICERCMDKEYMASK},
+}};
+
+constexpr CGEventFlags kTrackedOSXEventFlags =
+    kCGEventFlagMaskShift | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskCommand |
+    NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK | NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK |
+    NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK | NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK;
+
+CGEventFlags expectedOSXModifierFlags(const std::set<CGKeyCode> &downModifiers)
+{
+  CGEventFlags flags = 0;
+  for (const auto &modifier : kOSXModifierSpecs) {
+    if (downModifiers.contains(modifier.virtualKey)) {
+      flags |= modifier.aggregateFlag | modifier.sideFlag;
+    }
+  }
+  return flags;
+}
 
 KeyModifierMask getShadowModifierMask(const OSXKeyState &keyState)
 {
@@ -487,6 +525,86 @@ void OSXKeyStateTests::nativeKeyTransaction_rollsBackModifierAfterPostFailure()
   QCOMPARE(keyState.posts.size(), std::size_t{2});
   QVERIFY(keyState.posts[1].fallback);
   QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(0));
+}
+
+void OSXKeyStateTests::nativeKeyTransaction_modifierLifecycle_data()
+{
+  QTest::addColumn<int>("modifierIndex");
+  for (std::size_t i = 0; i < kOSXModifierSpecs.size(); ++i) {
+    QTest::newRow(kOSXModifierSpecs[i].name) << static_cast<int>(i);
+  }
+}
+
+void OSXKeyStateTests::nativeKeyTransaction_modifierLifecycle()
+{
+  QFETCH(int, modifierIndex);
+  const auto &modifier = kOSXModifierSpecs.at(static_cast<std::size_t>(modifierIndex));
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+
+  keyState.injectVirtualKey(modifier.virtualKey, true);
+  QCOMPARE(
+      quint64(keyState.posts.back().flags & kTrackedOSXEventFlags),
+      quint64(modifier.aggregateFlag | modifier.sideFlag)
+  );
+
+  keyState.injectVirtualKey(kVK_ANSI_A, true);
+  QCOMPARE(
+      quint64(keyState.posts.back().flags & kTrackedOSXEventFlags),
+      quint64(modifier.aggregateFlag | modifier.sideFlag)
+  );
+
+  keyState.injectVirtualKey(modifier.virtualKey, false);
+  QCOMPARE(quint64(keyState.posts.back().flags & kTrackedOSXEventFlags), quint64(0));
+
+  keyState.injectVirtualKey(kVK_ANSI_F, true);
+  QCOMPARE(quint64(keyState.posts.back().flags & kTrackedOSXEventFlags), quint64(0));
+
+  keyState.injectVirtualKey(kVK_Escape, true);
+  QCOMPARE(quint64(keyState.posts.back().flags & kTrackedOSXEventFlags), quint64(0));
+}
+
+void OSXKeyStateTests::nativeKeyTransaction_deterministicStateMachine()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true);
+  std::mt19937 random(0x5eedc0deu);
+  std::set<CGKeyCode> downModifiers;
+  m_log.setFilter(LogLevel::Level::Error);
+
+  for (int step = 0; step < 4096; ++step) {
+    const auto &modifier = kOSXModifierSpecs[random() % kOSXModifierSpecs.size()];
+    const bool down = (random() & 1u) != 0u;
+    if (down) {
+      downModifiers.insert(modifier.virtualKey);
+    } else {
+      downModifiers.erase(modifier.virtualKey);
+    }
+
+    keyState.injectVirtualKey(modifier.virtualKey, down);
+    const auto expected = expectedOSXModifierFlags(downModifiers);
+    QVERIFY2(
+        quint64(keyState.posts.back().flags & kTrackedOSXEventFlags) == quint64(expected),
+        qPrintable(QString("modifier state mismatch at step %1").arg(step))
+    );
+
+    if ((step % 17) == 0) {
+      keyState.injectVirtualKey(kVK_ANSI_A, true);
+      QVERIFY2(
+          quint64(keyState.posts.back().flags & kTrackedOSXEventFlags) == quint64(expected),
+          qPrintable(QString("ordinary key inherited stale modifiers at step %1").arg(step))
+      );
+    }
+  }
+
+  for (const auto &modifier : kOSXModifierSpecs) {
+    keyState.injectVirtualKey(modifier.virtualKey, false);
+  }
+  keyState.injectVirtualKey(kVK_ANSI_A, true);
+  QCOMPARE(quint64(keyState.posts.back().flags & kTrackedOSXEventFlags), quint64(0));
+  m_log.setFilter(LogLevel::Level::Verbose);
 }
 
 QTEST_MAIN(OSXKeyStateTests)

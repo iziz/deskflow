@@ -23,6 +23,13 @@ if (WIN32)
     SOURCE MSWindowsHookTests.cpp
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
+  create_test(
+    NAME WindowsInputLifecycleTests
+    DEPENDS platform
+    LIBS base arch
+    SOURCE WindowsInputLifecycleTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+  )
 elseif(APPLE)
   create_test(
     NAME OSXClipboardTests
