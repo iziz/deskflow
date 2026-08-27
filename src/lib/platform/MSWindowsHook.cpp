@@ -40,6 +40,7 @@ static BYTE g_keyState[256] = {0};
 // Relay-mode key events are suppressed before Windows updates its asynchronous
 // state. Preserve held modifiers from the accepted hook event stream instead.
 static uint32_t g_hookHeldKeyState = 0;
+static uint32_t g_hookObservedKeyState = 0;
 static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
@@ -135,6 +136,7 @@ int MSWindowsHook::init(DWORD threadID)
   g_staleMouseButtonAction = deskflow::platform::PreModeMouseEventAction::PassThrough;
   g_reportedPreModeMouseInput = false;
   g_hookHeldKeyState = 0;
+  g_hookObservedKeyState = 0;
 
   return 1;
 }
@@ -274,7 +276,14 @@ static void setDeadKey(WCHAR wc[], int size, UINT flags)
   }
 }
 
-static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
+static void updateHookHeldKeyState(UINT virtualKey, bool keyDown)
+{
+  const auto flag = deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
+  g_hookObservedKeyState |= flag;
+  g_hookHeldKeyState = deskflow::platform::advanceWindowsHookHeldKeyState(g_hookHeldKeyState, virtualKey, keyDown);
+}
+
+static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam, bool injected)
 {
   DWORD vkCode = static_cast<DWORD>(wParam);
   bool kf_up = (lParam & (KF_UP << 16)) != 0;
@@ -295,12 +304,14 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
   // if we're expecting fake input then just pass the event through
   // and do not forward to the server
   if (g_fakeServerInput) {
+    if (!injected) {
+      updateHookHeldKeyState(static_cast<UINT>(vkCode), !kf_up);
+    }
     PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, 0xfe000000u | wParam, lParam);
     return false;
   }
 
-  g_hookHeldKeyState =
-      deskflow::platform::advanceWindowsHookHeldKeyState(g_hookHeldKeyState, static_cast<UINT>(vkCode), !kf_up);
+  updateHookHeldKeyState(static_cast<UINT>(vkCode), !kf_up);
 
   // VK_RSHIFT may be sent with an extended scan code but right shift
   // is not an extended key so we reset that bit.
@@ -512,7 +523,7 @@ static LRESULT CALLBACK keyboardLLHook(int code, WPARAM wParam, LPARAM lParam)
     // key repeat events.
 
     // handle the message
-    if (keyboardHookHandler(wParam, lParam)) {
+    if (keyboardHookHandler(wParam, lParam, injected)) {
       return 1;
     }
   }
@@ -543,8 +554,29 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
     return state;
   };
 
-  const auto postMouseMove = [currentNativeKeyState](int32_t mouseX, int32_t mouseY) {
-    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_KEY_STATE, currentNativeKeyState(), 0);
+  const auto currentAsyncKeyState = []() {
+    uint32_t state = 0;
+    constexpr UINT modifierKeys[] = {VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+                                     VK_LMENU,  VK_RMENU,  VK_LWIN,     VK_RWIN};
+    for (const auto virtualKey : modifierKeys) {
+      if (GetAsyncKeyState(virtualKey) < 0) {
+        state |= deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
+      }
+    }
+    return state;
+  };
+
+  const auto currentObservedKeyState = []() {
+    // Synthetic server input intentionally bypasses physical hook tracking.
+    // Do not treat its temporary async state as stale local input.
+    return g_fakeServerInput ? 0u : g_hookObservedKeyState;
+  };
+
+  const auto postMouseMove = [currentNativeKeyState, currentAsyncKeyState,
+                              currentObservedKeyState](int32_t mouseX, int32_t mouseY) {
+    const auto hookSnapshot =
+        deskflow::platform::packWindowsHookKeyStateSnapshot(currentNativeKeyState(), currentObservedKeyState());
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_KEY_STATE, hookSnapshot, currentAsyncKeyState());
     PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, mouseX, mouseY);
   };
 

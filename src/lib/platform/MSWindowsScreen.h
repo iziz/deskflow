@@ -134,7 +134,8 @@ protected:
   IKeyState *getKeyState() const override;
 
   // simulate a local key to the system directly
-  void fakeLocalKey(KeyButton button, bool press) const;
+  bool fakeLocalKey(KeyButton button, bool press) const;
+  void reconcileMouseKeyState();
 
 private:
   // initialization and shutdown operations
@@ -306,6 +307,9 @@ private:
   uint32_t m_mark = 0;
   uint32_t m_markReceived = 0;
   uint32_t m_nativeKeyState = 0;
+  uint32_t m_observedNativeKeyState = 0;
+  uint32_t m_asyncKeyState = 0;
+  uint32_t m_localModifierRepairPending = 0;
   bool m_hasNativeKeyState = false;
   MotionInfo::ScrollLockState m_scrollLockState = MotionInfo::ScrollLockState::Unsupported;
 

@@ -24,6 +24,13 @@ if (WIN32)
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
   create_test(
+    NAME MSWindowsKeyStateTests
+    DEPENDS app
+    LIBS arch base mt platform version
+    SOURCE MSWindowsKeyStateTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+  )
+  create_test(
     NAME WindowsInputLifecycleTests
     DEPENDS platform
     LIBS base arch

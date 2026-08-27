@@ -12,12 +12,12 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
-#define DESKFLOW_MSG_MARK WM_APP + 0x0011         // mark id; <unused>
-#define DESKFLOW_MSG_KEY WM_APP + 0x0012          // vk code; key data
-#define DESKFLOW_MSG_MOUSE_BUTTON WM_APP + 0x0013 // button msg; <unused>
-#define DESKFLOW_MSG_MOUSE_WHEEL WM_APP + 0x0014  // delta; <unused>
+#define DESKFLOW_MSG_MARK WM_APP + 0x0011            // mark id; <unused>
+#define DESKFLOW_MSG_KEY WM_APP + 0x0012             // vk code; key data
+#define DESKFLOW_MSG_MOUSE_BUTTON WM_APP + 0x0013    // button msg; <unused>
+#define DESKFLOW_MSG_MOUSE_WHEEL WM_APP + 0x0014     // delta; <unused>
 #define DESKFLOW_MSG_MOUSE_MOVE WM_APP + 0x0015      // x; y
-#define DESKFLOW_MSG_MOUSE_KEY_STATE WM_APP + 0x0016 // WindowsNativeKeyState; <unused>
+#define DESKFLOW_MSG_MOUSE_KEY_STATE WM_APP + 0x0016 // packed hook/observed state; async WindowsNativeKeyState
 #define DESKFLOW_MSG_POST_WARP WM_APP + 0x0017       // <unused>; <unused>
 #define DESKFLOW_MSG_PRE_WARP WM_APP + 0x0018        // x; y
 #define DESKFLOW_MSG_SCREEN_SAVER WM_APP + 0x0019    // activated; <unused>

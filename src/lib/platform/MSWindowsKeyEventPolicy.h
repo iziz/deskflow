@@ -29,6 +29,11 @@ enum WindowsNativeKeyState : uint32_t
   WindowsNativeKeyStateScrollLock = 1u << 10u
 };
 
+inline constexpr uint32_t kWindowsNonToggleNativeKeyState =
+    WindowsNativeKeyStateLeftShift | WindowsNativeKeyStateRightShift | WindowsNativeKeyStateLeftControl |
+    WindowsNativeKeyStateRightControl | WindowsNativeKeyStateLeftAlt | WindowsNativeKeyStateRightAlt |
+    WindowsNativeKeyStateLeftSuper | WindowsNativeKeyStateRightSuper;
+
 inline uint32_t windowsNativeKeyDownFlag(UINT virtualKey)
 {
   switch (virtualKey) {
@@ -61,6 +66,31 @@ inline uint32_t advanceWindowsHookHeldKeyState(uint32_t nativeState, UINT virtua
   }
 
   return nativeState & ~flag;
+}
+
+inline uint32_t packWindowsHookKeyStateSnapshot(uint32_t hookState, uint32_t observedState)
+{
+  return (hookState & 0xffffu) | ((observedState & 0xffffu) << 16u);
+}
+
+inline uint32_t windowsHookKeyStateFromSnapshot(uint32_t snapshot)
+{
+  return snapshot & 0xffffu;
+}
+
+inline uint32_t windowsObservedKeyStateFromSnapshot(uint32_t snapshot)
+{
+  return (snapshot >> 16u) & 0xffffu;
+}
+
+inline uint32_t windowsStaleLocalModifierState(uint32_t hookState, uint32_t asyncState, uint32_t observedState)
+{
+  // GetAsyncKeyState can return zero when querying the input desktop fails, so
+  // only act on keys Windows positively reports as down. A modifier is stale
+  // locally when Windows still reports it down after the accepted hook stream
+  // has observed its release. Requiring an observed event avoids releasing a
+  // physically held key immediately after hook initialization.
+  return asyncState & ~hookState & observedState & kWindowsNonToggleNativeKeyState;
 }
 
 inline KeyModifierMask windowsModifierMaskFromNativeKeyState(uint32_t nativeState)
@@ -103,9 +133,26 @@ enum class WindowsPrimaryKeyRestoreRoute
   RestoreLocally
 };
 
-inline WindowsPrimaryKeyRestoreRoute windowsPrimaryKeyRestoreRoute(
-    bool isOnScreen, bool keyDown, bool wasDown, bool trackedForLocalRestore
-)
+enum class WindowsReconciledKeyReleaseRoute
+{
+  NoAction,
+  ConsumeLocalRestore,
+  RelayRemote
+};
+
+inline WindowsReconciledKeyReleaseRoute windowsReconciledKeyReleaseRoute(bool isOnScreen, bool trackedForLocalRestore)
+{
+  if (trackedForLocalRestore) {
+    return WindowsReconciledKeyReleaseRoute::ConsumeLocalRestore;
+  }
+  if (!isOnScreen) {
+    return WindowsReconciledKeyReleaseRoute::RelayRemote;
+  }
+  return WindowsReconciledKeyReleaseRoute::NoAction;
+}
+
+inline WindowsPrimaryKeyRestoreRoute
+windowsPrimaryKeyRestoreRoute(bool isOnScreen, bool keyDown, bool wasDown, bool trackedForLocalRestore)
 {
   if (isOnScreen || !trackedForLocalRestore) {
     return WindowsPrimaryKeyRestoreRoute::Relay;
@@ -160,9 +207,8 @@ inline KeyModifierMask modifierForWindowsToggleKey(UINT virtualKey)
   }
 }
 
-inline KeyModifierMask advanceWindowsToggleKeyState(
-    KeyModifierMask modifiers, UINT virtualKey, bool keyDown, bool wasDown
-)
+inline KeyModifierMask
+advanceWindowsToggleKeyState(KeyModifierMask modifiers, UINT virtualKey, bool keyDown, bool wasDown)
 {
   if (shouldAdvanceWindowsToggleKeyState(virtualKey, keyDown, wasDown)) {
     modifiers ^= modifierForWindowsToggleKey(virtualKey);
@@ -170,9 +216,7 @@ inline KeyModifierMask advanceWindowsToggleKeyState(
   return modifiers;
 }
 
-inline KeyModifierMask reconcileWindowsToggleKeyState(
-    KeyModifierMask modifiers, UINT virtualKey, bool enabled
-)
+inline KeyModifierMask reconcileWindowsToggleKeyState(KeyModifierMask modifiers, UINT virtualKey, bool enabled)
 {
   const auto modifier = modifierForWindowsToggleKey(virtualKey);
   if (enabled) {

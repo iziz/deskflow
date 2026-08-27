@@ -915,15 +915,23 @@ bool MSWindowsScreen::onPreDispatchPrimary(HWND, UINT message, WPARAM wParam, LP
     return onMouseMove(static_cast<int32_t>(wParam), static_cast<int32_t>(lParam));
 
   case DESKFLOW_MSG_MOUSE_KEY_STATE: {
-    const auto nativeKeyState = static_cast<uint32_t>(wParam);
-    if (!m_hasNativeKeyState || nativeKeyState != m_nativeKeyState) {
-      LOG_DEBUG("mouse-time native Windows key state: 0x%04x", nativeKeyState);
+    const auto hookSnapshot = static_cast<uint32_t>(wParam);
+    const auto nativeKeyState = deskflow::platform::windowsHookKeyStateFromSnapshot(hookSnapshot);
+    const auto observedNativeKeyState = deskflow::platform::windowsObservedKeyStateFromSnapshot(hookSnapshot);
+    const auto asyncKeyState = static_cast<uint32_t>(lParam);
+    if (!m_hasNativeKeyState || nativeKeyState != m_nativeKeyState ||
+        observedNativeKeyState != m_observedNativeKeyState || asyncKeyState != m_asyncKeyState) {
+      LOG_DEBUG(
+          "mouse-time Windows key state: hook=0x%04x observed=0x%04x async=0x%04x", nativeKeyState,
+          observedNativeKeyState, asyncKeyState
+      );
       m_nativeKeyState = nativeKeyState;
+      m_observedNativeKeyState = observedNativeKeyState;
+      m_asyncKeyState = asyncKeyState;
       m_hasNativeKeyState = true;
-      m_scrollLockState =
-          (nativeKeyState & deskflow::platform::WindowsNativeKeyStateScrollLock) != 0u
-              ? MotionInfo::ScrollLockState::On
-              : MotionInfo::ScrollLockState::Off;
+      m_scrollLockState = (nativeKeyState & deskflow::platform::WindowsNativeKeyStateScrollLock) != 0u
+                              ? MotionInfo::ScrollLockState::On
+                              : MotionInfo::ScrollLockState::Off;
     }
   }
     return true;
@@ -1233,10 +1241,57 @@ bool MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //      seems)
 //   5. sends the delta movement to the client (could be +1,+1 or -1,+4 for
 //   example)
+void MSWindowsScreen::reconcileMouseKeyState()
+{
+  const auto releasedButtons = m_keyState->reconcileNativeKeyState(m_nativeKeyState, m_observedNativeKeyState);
+  const auto modifierMask = pollActiveModifiers();
+
+  for (const auto button : releasedButtons) {
+    const auto restore = std::find(m_primaryKeyDownList.begin(), m_primaryKeyDownList.end(), button);
+    const auto route =
+        deskflow::platform::windowsReconciledKeyReleaseRoute(m_isOnScreen, restore != m_primaryKeyDownList.end());
+
+    if (route == deskflow::platform::WindowsReconciledKeyReleaseRoute::ConsumeLocalRestore) {
+      LOG_DEBUG("consumed reconciled pre-switch key restore: button=%d", button);
+      m_primaryKeyDownList.erase(restore);
+    } else if (route == deskflow::platform::WindowsReconciledKeyReleaseRoute::RelayRemote) {
+      LOG_DEBUG("relaying reconciled Windows key release to remote screen: button=%d", button);
+      m_keyState->sendKeyEvent(getEventTarget(), false, false, kKeyNone, modifierMask, 1, button);
+    }
+  }
+
+  const auto staleLocalModifiers =
+      deskflow::platform::windowsStaleLocalModifierState(m_nativeKeyState, m_asyncKeyState, m_observedNativeKeyState);
+  m_localModifierRepairPending &= staleLocalModifiers;
+
+  constexpr UINT modifierKeys[] = {VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+                                   VK_LMENU,  VK_RMENU,  VK_LWIN,     VK_RWIN};
+  for (const auto virtualKey : modifierKeys) {
+    const auto nativeFlag = deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
+    if ((staleLocalModifiers & nativeFlag) == 0u || (m_localModifierRepairPending & nativeFlag) != 0u) {
+      continue;
+    }
+
+    const auto button = m_keyState->virtualKeyToButton(virtualKey);
+    if (button == 0) {
+      LOG_WARN("unable to repair stale local Windows modifier: vk=0x%02x has no key button", virtualKey);
+      continue;
+    }
+
+    LOG_INFO(
+        "repairing stale local Windows modifier: vk=0x%02x button=%d hook=0x%04x observed=0x%04x async=0x%04x",
+        virtualKey, button, m_nativeKeyState, m_observedNativeKeyState, m_asyncKeyState
+    );
+    if (fakeLocalKey(button, false)) {
+      m_localModifierRepairPending |= nativeFlag;
+    }
+  }
+}
+
 bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
 {
   if (m_hasNativeKeyState) {
-    m_keyState->reconcileNativeKeyState(m_nativeKeyState);
+    reconcileMouseKeyState();
   }
 
   // compute motion delta (relative to the last known
@@ -1265,9 +1320,7 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     }
 
     // motion on primary screen
-    sendEvent(
-        EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor, m_scrollLockState)
-    );
+    sendEvent(EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor, m_scrollLockState));
   } else {
     // the motion is on the secondary screen, so we warp mouse back to
     // center on the server screen. if we don't do this, then the mouse
@@ -1751,13 +1804,15 @@ LRESULT CALLBACK MSWindowsScreen::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
   return result;
 }
 
-void MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
+bool MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
 {
   auto input =
       makeWindowsKeyInput(m_keyState->mapButtonToVirtualKey(button), button, press, kWindowsLocalKeyRestoreExtraInfo);
   if (SendInput(1, &input, sizeof(input)) != 1) {
     LOG_WARN("failed to restore local key state for button %d: %lu", button, GetLastError());
+    return false;
   }
+  return true;
 }
 
 //

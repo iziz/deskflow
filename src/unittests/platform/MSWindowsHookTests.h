@@ -28,6 +28,11 @@ private Q_SLOTS:
   void hookHeldKeyTransition_data();
   void hookHeldKeyTransition();
   void hookHeldKeySequence();
+  void mouseKeyStateSnapshotPacking();
+  void staleLocalModifierState_data();
+  void staleLocalModifierState();
+  void reconciledKeyReleaseRouting_data();
+  void reconciledKeyReleaseRouting();
   void nativeModifierMask_data();
   void nativeModifierMask();
   void windowsHotKeyRegistration_data();

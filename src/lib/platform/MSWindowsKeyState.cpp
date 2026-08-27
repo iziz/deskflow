@@ -769,25 +769,31 @@ MSWindowsKeyEventTransition MSWindowsKeyState::applyKeyEvent(KeyButton button, U
   return {modifiersBefore, modifiersAfter, wasDown, deskflow::platform::windowsHotKeyRoute(virtualKey)};
 }
 
-void MSWindowsKeyState::reconcileNativeKeyState(uint32_t nativeState)
+IKeyState::KeyButtonSet MSWindowsKeyState::reconcileNativeKeyState(uint32_t nativeState, uint32_t observedState)
 {
+  KeyButtonSet releasedButtons;
   if (!m_isPrimary) {
-    return;
+    return releasedButtons;
   }
 
-  constexpr UINT heldKeys[] = {
-      VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
-  };
+  constexpr UINT heldKeys[] = {VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN};
   bool changed = false;
   for (const auto virtualKey : heldKeys) {
+    const auto nativeFlag = deskflow::platform::windowsNativeKeyDownFlag(virtualKey);
+    if ((observedState & nativeFlag) == 0u) {
+      continue;
+    }
+
     const auto button = virtualKeyToButton(virtualKey);
     if (button == 0) {
       continue;
     }
 
-    const bool nativeDown =
-        (nativeState & deskflow::platform::windowsNativeKeyDownFlag(virtualKey)) != 0u;
+    const bool nativeDown = (nativeState & nativeFlag) != 0u;
     if (isKeyDown(button) != nativeDown) {
+      if (!nativeDown) {
+        releasedButtons.insert(button);
+      }
       setKeyDownState(button, nativeDown);
       changed = true;
     }
@@ -801,14 +807,15 @@ void MSWindowsKeyState::reconcileNativeKeyState(uint32_t nativeState)
   }
 
   if (!changed) {
-    return;
+    return releasedButtons;
   }
 
   setActiveModifiers(pollActiveModifiers());
   LOG_DEBUG(
-      "reconciled Windows primary key state from mouse input: native=0x%04x modifiers=0x%04x", nativeState,
-      getActiveModifiers()
+      "reconciled Windows primary key state from mouse input: native=0x%04x observed=0x%04x modifiers=0x%04x",
+      nativeState, observedState, getActiveModifiers()
   );
+  return releasedButtons;
 }
 
 void MSWindowsKeyState::sendKeyEvent(

@@ -71,7 +71,11 @@ public:
   MSWindowsKeyEventTransition applyKeyEvent(KeyButton button, UINT virtualKey, bool down);
 
   //! Reconcile modifier and toggle keys with an authoritative native state
-  void reconcileNativeKeyState(uint32_t nativeState);
+  /*!
+  Returns modifier buttons that changed from down to up so the caller can
+  repair the corresponding local or remote ownership.
+  */
+  KeyButtonSet reconcileNativeKeyState(uint32_t nativeState, uint32_t observedState);
 
   //! Set the active keyboard layout
   /*!

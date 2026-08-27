@@ -34,8 +34,8 @@ struct ModifierSpec
 constexpr std::array<ModifierSpec, 8> kModifierSpecs{{
     {"left Shift", VK_LSHIFT, kKeyShift_L, kKeyShift_L, 0x02a, deskflow::platform::WindowsNativeKeyStateLeftShift,
      KeyModifierShift, KeyModifierShift},
-    {"right Shift", VK_RSHIFT, kKeyShift_R, kKeyShift_R, 0x036,
-     deskflow::platform::WindowsNativeKeyStateRightShift, KeyModifierShift, KeyModifierShift},
+    {"right Shift", VK_RSHIFT, kKeyShift_R, kKeyShift_R, 0x036, deskflow::platform::WindowsNativeKeyStateRightShift,
+     KeyModifierShift, KeyModifierShift},
     {"left Control", VK_LCONTROL, kKeyControl_L, kKeySuper_L, 0x01d,
      deskflow::platform::WindowsNativeKeyStateLeftControl, KeyModifierControl, KeyModifierSuper},
     {"right Control", VK_RCONTROL, kKeyControl_R, kKeySuper_R, 0x11d,
@@ -44,10 +44,10 @@ constexpr std::array<ModifierSpec, 8> kModifierSpecs{{
      KeyModifierAlt, KeyModifierAlt},
     {"right Alt", VK_RMENU, kKeyAltGr, kKeyAltGr, 0x138, deskflow::platform::WindowsNativeKeyStateRightAlt,
      KeyModifierAlt, KeyModifierAlt},
-    {"left Super", VK_LWIN, kKeySuper_L, kKeyControl_L, 0x15b,
-     deskflow::platform::WindowsNativeKeyStateLeftSuper, KeyModifierSuper, KeyModifierControl},
-    {"right Super", VK_RWIN, kKeySuper_R, kKeyControl_R, 0x15c,
-     deskflow::platform::WindowsNativeKeyStateRightSuper, KeyModifierSuper, KeyModifierControl},
+    {"left Super", VK_LWIN, kKeySuper_L, kKeyControl_L, 0x15b, deskflow::platform::WindowsNativeKeyStateLeftSuper,
+     KeyModifierSuper, KeyModifierControl},
+    {"right Super", VK_RWIN, kKeySuper_R, kKeyControl_R, 0x15c, deskflow::platform::WindowsNativeKeyStateRightSuper,
+     KeyModifierSuper, KeyModifierControl},
 }};
 
 constexpr uint32_t kNonToggleNativeState =
@@ -62,6 +62,13 @@ struct RoutedKeyEvent
   bool relayed{false};
   KeyID targetKey{kKeyNone};
   KeyModifierMask targetMask{0};
+};
+
+struct MouseSnapshotResult
+{
+  std::set<KeyButton> consumedLocalRestores;
+  std::set<KeyButton> relayedRemoteReleases;
+  std::set<KeyButton> repairedLocalModifiers;
 };
 
 class WindowsInputLifecycle
@@ -135,6 +142,11 @@ public:
     );
   }
 
+  KeyModifierMask mouseWheelModifierMask() const
+  {
+    return translatedModifierMask();
+  }
+
   void leavePrimary()
   {
     m_localRestore = m_sourceDown;
@@ -154,11 +166,15 @@ public:
     enterPrimary();
   }
 
-  void reconcileNativeState(uint32_t nativeState)
+  void reconcileNativeState(uint32_t nativeState, uint32_t observedState = kNonToggleNativeState)
   {
-    m_hookHeld = nativeState & kNonToggleNativeState;
+    const auto observedModifiers = observedState & kNonToggleNativeState;
+    m_hookHeld = (m_hookHeld & ~observedModifiers) | (nativeState & observedModifiers);
     m_toggleState = nativeState & ~kNonToggleNativeState;
     for (const auto &key : kModifierSpecs) {
+      if ((observedModifiers & key.nativeFlag) == 0u) {
+        continue;
+      }
       if ((nativeState & key.nativeFlag) != 0u) {
         m_sourceDown.insert(key.button);
       } else {
@@ -169,7 +185,40 @@ public:
 
   void reconcileMouseSnapshot()
   {
-    reconcileNativeState(m_hookHeld | m_toggleState);
+    reconcileCurrentWindowsState(m_hookHeld | m_toggleState, m_hookHeld, kNonToggleNativeState);
+  }
+
+  MouseSnapshotResult
+  reconcileCurrentWindowsState(uint32_t hookState, uint32_t asyncState, uint32_t observedState = kNonToggleNativeState)
+  {
+    const auto sourceDownBefore = m_sourceDown;
+    reconcileNativeState(hookState, observedState);
+
+    MouseSnapshotResult result;
+    for (const auto &key : kModifierSpecs) {
+      if (!sourceDownBefore.contains(key.button) || m_sourceDown.contains(key.button)) {
+        continue;
+      }
+
+      const bool trackedForLocalRestore = m_localRestore.contains(key.button);
+      const auto route = deskflow::platform::windowsReconciledKeyReleaseRoute(m_onScreen, trackedForLocalRestore);
+      if (route == deskflow::platform::WindowsReconciledKeyReleaseRoute::ConsumeLocalRestore) {
+        m_localRestore.erase(key.button);
+        result.consumedLocalRestores.insert(key.button);
+      } else if (route == deskflow::platform::WindowsReconciledKeyReleaseRoute::RelayRemote) {
+        m_remoteHeld.erase(key.button);
+        result.relayedRemoteReleases.insert(key.button);
+      }
+    }
+
+    const auto staleLocalModifiers =
+        deskflow::platform::windowsStaleLocalModifierState(hookState, asyncState, observedState);
+    for (const auto &key : kModifierSpecs) {
+      if ((staleLocalModifiers & key.nativeFlag) != 0u) {
+        result.repairedLocalModifiers.insert(key.button);
+      }
+    }
+    return result;
   }
 
   bool invariantsHold() const
@@ -248,6 +297,14 @@ private Q_SLOTS:
   void ordinaryInputDoesNotInheritReleasedModifier();
   void mixedLeftRightModifierOwnership();
   void screenReturnAndDisconnectReleaseRemoteKeys();
+  void stalePreSwitchModifierUsesCurrentWindowsState_data();
+  void stalePreSwitchModifierUsesCurrentWindowsState();
+  void missedRemoteModifierReleaseIsRelayed_data();
+  void missedRemoteModifierReleaseIsRelayed();
+  void currentSnapshotPreservesPhysicallyHeldModifier_data();
+  void currentSnapshotPreservesPhysicallyHeldModifier();
+  void unobservedCurrentModifierIsNotRepaired();
+  void currentSnapshotRepairsOnlyStaleSide();
   void deterministicStateMachineMaintainsOwnership();
 };
 
@@ -410,6 +467,132 @@ void WindowsInputLifecycleTests::screenReturnAndDisconnectReleaseRemoteKeys()
 
   QCOMPARE(lifecycle.remoteHeldCount(), std::size_t{0});
   QVERIFY(lifecycle.isOnScreen());
+  QVERIFY(lifecycle.invariantsHold());
+}
+
+void WindowsInputLifecycleTests::stalePreSwitchModifierUsesCurrentWindowsState_data()
+{
+  QTest::addColumn<int>("modifierIndex");
+  for (std::size_t i = 0; i < kModifierSpecs.size(); ++i) {
+    QTest::newRow(kModifierSpecs[i].name) << static_cast<int>(i);
+  }
+}
+
+void WindowsInputLifecycleTests::stalePreSwitchModifierUsesCurrentWindowsState()
+{
+  QFETCH(int, modifierIndex);
+  const auto &modifier = kModifierSpecs.at(static_cast<std::size_t>(modifierIndex));
+  WindowsInputLifecycle lifecycle;
+
+  lifecycle.keyEvent(modifier, true);
+  lifecycle.leavePrimary();
+
+  // The hook has observed the physical release, while Windows still reports
+  // the modifier down because relay mode suppressed that release.
+  const auto snapshot = lifecycle.reconcileCurrentWindowsState(0, modifier.nativeFlag);
+
+  QVERIFY(snapshot.consumedLocalRestores.contains(modifier.button));
+  QVERIFY(snapshot.repairedLocalModifiers.contains(modifier.button));
+  QVERIFY(snapshot.relayedRemoteReleases.empty());
+  QVERIFY(!lifecycle.sourceDown(modifier.button));
+  QVERIFY(!lifecycle.localRestoreTracked(modifier.button));
+
+  const auto fKey = lifecycle.ordinaryKeyEvent(static_cast<KeyID>('f'));
+  QCOMPARE(fKey.targetMask, static_cast<KeyModifierMask>(0));
+  const auto escapeKey = lifecycle.ordinaryKeyEvent(kKeyEscape);
+  QCOMPARE(escapeKey.targetMask, static_cast<KeyModifierMask>(0));
+  QCOMPARE(lifecycle.mouseWheelModifierMask(), static_cast<KeyModifierMask>(0));
+  QCOMPARE(lifecycle.translatedModifierMask(), static_cast<KeyModifierMask>(0));
+  QVERIFY(lifecycle.invariantsHold());
+}
+
+void WindowsInputLifecycleTests::missedRemoteModifierReleaseIsRelayed_data()
+{
+  QTest::addColumn<int>("modifierIndex");
+  for (std::size_t i = 0; i < kModifierSpecs.size(); ++i) {
+    QTest::newRow(kModifierSpecs[i].name) << static_cast<int>(i);
+  }
+}
+
+void WindowsInputLifecycleTests::missedRemoteModifierReleaseIsRelayed()
+{
+  QFETCH(int, modifierIndex);
+  const auto &modifier = kModifierSpecs.at(static_cast<std::size_t>(modifierIndex));
+  WindowsInputLifecycle lifecycle;
+
+  lifecycle.leavePrimary();
+  lifecycle.keyEvent(modifier, true);
+  QVERIFY(lifecycle.remoteHeld(modifier.button));
+
+  // Simulate a dropped queued key-up message. The following mouse snapshot
+  // still carries the hook's accepted physical state and repairs ownership.
+  const auto snapshot = lifecycle.reconcileCurrentWindowsState(0, 0);
+
+  QVERIFY(snapshot.relayedRemoteReleases.contains(modifier.button));
+  QVERIFY(snapshot.repairedLocalModifiers.empty());
+  QVERIFY(!lifecycle.remoteHeld(modifier.button));
+  QCOMPARE(lifecycle.translatedModifierMask(), static_cast<KeyModifierMask>(0));
+  QVERIFY(lifecycle.invariantsHold());
+}
+
+void WindowsInputLifecycleTests::currentSnapshotPreservesPhysicallyHeldModifier_data()
+{
+  QTest::addColumn<int>("modifierIndex");
+  for (std::size_t i = 0; i < kModifierSpecs.size(); ++i) {
+    QTest::newRow(kModifierSpecs[i].name) << static_cast<int>(i);
+  }
+}
+
+void WindowsInputLifecycleTests::currentSnapshotPreservesPhysicallyHeldModifier()
+{
+  QFETCH(int, modifierIndex);
+  const auto &modifier = kModifierSpecs.at(static_cast<std::size_t>(modifierIndex));
+  WindowsInputLifecycle lifecycle;
+
+  lifecycle.keyEvent(modifier, true);
+  lifecycle.leavePrimary();
+
+  const auto snapshot = lifecycle.reconcileCurrentWindowsState(modifier.nativeFlag, modifier.nativeFlag);
+
+  QVERIFY(snapshot.consumedLocalRestores.empty());
+  QVERIFY(snapshot.relayedRemoteReleases.empty());
+  QVERIFY(snapshot.repairedLocalModifiers.empty());
+  QVERIFY(lifecycle.sourceDown(modifier.button));
+  QVERIFY(lifecycle.localRestoreTracked(modifier.button));
+  QVERIFY(lifecycle.invariantsHold());
+}
+
+void WindowsInputLifecycleTests::unobservedCurrentModifierIsNotRepaired()
+{
+  const auto &leftControl = kModifierSpecs[2];
+  WindowsInputLifecycle lifecycle;
+
+  lifecycle.keyEvent(leftControl, true);
+  lifecycle.leavePrimary();
+  const auto snapshot = lifecycle.reconcileCurrentWindowsState(0, leftControl.nativeFlag, 0);
+
+  QVERIFY(snapshot.repairedLocalModifiers.empty());
+  QVERIFY(lifecycle.sourceDown(leftControl.button));
+  QVERIFY(lifecycle.localRestoreTracked(leftControl.button));
+  QCOMPARE(lifecycle.translatedModifierMask(), leftControl.targetMask);
+  QVERIFY(lifecycle.invariantsHold());
+}
+
+void WindowsInputLifecycleTests::currentSnapshotRepairsOnlyStaleSide()
+{
+  const auto &leftControl = kModifierSpecs[2];
+  const auto &rightControl = kModifierSpecs[3];
+  WindowsInputLifecycle lifecycle;
+
+  lifecycle.keyEvent(rightControl, true);
+  lifecycle.leavePrimary();
+
+  const auto snapshot =
+      lifecycle.reconcileCurrentWindowsState(rightControl.nativeFlag, leftControl.nativeFlag | rightControl.nativeFlag);
+
+  QVERIFY(snapshot.repairedLocalModifiers == std::set<KeyButton>{leftControl.button});
+  QVERIFY(lifecycle.sourceDown(rightControl.button));
+  QCOMPARE(lifecycle.translatedModifierMask(), rightControl.targetMask);
   QVERIFY(lifecycle.invariantsHold());
 }
 
