@@ -455,39 +455,52 @@ bool OSXKeyState::fakeMediaKey(KeyID id)
 
 bool OSXKeyState::syncToggleModifiers(KeyModifierMask mask)
 {
-  if (!m_isPrimary) {
-    // The server keyboard is authoritative while this screen is controlled
-    // remotely. Carbon reports an aggregate state that also includes our own
-    // injected events, so modifiers absent from the source mask must be
-    // released instead of being adopted as local physical state.
-    const auto sourceMask = mask & s_nonToggleModifiers;
-    const auto orphanedMask = pollSystemModifiers() & ~sourceMask & s_nonToggleModifiers;
-    const auto releaseOrphan =
-        [this, orphanedMask](KeyModifierMask modifier, uint32_t leftVirtualKey, uint32_t rightVirtualKey) {
-      if ((orphanedMask & modifier) == 0) {
-        return true;
-      }
-
-      LOG_DEBUG(
-          "releasing orphaned macOS client modifier absent from source keyboard: mask=0x%04x virtualKeys=0x%02x,0x%02x",
-          modifier, leftVirtualKey, rightVirtualKey
-      );
-      const auto leftReleased = postVirtualKey(leftVirtualKey, false);
-      const auto rightReleased = postVirtualKey(rightVirtualKey, false);
-      return leftReleased && rightReleased;
-    };
-
-    if (!releaseOrphan(KeyModifierShift, s_shiftVK, s_shiftRightVK) ||
-        !releaseOrphan(KeyModifierControl, s_controlVK, s_controlRightVK) ||
-        !releaseOrphan(KeyModifierAlt, s_altVK, s_altRightVK) ||
-        !releaseOrphan(KeyModifierSuper, s_superVK, s_superRightVK)) {
-      return false;
-    }
+  if (!m_isPrimary && !releaseClientModifiersMissingFromMask(mask)) {
+    return false;
   }
 
   // macOS has no persistent Num Lock or Scroll Lock state to synchronize.
   // NumericPad marks individual keypad events and Keypad Clear must not be held.
   return KeyState::syncToggleModifiers(mask & KeyModifierCapsLock);
+}
+
+bool OSXKeyState::reconcileClientModifiers()
+{
+  if (m_isPrimary) {
+    return true;
+  }
+
+  const auto syntheticMask = modifierMaskForKeys(m_syntheticModifierKeys.load(std::memory_order_acquire));
+  return releaseClientModifiersMissingFromMask(syntheticMask);
+}
+
+bool OSXKeyState::releaseClientModifiersMissingFromMask(KeyModifierMask expectedMask)
+{
+  // The server keyboard is authoritative while this screen is controlled
+  // remotely. Carbon reports an aggregate state that also includes our own
+  // injected events, so modifiers absent from the expected synthetic state
+  // must be released instead of being adopted as local physical state.
+  const auto orphanedMask = pollSystemModifiers() & ~expectedMask & s_nonToggleModifiers;
+  const auto releaseOrphan =
+      [this, orphanedMask](KeyModifierMask modifier, uint32_t leftVirtualKey, uint32_t rightVirtualKey) {
+        if ((orphanedMask & modifier) == 0) {
+          return true;
+        }
+
+        LOG_DEBUG(
+            "releasing orphaned macOS client modifier: mask=0x%04x virtualKeys=0x%02x,0x%02x", modifier,
+            leftVirtualKey, rightVirtualKey
+        );
+        const auto leftReleased = postVirtualKeyUnchecked(leftVirtualKey, false);
+        const auto rightReleased = postVirtualKeyUnchecked(rightVirtualKey, false);
+        return leftReleased && rightReleased;
+      };
+
+  const auto shiftReleased = releaseOrphan(KeyModifierShift, s_shiftVK, s_shiftRightVK);
+  const auto controlReleased = releaseOrphan(KeyModifierControl, s_controlVK, s_controlRightVK);
+  const auto altReleased = releaseOrphan(KeyModifierAlt, s_altVK, s_altRightVK);
+  const auto superReleased = releaseOrphan(KeyModifierSuper, s_superVK, s_superRightVK);
+  return shiftReleased && controlReleased && altReleased && superReleased;
 }
 
 CGEventFlags OSXKeyState::getModifierStateAsOSXFlags() const
@@ -874,6 +887,14 @@ bool OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown, CGEventFla
 }
 
 bool OSXKeyState::postVirtualKey(CGKeyCode virtualKey, bool keyDown)
+{
+  if (!reconcileClientModifiers()) {
+    LOG_WARN("failed to reconcile macOS client modifiers before native key event");
+  }
+  return postVirtualKeyUnchecked(virtualKey, keyDown);
+}
+
+bool OSXKeyState::postVirtualKeyUnchecked(CGKeyCode virtualKey, bool keyDown)
 {
   const auto previousSyntheticKeys = m_syntheticModifierKeys.load(std::memory_order_acquire);
   const auto modifierKey = modifierKeyBit(virtualKey);

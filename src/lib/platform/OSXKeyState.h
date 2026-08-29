@@ -93,6 +93,7 @@ public:
   bool fakeCtrlAltDel() override;
   bool fakeMediaKey(KeyID id) override;
   bool syncToggleModifiers(KeyModifierMask mask) override;
+  bool reconcileClientModifiers();
   void clearStaleModifiers() override;
   KeyModifierMask pollActiveModifiers() const override;
   int32_t pollActiveGroup() const override;
@@ -162,6 +163,8 @@ protected:
 
 private:
   bool postVirtualKey(CGKeyCode virtualKey, bool keyDown);
+  bool postVirtualKeyUnchecked(CGKeyCode virtualKey, bool keyDown);
+  bool releaseClientModifiersMissingFromMask(KeyModifierMask expectedMask);
 
   // Get keyboard event flags accorfing to keyboard modifiers
   CGEventFlags getKeyboardEventFlags() const;

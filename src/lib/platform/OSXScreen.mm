@@ -565,6 +565,10 @@ void OSXScreen::postMouseEvent(CGPoint &pos) const
 
 void OSXScreen::fakeMouseButton(ButtonID id, bool press)
 {
+  if (!m_keyState->reconcileClientModifiers()) {
+    LOG_WARN("failed to reconcile macOS client modifiers before mouse button event");
+  }
+
   // Buttons are indexed from one, but the button down array is indexed from zero
   uint32_t index = mapDeskflowButtonToMac(id) - kButtonLeft;
   if (index >= NumButtonIDs) {
@@ -685,6 +689,10 @@ void OSXScreen::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 void OSXScreen::fakeMouseWheel(ScrollDelta delta) const
 {
   if (delta.x != 0 || delta.y != 0) {
+    if (!m_keyState->reconcileClientModifiers()) {
+      LOG_WARN("failed to reconcile macOS client modifiers before mouse wheel event");
+    }
+
     // use server's acceleration with a little boost since other platforms
     // take one wheel step as a larger step than the mac does.
     delta = applyScrollModifier(

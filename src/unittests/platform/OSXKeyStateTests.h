@@ -32,6 +32,7 @@ private Q_SLOTS:
   void nativeKeyTransaction_appliesAuthoritativeFlagsToEveryKey();
   void nativeKeyTransaction_preservesRightModifierSide();
   void nativeKeyTransaction_rollsBackModifierAfterPostFailure();
+  void nativeKeyTransaction_repairsOrphanedClientModifierBeforeNextKey();
   void nativeKeyTransaction_modifierLifecycle_data();
   void nativeKeyTransaction_modifierLifecycle();
   void nativeKeyTransaction_deterministicStateMachine();

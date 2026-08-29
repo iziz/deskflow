@@ -527,6 +527,30 @@ void OSXKeyStateTests::nativeKeyTransaction_rollsBackModifierAfterPostFailure()
   QCOMPARE(getShadowModifierMask(keyState), static_cast<KeyModifierMask>(0));
 }
 
+void OSXKeyStateTests::nativeKeyTransaction_repairsOrphanedClientModifierBeforeNextKey()
+{
+  deskflow::KeyMap keyMap;
+  EventQueue eventQueue;
+  NativePostOSXKeyState keyState(&eventQueue, keyMap, {"en"}, true, false);
+
+  keyState.injectVirtualKey(kVK_Shift, true);
+  keyState.setPolledModifiersForTest(KeyModifierShift);
+  keyState.injectVirtualKey(kVK_Shift, false);
+
+  // Simulate macOS still reporting Shift after accepting the queued key-up.
+  keyState.posts.clear();
+  keyState.injectVirtualKey(kVK_ANSI_A, true);
+
+  QCOMPARE(keyState.posts.size(), std::size_t{3});
+  QCOMPARE(keyState.posts[0].virtualKey, static_cast<CGKeyCode>(kVK_Shift));
+  QVERIFY(!keyState.posts[0].keyDown);
+  QCOMPARE(keyState.posts[1].virtualKey, static_cast<CGKeyCode>(kVK_RightShift));
+  QVERIFY(!keyState.posts[1].keyDown);
+  QCOMPARE(keyState.posts[2].virtualKey, static_cast<CGKeyCode>(kVK_ANSI_A));
+  QVERIFY(keyState.posts[2].keyDown);
+  QCOMPARE(keyState.posts[2].flags & kCGEventFlagMaskShift, static_cast<CGEventFlags>(0));
+}
+
 void OSXKeyStateTests::nativeKeyTransaction_modifierLifecycle_data()
 {
   QTest::addColumn<int>("modifierIndex");
