@@ -260,6 +260,57 @@ void MSWindowsHookTests::hookHeldKeySequence()
   QCOMPARE(windowsModifierMaskFromNativeKeyState(nativeState), KeyModifierMask(0));
 }
 
+void MSWindowsHookTests::characterModifierStateFollowsAcceptedHookState()
+{
+  using namespace deskflow::platform;
+
+  BYTE keyState[256] = {};
+  constexpr UINT modifierKeys[] = {VK_SHIFT, VK_LSHIFT, VK_RSHIFT, VK_CONTROL, VK_LCONTROL, VK_RCONTROL,
+                                   VK_MENU,  VK_LMENU,  VK_RMENU,  VK_LWIN,    VK_RWIN};
+  for (const auto virtualKey : modifierKeys) {
+    keyState[virtualKey] = 0x80u;
+  }
+  keyState[VK_CAPITAL] = 0x81u;
+  keyState['1'] = 0x80u;
+
+  constexpr uint32_t acceptedState = WindowsNativeKeyStateRightShift | WindowsNativeKeyStateLeftControl |
+                                     WindowsNativeKeyStateRightAlt | WindowsNativeKeyStateLeftSuper;
+  synchronizeWindowsCharacterModifierState(keyState, acceptedState);
+
+  QCOMPARE(keyState[VK_LSHIFT], BYTE(0));
+  QCOMPARE(keyState[VK_RSHIFT], BYTE(0x80));
+  QCOMPARE(keyState[VK_SHIFT], BYTE(0x80));
+  QCOMPARE(keyState[VK_LCONTROL], BYTE(0x80));
+  QCOMPARE(keyState[VK_RCONTROL], BYTE(0));
+  QCOMPARE(keyState[VK_CONTROL], BYTE(0x80));
+  QCOMPARE(keyState[VK_LMENU], BYTE(0));
+  QCOMPARE(keyState[VK_RMENU], BYTE(0x80));
+  QCOMPARE(keyState[VK_MENU], BYTE(0x80));
+  QCOMPARE(keyState[VK_LWIN], BYTE(0x80));
+  QCOMPARE(keyState[VK_RWIN], BYTE(0));
+  QCOMPARE(keyState[VK_CAPITAL], BYTE(0x81));
+  QCOMPARE(keyState['1'], BYTE(0x80));
+}
+
+void MSWindowsHookTests::staleAsyncShiftReleaseDoesNotReachCharacterTranslation()
+{
+  using namespace deskflow::platform;
+
+  BYTE keyState[256] = {};
+  keyState[VK_SHIFT] = 0x80u;
+  keyState[VK_LSHIFT] = 0x80u;
+  keyState['1'] = 0x80u;
+
+  // Reproduce the incident boundary: GetAsyncKeyState still reports Shift
+  // down after the accepted hook stream has processed its release.
+  synchronizeWindowsCharacterModifierState(keyState, 0);
+
+  QCOMPARE(keyState[VK_SHIFT], BYTE(0));
+  QCOMPARE(keyState[VK_LSHIFT], BYTE(0));
+  QCOMPARE(keyState[VK_RSHIFT], BYTE(0));
+  QCOMPARE(keyState['1'], BYTE(0x80));
+}
+
 void MSWindowsHookTests::mouseKeyStateSnapshotPacking()
 {
   using namespace deskflow::platform;

@@ -68,6 +68,26 @@ inline uint32_t advanceWindowsHookHeldKeyState(uint32_t nativeState, UINT virtua
   return nativeState & ~flag;
 }
 
+inline void synchronizeWindowsCharacterModifierState(BYTE keyState[256], uint32_t nativeState)
+{
+  const auto setKeyState = [keyState, nativeState](UINT virtualKey, WindowsNativeKeyState flag) {
+    keyState[virtualKey] = (nativeState & flag) != 0u ? 0x80u : 0u;
+  };
+
+  setKeyState(VK_LSHIFT, WindowsNativeKeyStateLeftShift);
+  setKeyState(VK_RSHIFT, WindowsNativeKeyStateRightShift);
+  setKeyState(VK_LCONTROL, WindowsNativeKeyStateLeftControl);
+  setKeyState(VK_RCONTROL, WindowsNativeKeyStateRightControl);
+  setKeyState(VK_LMENU, WindowsNativeKeyStateLeftAlt);
+  setKeyState(VK_RMENU, WindowsNativeKeyStateRightAlt);
+  setKeyState(VK_LWIN, WindowsNativeKeyStateLeftSuper);
+  setKeyState(VK_RWIN, WindowsNativeKeyStateRightSuper);
+
+  keyState[VK_SHIFT] = keyState[VK_LSHIFT] | keyState[VK_RSHIFT];
+  keyState[VK_CONTROL] = keyState[VK_LCONTROL] | keyState[VK_RCONTROL];
+  keyState[VK_MENU] = keyState[VK_LMENU] | keyState[VK_RMENU];
+}
+
 inline uint32_t packWindowsHookKeyStateSnapshot(uint32_t hookState, uint32_t observedState)
 {
   return (hookState & 0xffffu) | ((observedState & 0xffffu) << 16u);

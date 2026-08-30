@@ -242,6 +242,12 @@ static void keyboardGetState(BYTE keys[256], DWORD vkCode, bool kf_up)
     }
   }
 
+  // Low-level hook callbacks run before Windows commits the transition to its
+  // asynchronous key state, and relay mode suppresses that transition. Keep
+  // character translation on the same accepted modifier state used for the
+  // event mask so a delayed async key-up cannot leave ToUnicode shifted.
+  deskflow::platform::synchronizeWindowsCharacterModifierState(g_keyState, g_hookHeldKeyState);
+
   // copy g_keyState to keys
   for (int i = 0; i < 256; ++i) {
     keys[i] = g_keyState[i];

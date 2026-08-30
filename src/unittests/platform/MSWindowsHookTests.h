@@ -28,6 +28,8 @@ private Q_SLOTS:
   void hookHeldKeyTransition_data();
   void hookHeldKeyTransition();
   void hookHeldKeySequence();
+  void characterModifierStateFollowsAcceptedHookState();
+  void staleAsyncShiftReleaseDoesNotReachCharacterTranslation();
   void mouseKeyStateSnapshotPacking();
   void staleLocalModifierState_data();
   void staleLocalModifierState();
